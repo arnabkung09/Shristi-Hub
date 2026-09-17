@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function emailKey() { return request.auth.token.email; }
+    function indexDoc() { return get(/databases/$(database)/documents/emailIndex/$(emailKey())); }
+    function rosterDoc() { return get(/databases/$(database)/documents/roster/$(indexDoc().data.studentId)); }
+    function primaryAdmin() { return signedIn() && request.auth.token.email == '72019arnab@shristiacademy.edu.np'; }
+    function activeMember() { return signedIn() && profile().data.status == 'active' && indexDoc().data.studentId == profile().data.id; }
+    function admin() { return primaryAdmin() || (activeMember() && profile().data.role == 'admin'); }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || admin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && indexDoc().data.studentId == request.resource.data.id
+        && indexDoc().data.role == request.resource.data.role
+        && request.resource.data.status == 'active'
+        && request.resource.data.googleEmail == request.auth.token.email
+        && request.resource.data.name == rosterDoc().data.name
+        && request.resource.data.email == rosterDoc().data.email
+        && request.resource.data.house == rosterDoc().data.house
+        && request.resource.data.grade == rosterDoc().data.grade;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt']);
+      allow delete: if false;
+    }
+
+    match /emailIndex/{emailId} {
+      allow read: if signedIn() && (emailId == emailKey() || admin());
+      allow write: if primaryAdmin();
+    }
+
+    match /roster/{studentId} {
+      allow read: if admin() || (signedIn() && indexDoc().data.studentId == studentId);
+      allow write: if primaryAdmin();
+    }
+
+    match /hubState/main {
+      allow read: if activeMember();
+      allow create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /userActivity/{uid} {
+      allow read, create, update: if activeMember() && request.auth.uid == uid;
+      allow read: if admin();
+      allow delete: if false;
+    }
+
+    match /inbox/{uid}/items/{itemId} {
+      allow read, update: if activeMember() && request.auth.uid == uid;
+      allow create: if admin();
+      allow delete: if admin() || (activeMember() && request.auth.uid == uid);
+    }
+
+    match /deviceTokens/{tokenId} {
+      allow create, update: if activeMember()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.studentId == profile().data.id
+        && request.resource.data.role == profile().data.role
+        && request.resource.data.house == profile().data.house
+        && request.resource.data.grade == profile().data.grade
+        && request.resource.data.token is string;
+      allow read: if admin();
+      allow delete: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    match /pushHistory/{pushId} {
+      allow read: if admin();
+      allow write: if false;
+    }
+
+    match /publicConfig/messaging {
+      allow read: if signedIn();
+      allow create, update: if admin()
+        && request.resource.data.keys().hasOnly(['vapidKey', 'updatedAt'])
+        && request.resource.data.vapidKey is string;
+      allow delete: if admin();
+    }
+
+    match /__connection_test__/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
