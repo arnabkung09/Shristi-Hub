@@ -1,8 +1,9 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { browserLocalPersistence, EmailAuthProvider, getAuth, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, query, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from "firebase/messaging";
-import type { AppNotification, Audience, HubState, Student } from "./types";
+import type { AppNotification, Audience, HubChatMessage, HubRoom, HubState, Role, Student } from "./types";
+import { COUNCIL_HUB_ROOM, COUNCIL_MESSAGE_HISTORY_LIMIT, normalizeCouncilMessage } from "./council";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyB6l7lOrIBypZn4EMgUz6K7jV__UPyK2Nw",
@@ -139,7 +140,17 @@ export async function provisionFirebaseProfile(_student: Student, roster: Studen
 }
 
 function cloudSafeState(state: HubState) {
-  const safe = { ...state, session: null, users: state.users.map(cloudStudent), gallery: state.gallery.map((item) => ({ ...item, image: item.image?.startsWith("data:") ? null : item.image ?? null })), branding: { ...state.branding, logoUrl: state.branding.logoUrl.startsWith("data:") ? "" : state.branding.logoUrl }, houses: Object.fromEntries(Object.entries(state.houses).map(([key, value]) => [key, { ...value, logoUrl: value.logoUrl.startsWith("data:") ? "" : value.logoUrl }])) };
+  const safe = {
+    ...state,
+    session: null,
+    users: state.users.map(cloudStudent),
+    gallery: state.gallery.map((item) => ({ ...item, image: item.image?.startsWith("data:") ? null : item.image ?? null })),
+    branding: { ...state.branding, logoUrl: state.branding.logoUrl.startsWith("data:") ? "" : state.branding.logoUrl },
+    houses: Object.fromEntries(Object.entries(state.houses).map(([key, value]) => [key, { ...value, logoUrl: value.logoUrl.startsWith("data:") ? "" : value.logoUrl }])),
+    // Council Hub chat never travels in the shared document: any active member can read
+    // `hubState/main`, so messages live in the membership-gated `hubChat` collection.
+    councilMessages: [],
+  };
   return JSON.parse(JSON.stringify(safe)) as Record<string, unknown>;
 }
 export const cloudStateFingerprint = (state: HubState) => JSON.stringify(cloudSafeState(state));
@@ -231,4 +242,85 @@ export function subscribeFirebaseInbox(callback: (notification: AppNotification)
 export async function removeCurrentPushToken(tokenDocumentId: string) {
   await deleteDoc(doc(firebaseDb, "deviceTokens", tokenDocumentId));
 }
+
+/* ---------------- membership-gated hub chat ---------------- */
+
+export const HUB_CHAT_ROOMS: HubRoom[] = [COUNCIL_HUB_ROOM];
+
+/** Firestore rejects any room that is not gated by an explicit membership list. */
+export function isHubRoom(value: string): value is HubRoom {
+  return (HUB_CHAT_ROOMS as string[]).includes(value);
+}
+
+const hubChatMessage = (room: HubRoom, messageId: string) => doc(firebaseDb, "hubChat", room, "messages", messageId);
+
+const hubChatId = (uid: string) =>
+  `${Date.now().toString(36)}-${uid.slice(0, 6)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * Posts to a shared hub room. Firestore rules require the writer to be on the
+ * room's explicit membership list, so a signed-in account that was never added
+ * is rejected with `permission-denied` — the client cannot bypass it.
+ */
+export async function postHubChat(
+  room: HubRoom,
+  draft: { body: string; author: Pick<Student, "name" | "role" | "councilTitle"> },
+): Promise<HubChatMessage> {
+  const current = firebaseAuth.currentUser;
+  if (!current) throw new Error("Sign in with Google to post to the Council Hub.");
+  if (!isHubRoom(room)) throw new Error("Unknown hub room.");
+  const body = normalizeCouncilMessage(draft.body);
+  const profile = await getDoc(doc(firebaseDb, "users", current.uid));
+  if (!profile.exists()) throw new Error("Your Firebase profile is missing. Sign out and sign in again to continue.");
+  const message: HubChatMessage = {
+    id: hubChatId(current.uid),
+    authorId: String(profile.data().id ?? ""),
+    authorName: draft.author.name,
+    authorRole: draft.author.role,
+    authorTitle: draft.author.councilTitle,
+    body,
+    timestamp: Date.now(),
+    removed: false,
+  };
+  await setDoc(hubChatMessage(room, message.id), { ...message, room, authorTitle: message.authorTitle ?? null, authorUid: current.uid });
+  return message;
+}
+
+export function subscribeHubChat(
+  room: HubRoom,
+  onNext: (messages: HubChatMessage[]) => void,
+  onError: (error: Error) => void,
+): () => void {
+  if (!firebaseAuth.currentUser) {
+    onNext([]);
+    return () => undefined;
+  }
+  const messages = query(
+    collection(firebaseDb, "hubChat", room, "messages"),
+    orderBy("timestamp", "desc"),
+    limit(COUNCIL_MESSAGE_HISTORY_LIMIT),
+  );
+  return onSnapshot(messages, (snapshot) => {
+    onNext(snapshot.docs.map((entry) => {
+      const data = entry.data();
+      return {
+        id: entry.id,
+        authorId: String(data.authorId ?? ""),
+        authorName: String(data.authorName ?? "Council member"),
+        authorRole: String(data.authorRole ?? "student") as Role,
+        authorTitle: data.authorTitle ? String(data.authorTitle) : undefined,
+        body: String(data.body ?? ""),
+        timestamp: Number(data.timestamp) || Date.now(),
+        removed: Boolean(data.removed),
+      };
+    }));
+  }, onError);
+}
+
+/** Soft-deletes a shared room message. Rules allow authors and administrators. */
+export async function removeHubChat(room: HubRoom, messageId: string) {
+  if (!firebaseAuth.currentUser) throw new Error("Sign in with Google to remove a Council Hub message.");
+  await updateDoc(hubChatMessage(room, messageId), { removed: true, body: "" });
+}
+
 export { app as firebaseApp };

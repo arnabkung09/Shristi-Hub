@@ -33,15 +33,49 @@ Hosting runs `npm run build` before deployment. This configuration uses no Cloud
 - `roster/{studentId}`: server-managed account identity and authorized emails.
 - `users/{firebaseUid}`: provisioned Firebase identity and role.
 - `hubState/main`: real-time application state. Admin writes; active users read.
+  `councilHubMembers` inside this document is the Council Hub access list.
+- `hubChat/council/messages/{messageId}`: the Council Hub conversation. Read and write
+  require the signed-in roster id to appear in `hubState/main.councilHubMembers`.
 - `deviceTokens/{uid_tokenHash}`: FCM browser tokens owned by the authenticated user.
 - `inbox/{uid}/items/{notificationId}`: real-time Firestore notification inboxes.
 - `userActivity/{uid}`: each authenticated member's own RSVP, vote, rating, read, and task activity.
 - `publicConfig/messaging`: shared public Web Push VAPID key.
 
+## Council Hub Access
+
+Membership is explicit and administrator-controlled. There is no role, house, or class that
+opens the hub by itself:
+
+- Administrators add or remove accounts in **Admin Panel → Council Hub** (or from the
+  **Manage members** dialog on the Council Hub page).
+- Only accounts on that list can read or post in `hubChat/council/messages`; every other
+  signed-in account sees a locked hub with no message content.
+- The primary administrator always stays on the list so the hub can never be locked out.
+- Added and removed accounts receive an in-app notification.
+
+The Firestore rules derive membership from the shared state document:
+
+```
+function councilHubMember() {
+  return activeMember()
+    && exists(/databases/$(database)/documents/hubState/main)
+    && profile().data.id in get(/databases/$(database)/documents/hubState/main).data.councilHubMembers;
+}
+```
+
+Writers may only post as themselves (`authorId == profile().data.id`), message bodies are
+capped at 1500 characters, and only the author or an administrator may remove a message.
+
+Council chat never travels inside `hubState/main`, because every active member can read that
+document. After deploying this change, the next administrator write replaces the hub document
+without the legacy `councilMessages` array; delete the field manually in the console if you
+want it gone before then.
+
 ## Security Notes
 
 - No service-account credentials are shipped to the browser.
 - Firestore rules allow only the authenticated primary administrator to seed roster/index data and admins to overwrite admin-controlled hub state.
+- Council Hub reads and writes are checked against the explicit member list in the rules, so a signed-in account that was never added cannot read the conversation even with a modified client.
 - Members write only their own `userActivity/{uid}` document.
 - Admin Panel → Roster Sync includes explicit **Upload all site data** and **Load existing Firestore data** controls.
 - FCM registration and receiving messages are Spark-compatible. Send background pushes from Firebase Console. Programmatic FCM fan-out needs a trusted server/Cloud Function and therefore is intentionally not included in this free-plan configuration.

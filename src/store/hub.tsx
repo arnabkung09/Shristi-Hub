@@ -15,6 +15,12 @@ import {
   canonicalGradeFromNumber,
 } from "../lib/ssot-auth";
 import { FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID } from "../lib/admin";
+import {
+  addCouncilMember,
+  addCouncilMessage,
+  removeCouncilMember,
+  removeCouncilMessage,
+} from "../lib/council";
 import { useLocalPresence, type ConnectedDevice } from "../lib/presence";
 import {
   firebaseAuth,
@@ -468,27 +474,15 @@ function reducer(state: HubState, action: Action): HubState {
       return { ...state, houseMessages: [action.message, ...state.houseMessages].slice(0, 200) };
     case "DELETE_HOUSE_MESSAGE":
       return { ...state, houseMessages: state.houseMessages.filter((m) => m.id !== action.messageId) };
-    case "POST_COUNCIL_MESSAGE": {
-      const member = state.councilHubMembers.includes(action.message.authorId);
-      const isAdminMember = actor?.role === "admin";
-      if (!isAdminMember && !member) throw new Error("You are not a member of the Council Hub.");
-      if (!action.message.body.trim()) throw new Error("Write a message first.");
-      return { ...state, councilMessages: [action.message, ...state.councilMessages].slice(0, 500) };
-    }
-    case "DELETE_COUNCIL_MESSAGE": {
-      const target = state.councilMessages.find((m) => m.id === action.messageId);
-      if (actor?.role !== "admin" && target?.authorId !== actor?.id) throw new Error("You can only remove your own council messages.");
-      return { ...state, councilMessages: state.councilMessages.map((m) => (m.id === action.messageId ? { ...m, removed: true, body: "" } : m)) };
-    }
-    case "ADD_COUNCIL_HUB_MEMBER": {
-      const candidate = state.users.find((u) => u.id === action.userId);
-      if (!candidate) throw new Error("Select a roster account.");
-      if (state.councilHubMembers.includes(candidate.id)) throw new Error("This account is already a Council Hub member.");
-      return { ...state, councilHubMembers: [...state.councilHubMembers, candidate.id] };
-    }
+    case "POST_COUNCIL_MESSAGE":
+      // Membership is the only way in: role alone never grants Council Hub access.
+      return { ...state, councilMessages: addCouncilMessage(state, actor, action.message) };
+    case "DELETE_COUNCIL_MESSAGE":
+      return { ...state, councilMessages: removeCouncilMessage(state, actor, action.messageId) };
+    case "ADD_COUNCIL_HUB_MEMBER":
+      return { ...state, councilHubMembers: addCouncilMember(state, action.userId) };
     case "REMOVE_COUNCIL_HUB_MEMBER":
-      if (action.userId === PRIMARY_ADMIN_ID) throw new Error("The primary administrator always has Council Hub access.");
-      return { ...state, councilHubMembers: state.councilHubMembers.filter((id) => id !== action.userId) };
+      return { ...state, councilHubMembers: removeCouncilMember(state, action.userId, PRIMARY_ADMIN_ID) };
     case "ADD_EVENT_TYPE": {
       const name = action.name.trim();
       if (name.length < 2 || name.length > 40) throw new Error("Event type names must be 2 to 40 characters.");

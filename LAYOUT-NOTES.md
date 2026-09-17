@@ -12,6 +12,10 @@ The interface follows the supplied references: centered navy workspace, compact 
 - `src/components/admin/CouncilControls.tsx`: appointments, clearances, delegation, profile images.
 - `src/components/CouncilMembers.tsx`: executive directory and department milestones.
 - `src/components/HouseHub.tsx`: Blue, Red, and Green house hubs with captains and messaging.
+- `src/components/CouncilHub.tsx`: membership-only council chat (Firestore room when signed in, device thread offline).
+- `src/components/admin/CouncilHubMembersPanel.tsx`: admin panel section and dialog that add or remove Council Hub members.
+- `src/lib/council.ts`: the membership and permission rules shared by the UI, the reducer, and the tests.
+- `src/components/useHubChat.ts`, `src/components/useCouncilChat.ts`: Firestore room transport and the device/firestore selector.
 - `src/components/EventsAndNews.tsx`: month calendar, event types, day detail, and news cards.
 - `src/components/AdminNotificationsHub.tsx`: audience-targeted composer, templates, history.
 
@@ -24,6 +28,21 @@ The bundled roster contains the sheet's 121 student rows: Blue 40, Red 41, and G
 ## House Hub
 
 Each house has its own hub. Administrators belong to all three and can appoint one captain per house from that house's students. Captains and administrators can post instructions or messages, which notify that house's members. Students see only their own house hub.
+
+## Council Hub
+
+The Council Hub is a closed chat room for the student council. Access is granted one account at
+a time: an administrator adds a student (any roster account, including council officers and
+staff) from **Admin Panel → Council Hub** or from the hub's own **Manage members** dialog, and
+the student is notified in-app. Nobody — including administrators who were not added — can read
+the conversation without being on that list, so a council title, house, or class never opens the
+hub. Removing a member revokes access immediately while keeping their roster record, council
+role, and past messages; the primary administrator cannot be removed.
+
+When a member is signed in with Google, the thread is read from and written to the
+membership-gated Firestore room `hubChat/council/messages`, so it is shared across devices and
+the rules enforce the list server-side. Otherwise (demo or offline use) the same interface runs
+against the locally persisted thread, synchronised between tabs of the same browser.
 
 ## Events & News
 
@@ -41,4 +60,9 @@ BroadcastChannel synchronizes open tabs on the same browser origin, not devices 
 
 ## Verification
 
-The Vite production build is verified. Browser interaction tests, Firebase rules tests, and external Google Sheets connectivity are not automated in this environment.
+The Vite production build is verified. `npm run test:council` bundles `scripts/council-hub.test.ts`
+with esbuild and runs the Council Hub access-control checks in Node: explicit membership, the
+administrator-only add/remove rules, posting and message removal permissions, the member list
+helpers, and guards that keep the reducer and the Firestore rules aligned with the same list.
+Browser interaction tests, Firebase rules emulator tests, and external Google Sheets connectivity
+are not automated in this environment.

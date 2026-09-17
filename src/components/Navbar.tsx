@@ -156,7 +156,6 @@ export default function Navbar() {
 
   if (!user) return null;
   const links = LINKS.filter((l) => l.id !== "admin" || user.role === "admin");
-  const councilHubAccess = state.councilHubMembers.includes(user.id) || user.role === "admin";
   const go = (id: string) => { setActiveTab(id); setDrawer(false); };
   return (
     <header className="site-header">
@@ -166,7 +165,7 @@ export default function Navbar() {
           <span><span className="brand-title">{state.branding.schoolName}</span><span className="brand-subtitle">{state.branding.boardName}</span></span>
         </button>
         <nav ref={navigationRef} className="primary-nav" aria-label="Main navigation">
-          {links.filter((link) => link.id !== "council-hub" || councilHubAccess).map((link) => (
+          {links.map((link) => (
             <a
               key={link.id}
               href={`#${link.id}`}
@@ -188,7 +187,7 @@ export default function Navbar() {
         </div>
       </div>
       <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={<Shield />}>
-        <nav className="grid grid-cols-2 gap-2" aria-label="Mobile navigation">{links.filter((link) => link.id !== "council-hub" || councilHubAccess).map((link) => <button key={link.id} className={`btn min-h-11 justify-start ${active === link.id ? "btn-primary" : "btn-secondary"}`} onClick={() => go(link.id)}>{link.label}</button>)}</nav>
+        <nav className="grid grid-cols-2 gap-2" aria-label="Mobile navigation">{links.map((link) => <button key={link.id} className={`btn min-h-11 justify-start ${active === link.id ? "btn-primary" : "btn-secondary"}`} onClick={() => go(link.id)}>{link.label}</button>)}</nav>
         <div className="dialog-actions"><button className="btn btn-danger" onClick={() => void signOutSession()}><LogOut />Sign out</button></div>
       </Modal>
     </header>
