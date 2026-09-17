@@ -52,7 +52,7 @@ export default function CouncilControls({ action, onClose }: { action: CouncilAc
             <label className="form-field"><span>Student</span><select className="control" value={studentId} onChange={(e) => setStudentId(e.target.value)} required><option value="">Select a student from the roster</option>{state.users.filter((u) => u.id !== PRIMARY_ADMIN_ID).map((u) => <option key={u.id} value={u.id}>{u.name} / {u.gradeLabel}</option>)}</select></label>
             <label className="form-field"><span>Council title</span><input required className="control" placeholder="e.g. Sports Captain" value={title} maxLength={70} onChange={(e) => setTitle(e.target.value)} /></label>
             <label className="form-field"><span>Department</span><select className="control" value={department} onChange={(e) => setDepartment(e.target.value)}>{state.departments.map((d) => <option key={d}>{d}</option>)}</select></label>
-            <p className="inline-message">This assigns council permissions to an existing student record. To create a new student, use Admin Panel / Students.</p>
+            <p className="inline-message">This assigns council permissions to an existing student record. To create a new student, use Admin Panel / Students. Council Hub chat access is separate: add the student in Admin Panel / Council Hub once the appointment is saved.</p>
           </>}
           {action.kind === "permissions" && <>
             <p className="inline-message">{primary ? "The primary administrator has full clearance. These permissions cannot be revoked." : "Select the features this officer can manage. Other sections remain available for viewing."}</p>

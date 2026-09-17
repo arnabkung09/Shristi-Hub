@@ -1,9 +1,23 @@
 import { useMemo, useRef, useState } from "react";
-import { Bold, Italic, MessageSquarePlus, MessagesSquare, Send, Trash2, Underline, UserPlus, Users } from "lucide-react";
-import { initials, relativeTime, uid, useHub } from "../store/hub";
-import type { CouncilChatMessage } from "../lib/types";
-import { Modal, HouseMark } from "./ui";
+import {
+  Bold, Italic, LoaderCircle, LockKeyhole, MessageSquarePlus, MessagesSquare,
+  RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi, WifiOff,
+} from "lucide-react";
+import { initials, relativeTime, useHub } from "../store/hub";
+import {
+  COUNCIL_HUB_TAB,
+  COUNCIL_MESSAGE_LIMIT,
+  canManageCouncilHubMembers,
+  canRemoveCouncilMessage,
+  councilMemberSummary,
+  councilMembers,
+} from "../lib/council";
+import { PRIMARY_ADMIN_ID } from "../lib/admin";
+import type { Student } from "../lib/types";
+import { HouseMark } from "./ui";
 import { Reveal } from "./Effects";
+import { CouncilHubMembersDialog } from "./admin/CouncilHubMembersPanel";
+import { useCouncilChat } from "./useCouncilChat";
 
 /** Renders council chat markup as safe React nodes: **bold**, __underline__, *italic*. */
 function renderBody(raw: string) {
@@ -25,30 +39,56 @@ function renderBody(raw: string) {
 }
 
 export default function CouncilHub() {
-  const { state, user, dispatch, announce } = useHub();
-  const admin = user?.role === "admin";
-  const isMember = !!user && (admin || state.councilHubMembers.includes(user.id));
+  const { state, user, dispatch, announce, notify } = useHub();
+  const chat = useCouncilChat();
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [requested, setRequested] = useState(false);
   const [draft, setDraft] = useState("");
-  const [memberPicker, setMemberPicker] = useState(false);
-  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const messages = useMemo(
-    () => [...state.councilMessages].sort((a, b) => b.timestamp - a.timestamp),
-    [state.councilMessages],
-  );
+
+  const canManage = canManageCouncilHubMembers(user);
+  const members = useMemo(() => councilMembers(state), [state]);
+  const messages = chat.messages;
   if (!user) return null;
 
-  const send = () => {
+  const send = async () => {
+    if (busy) return;
     try {
-      if (!draft.trim()) throw new Error("Write a message first.");
-      const message: CouncilChatMessage = {
-        id: uid(), authorId: user.id, authorName: user.name, authorRole: user.role,
-        authorTitle: user.councilTitle, body: draft.trim(), timestamp: Date.now(),
-      };
-      dispatch({ type: "POST_COUNCIL_MESSAGE", message });
+      setBusy(true);
+      await chat.send(draft);
       setDraft("");
-      announce("Message posted to the Council Hub.");
-    } catch (e) { announce(e instanceof Error ? e.message : "Unable to post.", "error"); }
+      announce(chat.transport === "cloud"
+        ? "Message posted to the Council Hub."
+        : "Message posted to this device's Council Hub thread.");
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to post.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeMessage = async (messageId: string) => {
+    try {
+      await chat.remove(messageId);
+      announce("Council message removed.");
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to remove message.", "error");
+    }
+  };
+
+  const requestAccess = () => {
+    notify({
+      title: "Council Hub access requested",
+      body: `${user.name} (${user.gradeLabel ?? "Staff"}) asked to join the Council Hub. Add the account from Admin Panel / Council Hub if access is approved.`,
+      urgent: false,
+      senderName: user.name,
+      senderRole: user.role,
+      audience: { kind: "role", role: "admin" },
+      actionTab: COUNCIL_HUB_TAB,
+    });
+    setRequested(true);
+    announce("Your access request was sent to the council administrators.");
   };
 
   const wrapSelection = (marker: string) => {
@@ -65,43 +105,82 @@ export default function CouncilHub() {
     });
   };
 
-  const memberCandidates = state.users.filter((candidate) =>
-    `${candidate.name} ${candidate.email} ${candidate.gradeLabel ?? ""}`.toLowerCase().includes(query.toLowerCase().trim()));
-
   return (
     <div>
       <div className="directory-heading">
         <div>
-          <h1>Council Hub <span className="outline-count">{state.councilHubMembers.length} members</span></h1>
-          <p>A private chat space for council members and administrators. Use the formatting buttons for bold, underline, and italics.</p>
+          <h1>Council Hub <span className="outline-count">{councilMemberSummary(state)}</span></h1>
+          <p>A private chat space for the student council. Access is granted one account at a time by an administrator — a council title or house never opens this hub on its own.</p>
         </div>
-        {admin && <button className="btn btn-primary mt-1" onClick={() => setMemberPicker(true)}><UserPlus />Manage members</button>}
+        {canManage && <button className="btn btn-primary mt-1" onClick={() => setMembersOpen(true)}><UserPlus />Manage members</button>}
       </div>
 
-      {!isMember ? (
-        <div className="empty-content"><MessagesSquare /><strong>Council Hub is members only</strong><p>The council president can add you from the member list.</p></div>
+      {!chat.member ? (
+        <Reveal>
+          <div className="empty-content">
+            <LockKeyhole />
+            <strong>Council Hub is members only</strong>
+            <p>{canManage
+              ? `${user.name} is not on the Council Hub member list, so the conversation stays hidden. Add the accounts that should take part below.`
+              : `${user.name} is not on the Council Hub member list yet. Ask a council administrator to add your account.`}</p>
+            {canManage
+              ? <button className="btn btn-primary" onClick={() => setMembersOpen(true)}><Users />Add students to the Council Hub</button>
+              : <button className="btn btn-secondary" disabled={requested} onClick={requestAccess}><ShieldCheck />{requested ? "Access request sent" : "Request access"}</button>}
+          </div>
+          {canManage && (
+            <section className="panel panel-pad mt-5">
+              <div className="panel-heading"><div><h2><Users />Current Council Hub members</h2><p>Only these accounts can read and post in the hub.</p></div><button className="btn btn-secondary" onClick={() => setMembersOpen(true)}><UserPlus />Add or remove students</button></div>
+              <MemberList members={members} />
+            </section>
+          )}
+        </Reveal>
       ) : (
         <div className="house-columns">
           <Reveal>
             <section className="panel panel-pad">
-              <div className="panel-heading"><div><h2><MessagesSquare />Council Chat</h2><p>Only council members and administrators can read and post here.</p></div><span className="small-note">{messages.length} messages</span></div>
+              <div className="panel-heading">
+                <div><h2><MessagesSquare />Council Chat</h2><p>Only accounts on the Council Hub member list can read and post here.</p></div>
+                <span className="small-note">{messages.length} messages</span>
+              </div>
+
+              {chat.error && (
+                <p role="alert" className="inline-message error mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <span>{chat.error}</span>
+                  <button className="btn btn-outline !min-h-[30px] !px-3 !text-[9px]" onClick={chat.retry}><RefreshCw />Try again</button>
+                </p>
+              )}
 
               <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-3">
-                <div className="mb-2 flex items-center gap-1.5">
+                <div className="mb-2 flex flex-wrap items-center gap-1.5">
                   <button type="button" className="icon-action !h-8 !w-8" title="Bold" aria-label="Bold" onClick={() => wrapSelection("**")}><Bold className="h-4 w-4" /></button>
                   <button type="button" className="icon-action !h-8 !w-8" title="Underline" aria-label="Underline" onClick={() => wrapSelection("__")}><Underline className="h-4 w-4" /></button>
                   <button type="button" className="icon-action !h-8 !w-8" title="Italic" aria-label="Italic" onClick={() => wrapSelection("*")}><Italic className="h-4 w-4" /></button>
                   <span className="ml-2 text-[9px] text-[var(--faint)]">**bold** · __underline__ · *italic*</span>
+                  <span className="ml-auto inline-flex items-center gap-1.5 text-[9px] text-[var(--faint)]">
+                    {chat.transport === "cloud"
+                      ? <><Wifi className="h-3 w-3 text-[var(--green)]" />Live · synced with Firestore</>
+                      : <><WifiOff className="h-3 w-3 text-amber-400" />Saved on this device · sign in with Google to sync</>}
+                  </span>
                 </div>
-                <textarea ref={composerRef} rows={3} maxLength={1500} className="control resize-y" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Write a council update..." />
+                <textarea
+                  ref={composerRef}
+                  rows={3}
+                  maxLength={COUNCIL_MESSAGE_LIMIT}
+                  className="control resize-y"
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); void send(); } }}
+                  placeholder="Write a council update..."
+                />
                 <div className="mt-2.5 flex items-center justify-between gap-3">
-                  <span className="text-[9px] text-[var(--faint)]">{draft.length}/1500</span>
-                  <button className="btn btn-primary" disabled={!draft.trim()} onClick={send}><Send />Post message</button>
+                  <span className="text-[9px] text-[var(--faint)]">{draft.length}/{COUNCIL_MESSAGE_LIMIT} · Ctrl/⌘ + Enter to post</span>
+                  <button className="btn btn-primary" disabled={!draft.trim() || busy} onClick={() => void send()}>{busy ? <LoaderCircle className="animate-spin" /> : <Send />}{busy ? "Posting..." : "Post message"}</button>
                 </div>
               </div>
 
               <div className="mt-5 space-y-3">
-                {!messages.length && <div className="empty-content"><MessageSquarePlus /><strong>No council messages yet</strong><p>Start the conversation with your first update.</p></div>}
+                {chat.loading && <div className="empty-content"><LoaderCircle className="animate-spin" /><strong>Connecting to the council room</strong><p>Loading the live conversation.</p></div>}
+                {!chat.loading && !messages.length && <div className="empty-content"><MessageSquarePlus /><strong>No council messages yet</strong><p>Start the conversation with your first update.</p></div>}
                 {messages.map((message) => (
                   <article key={message.id} className="rounded-xl border border-indigo-500/20 bg-[var(--surface-inset)] p-4">
                     <div className="flex items-center gap-2.5">
@@ -114,8 +193,8 @@ export default function CouncilHub() {
                         </p>
                         <p className="text-[9px] text-[var(--faint)]">{message.authorTitle ?? message.authorRole} · {relativeTime(message.timestamp)}</p>
                       </div>
-                      {(admin || message.authorId === user.id) && (
-                        <button className="icon-action red" aria-label="Remove message" title="Remove message" onClick={() => dispatch({ type: "DELETE_COUNCIL_MESSAGE", messageId: message.id })}><Trash2 /></button>
+                      {canRemoveCouncilMessage(user, message) && (
+                        <button className="icon-action red" aria-label="Remove message" title="Remove message" onClick={() => void removeMessage(message.id)}><Trash2 /></button>
                       )}
                     </div>
                     <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed">
@@ -129,46 +208,59 @@ export default function CouncilHub() {
 
           <Reveal delay={120}>
             <aside className="panel panel-pad">
-              <div className="panel-heading"><h3><Users />Council Hub members</h3><span className="small-note">{state.councilHubMembers.length}</span></div>
-              <div className="max-h-[520px] space-y-1.5 overflow-y-auto pr-1">
-                {state.councilHubMembers.map((memberId) => {
-                  const member = state.users.find((candidate) => candidate.id === memberId);
-                  if (!member) return null;
-                  return (
-                    <div key={memberId} className="integration-row !py-2.5">
-                      <span className="member-inline"><span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : initials(member.name)}</span>
-                        <span><strong className="!text-[10px]">{member.name}</strong><small>{member.councilTitle ?? member.role}{member.role === "teacher" ? " · Teacher" : ""}</small></span></span>
-                      <span className="flex items-center gap-2">
-                        <HouseMark house={member.house} className="h-5 w-5 text-[8px]" />
-                        {admin && member.id !== user.id && (
-                          <button className="icon-action red" title="Remove from Council Hub" aria-label={`Remove ${member.name} from Council Hub`} onClick={() => { try { dispatch({ type: "REMOVE_COUNCIL_HUB_MEMBER", userId: member.id }); announce(`${member.name} removed from the Council Hub.`); } catch (e) { announce(e instanceof Error ? e.message : "Unable to remove member.", "error"); } }}><Trash2 /></button>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
+              <div className="panel-heading"><h3><Users />Council Hub members</h3><span className="small-note">{members.length}</span></div>
+              <p className="small-note mb-3">Only these accounts can open this hub. An administrator controls the list.</p>
+              <MemberList
+                members={members}
+                canManage={canManage}
+                onRemove={(member) => {
+                  try {
+                    dispatch({ type: "REMOVE_COUNCIL_HUB_MEMBER", userId: member.id });
+                    announce(`${member.name} removed from the Council Hub.`);
+                  } catch (e) {
+                    announce(e instanceof Error ? e.message : "Unable to remove member.", "error");
+                  }
+                }}
+              />
+              {canManage && <button className="btn btn-secondary mt-4 w-full" onClick={() => setMembersOpen(true)}><UserPlus />Add or remove students</button>}
             </aside>
           </Reveal>
         </div>
       )}
 
-      <Modal open={memberPicker} onClose={() => setMemberPicker(false)} title="Add Council Hub member" icon={<Users />} subtitle="Any roster account can be added. Students, teachers, and council officers may all be granted access.">
-        <div className="form-stack">
-          <label className="form-field"><span>Search accounts</span><input className="control" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or email..." /></label>
-          <div className="max-h-[300px] space-y-1.5 overflow-y-auto pr-1">
-            {memberCandidates.filter((candidate) => !state.councilHubMembers.includes(candidate.id)).map((candidate) => (
-              <div key={candidate.id} className="integration-row !py-2.5">
-                <span className="member-inline"><span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{initials(candidate.name)}</span>
-                  <span><strong className="!text-[10px]">{candidate.name}</strong><small>{candidate.councilTitle ?? candidate.role} · {candidate.gradeLabel ?? "Staff"}</small></span></span>
-                <button className="btn btn-outline !min-h-[30px] !px-3 !text-[9px]" onClick={() => { try { dispatch({ type: "ADD_COUNCIL_HUB_MEMBER", userId: candidate.id }); announce(`${candidate.name} added to the Council Hub.`); } catch (e) { announce(e instanceof Error ? e.message : "Unable to add member.", "error"); } }}>Add</button>
-              </div>
-            ))}
-            {!memberCandidates.some((candidate) => !state.councilHubMembers.includes(candidate.id)) && <p className="small-note">Every roster account is already a member.</p>}
-          </div>
+      <CouncilHubMembersDialog open={membersOpen} onClose={() => setMembersOpen(false)} />
+    </div>
+  );
+}
+
+function MemberList({ members, canManage = false, onRemove }: {
+  members: Student[];
+  canManage?: boolean;
+  onRemove?: (member: Student) => void;
+}) {
+  const { user } = useHub();
+  return (
+    <div className="max-h-[520px] space-y-1.5 overflow-y-auto pr-1">
+      {members.map((member) => (
+        <div key={member.id} className="integration-row !py-2.5">
+          <span className="member-inline">
+            <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : initials(member.name)}</span>
+            <span>
+              <strong className="!text-[10px]">{member.name}</strong>
+              <small>{member.councilTitle ?? member.role}{member.role === "teacher" ? " · Teacher" : ""}</small>
+            </span>
+          </span>
+          <span className="flex items-center gap-2">
+            <HouseMark house={member.house} className="h-5 w-5 text-[8px]" />
+            {member.id === PRIMARY_ADMIN_ID && <span className="clearance !text-[8px]"><ShieldCheck className="h-3 w-3" />Protected</span>}
+            {member.id === user?.id && member.id !== PRIMARY_ADMIN_ID && <span className="clearance !text-[8px]">You</span>}
+            {canManage && onRemove && member.id !== PRIMARY_ADMIN_ID && member.id !== user?.id && (
+              <button className="icon-action red" title="Remove from the Council Hub" aria-label={`Remove ${member.name} from the Council Hub`} onClick={() => onRemove(member)}><Trash2 /></button>
+            )}
+          </span>
         </div>
-        <div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setMemberPicker(false)}>Done</button></div>
-      </Modal>
+      ))}
+      {!members.length && <p className="small-note">No accounts have been added yet.</p>}
     </div>
   );
 }

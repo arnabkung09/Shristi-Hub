@@ -261,6 +261,16 @@ export interface CouncilChatMessage {
   removed?: boolean;
 }
 
+/**
+ * Shared chat rooms backed by the Firestore `hubChat/{room}/messages` collection.
+ * The Council Hub room is membership-gated; device-only previews keep using the
+ * locally persisted `councilMessages` slice instead.
+ */
+export type HubRoom = "council";
+
+/** A message stored in a shared hub chat room. */
+export type HubChatMessage = CouncilChatMessage;
+
 export interface HubState {
   users: Student[];
   /** Accounts granted access to the Council Hub chat. */

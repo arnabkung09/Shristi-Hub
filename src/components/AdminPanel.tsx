@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, Palette, Search, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users } from "lucide-react";
+import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
 import { departmentFor, downloadJson, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, publicRoster, ratingStats, taskDepartment } from "../lib/admin";
 import { GRADE_VALUES, HOUSE_VALUES, INSTITUTIONAL_EMAIL_DOMAIN } from "../lib/ssot-auth";
@@ -8,6 +8,7 @@ import { renderRichText } from "../lib/content";
 import { Modal } from "./ui";
 import RosterTable from "./admin/RosterTable";
 import CouncilControls, { type CouncilAction } from "./admin/CouncilControls";
+import CouncilHubMembersPanel from "./admin/CouncilHubMembersPanel";
 import BrandingPanel from "./admin/BrandingPanel";
 import FirebaseConnection from "./admin/FirebaseConnection";
 import AdminNotificationsHub from "./AdminNotificationsHub";
@@ -16,7 +17,7 @@ export default function AdminPanel() {
   const { state, user, activeTab, setActiveTab } = useHub();
   const params = new URLSearchParams(activeTab.split("?")[1] ?? "");
   const requestedSection = params.get("section") ?? "roster";
-  const section = ["roster", "officers", "departments", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
+  const section = ["roster", "officers", "hub", "departments", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
   useEffect(() => {
     document.getElementById(`admin-tab-${section}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [section]);
@@ -24,6 +25,7 @@ export default function AdminPanel() {
   const tabs = [
     { id: "roster", label: `Students (${state.users.length})`, icon: Database },
     { id: "officers", label: `Council Officers (${officerCount})`, icon: Users },
+    { id: "hub", label: `Council Hub (${state.councilHubMembers.length})`, icon: MessagesSquare },
     { id: "departments", label: `Departments (${state.departments.length})`, icon: Building2 },
     { id: "branding", label: "Branding & Content", icon: Palette },
     { id: "images", label: "Active Images (Max 5)", icon: Layers3 },
@@ -37,7 +39,7 @@ export default function AdminPanel() {
   return (
     <div>
       <div className="admin-intro">
-        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, reset credentials, import batches, manage executive roles, and customise platform branding and content.</p></div>
+        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, control Council Hub access, reset credentials, manage executive roles, and customise platform branding and content.</p></div>
         <nav className="admin-tabs" role="tablist" aria-label="Administration sections">
           {tabs.map((tab, i) => <button key={tab.id} id={`admin-tab-${tab.id}`} role="tab" aria-selected={section === tab.id} aria-controls="admin-content" tabIndex={section === tab.id ? 0 : -1} onClick={() => select(tab.id)} onKeyDown={(e) => {
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length]; select(next.id); requestAnimationFrame(() => document.getElementById(`admin-tab-${next.id}`)?.focus()); }
@@ -45,7 +47,7 @@ export default function AdminPanel() {
         </nav>
       </div>
       <div role="tabpanel" id="admin-content" aria-labelledby={`admin-tab-${section}`} className="page-motion" key={section}>
-        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "departments" ? <DepartmentsPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
+        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "hub" ? <CouncilHubMembersPanel /> : section === "departments" ? <DepartmentsPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
       </div>
     </div>
   );

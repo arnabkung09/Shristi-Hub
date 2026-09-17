@@ -10,6 +10,15 @@ service cloud.firestore {
     function activeMember() { return signedIn() && profile().data.status == 'active' && indexDoc().data.studentId == profile().data.id; }
     function admin() { return primaryAdmin() || (activeMember() && profile().data.role == 'admin'); }
 
+    // Council Hub access is explicit: an account is on the hub only after an administrator
+    // added its roster id to hubState/main.councilHubMembers. Role alone never grants access.
+    function hubStateExists() { return exists(/databases/$(database)/documents/hubState/main); }
+    function councilHubMembers() { return get(/databases/$(database)/documents/hubState/main).data.councilHubMembers; }
+    function councilHubMember() { return activeMember() && hubStateExists() && profile().data.id in councilHubMembers(); }
+    function councilMessageKeys() {
+      return ['id', 'room', 'authorId', 'authorName', 'authorRole', 'authorTitle', 'authorUid', 'body', 'timestamp', 'removed'];
+    }
+
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || admin());
       allow create: if signedIn() && request.auth.uid == uid
@@ -38,8 +47,35 @@ service cloud.firestore {
 
     match /hubState/main {
       allow read: if activeMember();
-      allow create, update: if admin();
+      allow create, update: if admin()
+        && request.resource.data.councilHubMembers is list
+        && request.resource.data.councilHubMembers.size() <= 1000;
       allow delete: if false;
+    }
+
+    // Membership-gated hub chat. The Council Hub conversation lives here instead of inside
+    // hubState/main so that non-members can never read it, not even through the SDK.
+    match /hubChat/council/messages/{messageId} {
+      allow read: if councilHubMember();
+      allow create: if councilHubMember()
+        && request.resource.data.keys().hasOnly(councilMessageKeys())
+        && request.resource.data.id == messageId
+        && request.resource.data.room == 'council'
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.authorId == profile().data.id
+        && request.resource.data.authorName is string
+        && request.resource.data.authorName.size() <= 120
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 1500
+        && request.resource.data.timestamp is number
+        && request.resource.data.removed == false;
+      allow update: if councilHubMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['removed', 'body'])
+        && request.resource.data.removed == true
+        && request.resource.data.body == ''
+        && (admin() || resource.data.authorId == profile().data.id);
+      allow delete: if admin();
     }
 
     match /userActivity/{uid} {
