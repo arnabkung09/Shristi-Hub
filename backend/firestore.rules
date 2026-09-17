@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function actorDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function actorData() {
+      return actorDoc().data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && actorDoc().exists() && actorData().role == 'admin';
+    }
+
+    function validGrade(grade) {
+      return grade in [
+        'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+        'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'
+      ];
+    }
+
+    function validHouse(house) {
+      return house in ['Blue House', 'Red House', 'Green House'];
+    }
+
+    function validRole(role) {
+      return role in ['admin', 'council', 'student'];
+    }
+
+    function validStatus(status) {
+      return status in ['pending', 'active'];
+    }
+
+    function validDomain(email) {
+      return email is string && email.matches('^[A-Za-z0-9._%+-]+@shristiacademy\\.edu\\.np$');
+    }
+
+    function validRosterDocument(data) {
+      return data.keys().hasOnly(['id', 'email', 'name', 'grade', 'house', 'role', 'councilTitle', 'status', 'createdAt', 'passwordHash'])
+        && data.id is string
+        && data.name is string
+        && validDomain(data.email)
+        && validGrade(data.grade)
+        && validHouse(data.house)
+        && validRole(data.role)
+        && validStatus(data.status)
+        && data.createdAt is string
+        && data.passwordHash is string;
+    }
+
+    match /whitelistedStudents/{studentId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && validRosterDocument(request.resource.data);
+      allow update: if isAdmin() && validRosterDocument(request.resource.data)
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+    match /rosterMetadata/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
