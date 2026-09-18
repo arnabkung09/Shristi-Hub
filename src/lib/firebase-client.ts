@@ -19,7 +19,7 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firebaseDb = getFirestore(app);
 const VAPID_STORAGE_KEY = "shristi-fcm-vapid-public-key-v1";
-const PRIMARY_ADMIN_EMAIL = "72019arnab@shristiacademy.edu.np";
+export const PRIMARY_ADMIN_EMAIL = "72019arnab@shristiacademy.edu.np";
 
 export const getVapidKey = () => localStorage.getItem(VAPID_STORAGE_KEY) ?? "";
 export async function saveVapidKey(value: string) {
@@ -145,9 +145,28 @@ function cloudSafeState(state: HubState) {
     ...state,
     session: null,
     users: state.users.map(cloudStudent),
-    gallery: state.gallery.map((item) => ({ ...item, image: item.image?.startsWith("data:") ? null : item.image ?? null })),
-    branding: { ...state.branding, logoUrl: state.branding.logoUrl.startsWith("data:") ? "" : state.branding.logoUrl },
-    houses: Object.fromEntries(Object.entries(state.houses).map(([key, value]) => [key, { ...value, logoUrl: value.logoUrl.startsWith("data:") ? "" : value.logoUrl }])),
+    gallery: state.gallery.map((item) => ({ ...item, image: item.image ?? null })),
+    branding: {
+      schoolName: state.branding?.schoolName ?? "",
+      boardName: state.branding?.boardName ?? "",
+      session: state.branding?.session ?? "",
+      logoUrl: state.branding?.logoUrl ?? "",
+      footerNote: state.branding?.footerNote ?? "",
+      tagline: state.branding?.tagline ?? "",
+    },
+    houses: Object.fromEntries(
+      Object.entries(state.houses ?? {}).map(([key, value]) => [
+        key,
+        {
+          name: value?.name ?? key,
+          logoUrl: value?.logoUrl ?? "",
+        },
+      ])
+    ),
+    legal: {
+      terms: state.legal?.terms ?? "",
+      credits: state.legal?.credits ?? "",
+    },
     // Council Hub chat never travels in the shared document: any active member can read
     // `hubState/main`, so messages live in the membership-gated `hubChat` collection.
     councilMessages: [],
@@ -194,7 +213,7 @@ export async function enableFirebasePush(student: Student) {
   if (!current) throw new Error("Sign in with Google before enabling push notifications.");
   if (!(await isSupported()) || !("serviceWorker" in navigator) || !window.isSecureContext) throw new Error("Web push requires a supported browser on HTTPS or localhost.");
   const vapidKey = await resolveVapidKey();
-  if (!vapidKey) throw new Error("Add the public VAPID key in Admin Panel → Roster Sync first.");
+  if (!vapidKey) throw new Error("Add the public VAPID key in Admin Panel → Firestore Sync first.");
   if (await Notification.requestPermission() !== "granted") throw new Error("Notification permission was not granted.");
   const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
   const token = await getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration });

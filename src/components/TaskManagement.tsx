@@ -68,9 +68,18 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     <div className="space-y-6">
       <SectionTitle
         title="Task Management Board"
-        subtitle="Internal pipeline for council officers — updates propagate to every officer instantly"
+        subtitle={
+          canManage
+            ? "Internal pipeline for council officers — updates propagate to every officer instantly"
+            : "Follow student council initiatives, delegated tasks, and completed department milestones"
+        }
         action={
           <div className="flex items-center gap-2">
+            {!canManage && (
+              <span className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-[10px] font-semibold text-[var(--purple)]">
+                Student View · Read-Only
+              </span>
+            )}
             <button
               onClick={() => setMineOnly((v) => !v)}
               className={cn(

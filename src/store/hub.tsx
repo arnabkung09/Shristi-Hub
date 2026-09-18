@@ -663,7 +663,10 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     const localItem = local.gallery.find((item) => item.id === cloudItem.id);
     return { ...localItem, ...cloudItem, image: cloudItem.image || localItem?.image } as GalleryItem;
   });
-  return withFallbackSlices({ ...local, ...remote, users, gallery, session: local.session, theme: local.theme } as HubState, buildSeedState());
+  const branding = remote.branding ? { ...local.branding, ...remote.branding } : local.branding;
+  const houses = remote.houses ? { ...local.houses, ...remote.houses } : local.houses;
+  const legal = remote.legal ? { ...local.legal, ...remote.legal } : local.legal;
+  return withFallbackSlices({ ...local, ...remote, users, gallery, branding, houses, legal, session: local.session, theme: local.theme } as HubState, buildSeedState());
 }
 
 function loadState(): HubState {
@@ -868,7 +871,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     await writeCloudState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
     rosterHashRef.current = JSON.stringify(stateRef.current.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-    announce("All site data and roster records were uploaded to Firestore.");
+    announce("All site data including branding, houses, and roster records were uploaded to Firestore.");
   };
 
   const loadAllFromFirestore = async () => {
