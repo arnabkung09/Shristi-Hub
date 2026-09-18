@@ -3,17 +3,22 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function emailKey() { return request.auth.token.email; }
+    // emailIndex documents are stored under lowercased email ids, and Google sign-in
+    // tokens keep whatever case the account was created with — compare lowercased so
+    // mixed-case emails are never denied (the cause of "permission-denied" sync errors).
+    function emailKey() { return request.auth.token.email.lower(); }
     function indexDoc() { return get(/databases/$(database)/documents/emailIndex/$(emailKey())); }
     function rosterDoc() { return get(/databases/$(database)/documents/roster/$(indexDoc().data.studentId)); }
-    function primaryAdmin() { return signedIn() && request.auth.token.email == '72019arnab@shristiacademy.edu.np'; }
+    function primaryAdmin() { return signedIn() && request.auth.token.email.lower() == '72019arnab@shristiacademy.edu.np'; }
     function activeMember() { return signedIn() && profile().data.status == 'active' && indexDoc().data.studentId == profile().data.id; }
     function admin() { return primaryAdmin() || (activeMember() && profile().data.role == 'admin'); }
 
     // Council Hub access is explicit: an account is on the hub only after an administrator
     // added its roster id to hubState/main.councilHubMembers. Role alone never grants access.
+    // .get(..., []) keeps older hubState documents (written before the member list
+    // existed) from failing rule evaluation with a missing-field error.
     function hubStateExists() { return exists(/databases/$(database)/documents/hubState/main); }
-    function councilHubMembers() { return get(/databases/$(database)/documents/hubState/main).data.councilHubMembers; }
+    function councilHubMembers() { return get(/databases/$(database)/documents/hubState/main).data.get('councilHubMembers', []); }
     function councilHubMember() { return activeMember() && hubStateExists() && profile().data.id in councilHubMembers(); }
     function councilMessageKeys() {
       return ['id', 'room', 'authorId', 'authorName', 'authorRole', 'authorTitle', 'authorUid', 'body', 'timestamp', 'removed'];
@@ -25,7 +30,7 @@ service cloud.firestore {
         && indexDoc().data.studentId == request.resource.data.id
         && indexDoc().data.role == request.resource.data.role
         && request.resource.data.status == 'active'
-        && request.resource.data.googleEmail == request.auth.token.email
+        && request.resource.data.googleEmail == request.auth.token.email.lower()
         && request.resource.data.name == rosterDoc().data.name
         && request.resource.data.email == rosterDoc().data.email
         && request.resource.data.house == rosterDoc().data.house

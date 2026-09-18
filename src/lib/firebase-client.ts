@@ -4,6 +4,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSna
 import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from "firebase/messaging";
 import type { AppNotification, Audience, HubChatMessage, HubRoom, HubState, Role, Student } from "./types";
 import { COUNCIL_HUB_ROOM, COUNCIL_MESSAGE_HISTORY_LIMIT, normalizeCouncilMessage } from "./council";
+import type { SheetsConfig } from "./sheets/config";
 
 export const firebaseConfig = {
   apiKey: "AIzaSyB6l7lOrIBypZn4EMgUz6K7jV__UPyK2Nw",
@@ -321,6 +322,43 @@ export function subscribeHubChat(
 export async function removeHubChat(room: HubRoom, messageId: string) {
   if (!firebaseAuth.currentUser) throw new Error("Sign in with Google to remove a Council Hub message.");
   await updateDoc(hubChatMessage(room, messageId), { removed: true, body: "" });
+}
+
+/* ---------------- Google Sheets endpoint configuration ---------------- */
+
+/**
+ * The read-only Apps Script URL for the House Points, Calendar, and Monetary Fund
+ * sheets. Stored in `publicConfig/sheets` (readable by signed-in members, writable by
+ * administrators) so it can be changed without rebuilding the site. It holds a public
+ * `/exec` URL only — never a Google API key, service account, or OAuth secret.
+ */
+export async function readCloudSheetsConfig(): Promise<Partial<SheetsConfig> | null> {
+  if (!firebaseAuth.currentUser) return null;
+  try {
+    const snapshot = await getDoc(doc(firebaseDb, "publicConfig", "sheets"));
+    return snapshot.exists() ? snapshot.data() as Partial<SheetsConfig> : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeCloudSheetsConfig(config: SheetsConfig): Promise<void> {
+  if (!firebaseAuth.currentUser) return;
+  await setDoc(doc(firebaseDb, "publicConfig", "sheets"), {
+    apiUrl: config.apiUrl,
+    token: config.token ?? "",
+    houseMap: config.houseMap ?? {},
+    sections: config.sections ?? {},
+    pollSeconds: config.pollSeconds ?? null,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export function subscribeCloudSheetsConfig(callback: (config: Partial<SheetsConfig>) => void): () => void {
+  if (!firebaseAuth.currentUser) return () => undefined;
+  return onSnapshot(doc(firebaseDb, "publicConfig", "sheets"), (snapshot) => {
+    if (snapshot.exists()) callback(snapshot.data() as Partial<SheetsConfig>);
+  }, () => undefined);
 }
 
 export { app as firebaseApp };

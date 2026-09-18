@@ -68,6 +68,14 @@ export interface PointEntry {
   timestamp: number;
   units?: number;
   pointsEach?: number;
+  /* Populated for entries that come from the House Points spreadsheet. */
+  studentName?: string;
+  grade?: string;
+  classLabel?: string;
+  position?: string;
+  awardCategory?: "Individual" | "Team";
+  remarks?: string;
+  sheetId?: string;
 }
 
 export type EventCategory = "Academic" | "Cultural" | "Sports" | "Assembly" | "Council Meeting";
@@ -85,6 +93,13 @@ export interface SchoolEvent {
   attendees: string[];
   attended: string[];
   organizer: string;
+  /* Populated for events that come from the Calendar spreadsheet. A capacity of 0
+     means the sheet has no seat data, so registration is not offered. */
+  startTime?: string;
+  endTime?: string;
+  department?: string;
+  status?: "upcoming" | "ongoing" | "completed" | "cancelled";
+  sheetId?: string;
 }
 
 export type NoticePriority = "urgent" | "important" | "general" | "event";
@@ -158,7 +173,8 @@ export interface Meeting {
 }
 
 export type FinanceType = "income" | "expense";
-export type FinanceStatus = "Approved" | "Pending" | "Reimbursed";
+/** `Recorded` is used for Monetary Fund rows: the simple sheet has no approval step. */
+export type FinanceStatus = "Approved" | "Pending" | "Reimbursed" | "Recorded";
 
 export interface FinanceEntry {
   id: string;
@@ -170,6 +186,12 @@ export interface FinanceEntry {
   invoiceRef: string;
   approvedBy: string;
   status: FinanceStatus;
+  /* Populated for transactions that come from the Monetary Fund spreadsheet. */
+  paymentMethod?: string;
+  counterparty?: string;
+  department?: string;
+  remarks?: string;
+  sheetId?: string;
 }
 
 export interface GalleryItem {

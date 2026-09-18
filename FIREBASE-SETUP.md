@@ -40,6 +40,8 @@ Hosting runs `npm run build` before deployment. This configuration uses no Cloud
 - `inbox/{uid}/items/{notificationId}`: real-time Firestore notification inboxes.
 - `userActivity/{uid}`: each authenticated member's own RSVP, vote, rating, read, and task activity.
 - `publicConfig/messaging`: shared public Web Push VAPID key.
+- `publicConfig/sheets`: the read-only Google Sheets endpoint used by House Points,
+  Calendar, and Monetary Fund (see `GOOGLE-SHEETS-SETUP.md`).
 
 ## Council Hub Access
 
@@ -71,11 +73,32 @@ document. After deploying this change, the next administrator write replaces the
 without the legacy `councilMessages` array; delete the field manually in the console if you
 want it gone before then.
 
+## Google Sheets configuration document
+
+House Points, Calendar, and Monetary Fund can read from a council spreadsheet instead of the
+hub's own records (see `GOOGLE-SHEETS-SETUP.md`). Only the connection settings live in
+Firestore, in `publicConfig/sheets`:
+
+```
+publicConfig/sheets
+  apiUrl       "https://script.google.com/macros/s/AKfy…/exec"   // public, read-only
+  token        "optional shared word checked by Apps Script"
+  houseMap     { "Dhaulagiri": "Blue", "Annapurna": "Red", "Manaslu": "Green" }
+  sections     { housePoints: true, calendar: true, finances: true }
+  pollSeconds  60
+```
+
+Every signed-in member may read the document so their hub paints the sheet data on load;
+only administrators may write it. The rules validate the shape (known keys only, an `https`
+Apps Script URL). No Google API key, service-account JSON, or OAuth secret is stored here —
+the endpoint is public and read-only, and all edits happen inside the spreadsheet itself.
+
 ## Security Notes
 
 - No service-account credentials are shipped to the browser.
 - Firestore rules allow only the authenticated primary administrator to seed roster/index data and admins to overwrite admin-controlled hub state.
 - Council Hub reads and writes are checked against the explicit member list in the rules, so a signed-in account that was never added cannot read the conversation even with a modified client.
+- Email lookups in the rules (`emailIndex`, profile provisioning, the primary-admin check) compare lowercased addresses, because Google sign-in tokens keep the letter case the account was created with while the roster stores lowercase emails — mixed-case addresses otherwise fail with `permission-denied`.
 - Members write only their own `userActivity/{uid}` document.
 - Admin Panel → Roster Sync includes explicit **Upload all site data** and **Load existing Firestore data** controls.
 - FCM registration and receiving messages are Spark-compatible. Send background pushes from Firebase Console. Programmatic FCM fan-out needs a trusted server/Cloud Function and therefore is intentionally not included in this free-plan configuration.

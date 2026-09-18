@@ -3,7 +3,9 @@ import { ArrowDownRight, ArrowUpRight, Crown, Filter, Minus, Plus, ShieldCheck, 
 import { useHub, relativeTime, uid } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
 import { Badge, Btn, Card, Field, HouseMark, Modal, SectionTitle, Select, inputCls } from "./ui";
+import SheetSyncBar from "./SheetSyncBar";
 import { Reveal } from "./Effects";
+import { positionLabel } from "../lib/sheets/derive";
 import { POINT_CATEGORIES, HOUSES } from "../lib/seed";
 import { cn } from "../utils/cn";
 import type { House } from "../lib/types";
@@ -17,8 +19,11 @@ const HOUSE_ACCENT: Record<House, string> = { Blue: "text-blue-500 dark:text-blu
 const HOUSE_BAR: Record<House, string> = { Blue: "bg-blue-500", Red: "bg-red-500", Green: "bg-green-500" };
 
 export default function HousePoints({ openAwardOnMount = false }: { openAwardOnMount?: boolean }) {
-  const { state, user, hasPermission, houseTotals, dispatch } = useHub();
-  const canManage = hasPermission("houses");
+  const { state, user, hasPermission, houseTotals, dispatch, pointsLedger, sheets } = useHub();
+  // House Points live in the council spreadsheet once it is connected: the hub reads the
+  // ledger from there and awarding happens by adding a row in Google Sheets.
+  const sheetPoints = sheets.isEnabled("housePoints") ? sheets.housePoints : null;
+  const canManage = hasPermission("houses") && !sheets.isEnabled("housePoints");
   const [awardOpen, setAwardOpen] = useState(openAwardOnMount && canManage);
   const [house, setHouse] = useState<House>("Blue");
   const [amount, setAmount] = useState("50");
@@ -30,6 +35,8 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
 
   const [fHouse, setFHouse] = useState("All");
   const [fCategory, setFCategory] = useState("All");
+  const [fType, setFType] = useState("All");
+  const sheetResults = sheetPoints?.results ?? null;
 
   const standings = useMemo(
     () => (Object.entries(houseTotals) as Array<[House, number]>).sort((a, b) => b[1] - a[1]),
@@ -38,11 +45,19 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
   const totalPoints = standings.reduce((s, [, v]) => s + Math.max(0, v), 0) || 1;
 
   const ledger = useMemo(() => {
-    return state.pointsLedger
+    return pointsLedger
       .filter((e) => (fHouse === "All" ? true : e.house === fHouse))
       .filter((e) => (fCategory === "All" ? true : e.category === fCategory))
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [state.pointsLedger, fHouse, fCategory]);
+  }, [pointsLedger, fHouse, fCategory]);
+
+  // House Points rows are shown newest first, filtered by house and by Individual / Team.
+  const sheetLedger = useMemo(
+    () => (sheetResults ?? [])
+      .filter((row) => (fHouse === "All" ? true : row.house === fHouse))
+      .filter((row) => (fType === "All" ? true : row.type === fType)),
+    [sheetResults, fHouse, fType]
+  );
 
   const parsedAmount = parseInt(amount, 10);
   const parsedUnits = parseInt(units, 10);
@@ -91,6 +106,8 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
         )}
       />
 
+      <SheetSyncBar section="housePoints" />
+
       {/* Podium */}
       <Reveal>
         <div className="grid gap-4 md:grid-cols-3">
@@ -134,7 +151,9 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">Points Audit Ledger</h3>
-              <p className="text-xs text-slate-400">Every transaction, timestamped and attributed</p>
+              <p className="text-xs text-slate-400">
+                {sheetResults ? "Every result in the House Points spreadsheet — newest first" : "Every transaction, timestamped and attributed"}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Filter className="h-4 w-4 text-slate-400" />
@@ -142,14 +161,54 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
                 <option value="All">All</option>
                 {HOUSES.map((h) => <option key={h} value={h}>{houseFullName(state.houses, h)}</option>)}
               </Select>
-              <Select value={fCategory} onChange={setFCategory} className="!w-auto !py-2 text-xs">
-                <option>All</option>
-                {POINT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-              </Select>
+              {sheetResults ? (
+                <Select value={fType} onChange={setFType} className="!w-auto !py-2 text-xs">
+                  <option>All</option>
+                  <option>Individual</option>
+                  <option>Team</option>
+                </Select>
+              ) : (
+                <Select value={fCategory} onChange={setFCategory} className="!w-auto !py-2 text-xs">
+                  <option>All</option>
+                  {POINT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                </Select>
+              )}
             </div>
           </div>
 
           <div className="divide-y divide-black/[0.05] dark:divide-white/[0.06]">
+            {sheetResults ? (
+              <>
+                {sheetLedger.length === 0 && (
+                  <p className="py-10 text-center text-sm text-slate-400">
+                    {sheetResults.length === 0 ? "No results yet — add a row to the House Points sheet." : "No entries match these filters."}
+                  </p>
+                )}
+                {sheetLedger.map((row) => (
+                  <div key={row.id} className="flex items-start gap-3.5 py-3.5">
+                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
+                      <ArrowUpRight className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-display text-sm font-extrabold tabular-nums text-emerald-600 dark:text-emerald-300">+{row.points}</span>
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{houseFullName(state.houses, row.house)}</span>
+                        {row.type && <Badge tone="emerald">{row.type}</Badge>}
+                        {row.position && <Badge tone="amber">{positionLabel(row.position)} place</Badge>}
+                        {row.teamsWon && (
+                          <Badge tone="indigo"><Users className="h-3 w-3" />{row.teamsWon} {row.teamsWon === 1 ? "team" : "teams"} won</Badge>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{row.specific}</p>
+                      <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                        Row {row.row} · Google Sheets{row.fromTable && " · standard scoring table"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+            <>
             {ledger.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No entries match these filters.</p>}
             {ledger.map((e) => (
               <div key={e.id} className="flex items-start gap-3.5 py-3.5">
@@ -166,17 +225,27 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
                     </span>
                     <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{houseFullName(state.houses, e.house)}</span>
                     <Badge tone="slate">{e.category}</Badge>
+                    {e.position && <Badge tone="amber">{e.position} place</Badge>}
+                    {e.awardCategory && <Badge tone="emerald">{e.awardCategory}</Badge>}
                     {e.units && e.units > 1 && (
                       <Badge tone="indigo"><Users className="h-3 w-3" />{e.pointsEach} × {e.units}</Badge>
                     )}
                   </div>
                   <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{e.reason}</p>
+                  {e.studentName && (
+                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                      {e.studentName}{e.grade ? ` · ${e.grade}` : ""}{e.classLabel ? ` · ${e.classLabel}` : ""}
+                    </p>
+                  )}
                   <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">
                     {relativeTime(e.timestamp)} · by {e.officerName}
+                    {e.sheetId && <span className="ml-1.5 normal-case tracking-normal text-slate-400">· {e.sheetId}</span>}
                   </p>
                 </div>
               </div>
             ))}
+            </>
+            )}
           </div>
         </Card>
       </Reveal>
