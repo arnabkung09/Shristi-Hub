@@ -2,7 +2,7 @@ import {
   AlertTriangle, ArrowRight, ArrowUpRight, CalendarDays, ClipboardList, Crown,
   Megaphone, Medal, MessageSquareHeart, PlusCircle, Radio, Trophy, Vote, Wallet,
 } from "lucide-react";
-import { useHub, fmtDate, targetsUser } from "../store/hub";
+import { useHub, fmtDate, isoDay, targetsUser } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
 import { Badge, Btn, Card, HouseBadge, SectionTitle, StatCard } from "./ui";
 import { cn } from "../utils/cn";
@@ -13,6 +13,12 @@ const MEDAL_STYLE = [
   { icon: <Medal className="h-4 w-4 text-slate-400" />, ring: "ring-slate-400/40", label: "2nd" },
   { icon: <Medal className="h-4 w-4 text-orange-400/80" />, ring: "ring-orange-400/30", label: "3rd" },
 ];
+
+/** Type colours on the homepage mirror the calendar's five spreadsheet types. */
+const TYPE_TONE: Record<string, string> = {
+  Holiday: "type-holiday", Normal: "type-normal", Competition: "type-competition",
+  Event: "type-event", Examination: "type-examination",
+};
 
 const HOUSE_TEXT: Record<House, string> = {
   Blue: "text-blue-500 dark:text-blue-300",
@@ -28,10 +34,19 @@ function greeting() {
 }
 
 export default function Dashboard() {
-  const { state, user, canManage, hasPermission, setActiveTab, houseTotals } = useHub();
+  const { state, user, canManage, hasPermission, setActiveTab, houseTotals, calendarEvents } = useHub();
   if (!user) return null;
 
-  const upcomingEvents = state.events.filter((e) => e.date >= new Date().toISOString().slice(0, 10));
+  const upcomingEvents = calendarEvents
+    .filter((e) => e.date >= isoDay())
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const nextUp = upcomingEvents.slice(0, 3);
+  const nextLabel = (date: string) => {
+    const days = Math.round((Date.parse(`${date}T00:00:00`) - Date.parse(`${isoDay()}T00:00:00`)) / 86400000);
+    if (days === 0) return "Today";
+    if (days === 1) return "Tomorrow";
+    return fmtDate(date);
+  };
   const openTasks = state.tasks.filter((t) => t.status !== "done");
   const activePolls = state.polls.filter((p) => p.expires >= new Date().toISOString().slice(0, 10));
   const urgent = state.announcements.find((a) => a.priority === "urgent" && targetsUser(a.audience, user));
@@ -177,6 +192,33 @@ export default function Dashboard() {
             Points update the moment council logs them — no refresh needed.
           </div>
         </Card>
+
+        {/* Next up — the same calendar rows the Calendar page renders */}
+        {nextUp.length > 0 && (
+          <Card className="p-5 sm:p-6">
+            <SectionTitle
+              title="Next up"
+              subtitle="Straight from the council calendar"
+              action={<Btn variant="ghost" className="min-h-[32px] px-2 text-xs" onClick={() => setActiveTab("events")}>Calendar <ArrowRight className="h-3.5 w-3.5" /></Btn>}
+            />
+            <div className="space-y-3">
+              {nextUp.map((event) => (
+                <button
+                  key={event.id}
+                  onClick={() => setActiveTab("events")}
+                  className="flex w-full items-center gap-3 rounded-xl border border-black/[0.06] px-3.5 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-accent/40 dark:border-white/[0.07]"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent/10 text-accent"><CalendarDays className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-bold text-slate-800 dark:text-slate-100">{event.title}</span>
+                    <span className="mt-0.5 block text-[10px] text-slate-400">{nextLabel(event.date)}</span>
+                  </span>
+                  <span className={cn("type-chip", TYPE_TONE[event.eventType ?? ""] ?? "type-normal")}>{event.eventType ?? event.category}</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

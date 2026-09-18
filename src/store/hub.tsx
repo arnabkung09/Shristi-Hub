@@ -22,6 +22,8 @@ import {
   removeCouncilMessage,
 } from "../lib/council";
 import { useLocalPresence, type ConnectedDevice } from "../lib/presence";
+import { useSheets, type SheetsContextValue } from "../lib/sheets/context";
+import type { SheetSection } from "../lib/sheets/types";
 import {
   firebaseAuth,
   cloudStateFingerprint,
@@ -86,6 +88,10 @@ export function fmtDate(iso: string): string {
   });
 }
 
+/** Today in the viewer's timezone as `yyyy-mm-dd` (the hub's day key everywhere). */
+export const isoDay = (date: Date = new Date()): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
 export const avatarHue = (house: House) =>
   house === "Blue" ? "bg-blue-500" : house === "Red" ? "bg-red-500" : "bg-green-500";
 
@@ -149,6 +155,18 @@ type Action =
   | { type: "BROADCAST"; record: BroadcastRecord; notification: AppNotification };
 
 const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER"]);
+/**
+ * Actions whose data now lives in a Google Sheet. The sheets are the single source of
+ * truth for these three sections, so the hub refuses to write them locally and points
+ * editors at the spreadsheet instead.
+ */
+const SHEET_OWNED_ACTIONS: Record<string, { section: SheetSection; label: string }> = {
+  AWARD_POINTS: { section: "housePoints", label: "House points" },
+  ADD_EVENT: { section: "calendar", label: "Calendar events" },
+  UPDATE_EVENT: { section: "calendar", label: "Calendar events" },
+  DELETE_EVENT: { section: "calendar", label: "Calendar events" },
+  ADD_TRANSACTION: { section: "finances", label: "Financial transactions" },
+};
 const ACTION_FEATURES: Record<string, string> = {
   AWARD_POINTS: "houses", ADD_EVENT: "events", TOGGLE_ATTENDANCE: "events", ADD_ANNOUNCEMENT: "events",
   UPDATE_EVENT: "events", DELETE_EVENT: "events",
@@ -554,6 +572,14 @@ interface HubContextValue {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   houseTotals: Record<House, number>;
+  /** Points ledger in use: live Google Sheets rows, or the local ledger when unconfigured. */
+  pointsLedger: PointEntry[];
+  /** Calendar events in use: live Google Sheets rows, or local events when unconfigured. */
+  calendarEvents: SchoolEvent[];
+  /** Finance ledger in use: live Google Sheets rows, or local entries when unconfigured. */
+  financeEntries: FinanceEntry[];
+  /** Google Sheets connection state for the three spreadsheet-owned sections. */
+  sheets: SheetsContextValue;
   unreadCount: number;
   notify: (n: Omit<AppNotification, "id" | "timestamp" | "readBy" | "kind">) => void;
   feedback: { id: number; text: string; tone: "success" | "error" } | null;
@@ -661,6 +687,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   setActiveTab: (t: string) => void;
 }) {
   const [state, baseDispatch] = useReducer(reducer, undefined, loadState);
+  const sheets = useSheets();
   const [feedback, setFeedback] = useState<HubContextValue["feedback"]>(null);
   const [firebaseStatus, setFirebaseStatus] = useState<HubContextValue["firebaseStatus"]>(firebaseAuth.currentUser ? "connecting" : "signed-out");
   const [firebaseEmail, setFirebaseEmail] = useState<string | null>(firebaseAuth.currentUser?.email ?? null);
@@ -674,6 +701,9 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const activityHashRef = useRef("");
   const googleConnectionRef = useRef<Promise<void> | null>(null);
   useEffect(() => { stateRef.current = state; }, [state]);
+  // Read inside the dispatch closure without re-creating it on every sheet refresh.
+  const sheetOwnerRef = useRef(sheets.isEnabled);
+  sheetOwnerRef.current = sheets.isEnabled;
   const announce = (text: string, tone: "success" | "error" = "success") => setFeedback({ id: Date.now(), text, tone });
   useEffect(() => {
     if (!feedback) return;
@@ -714,6 +744,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const dispatch = useMemo<React.Dispatch<Action>>(() => {
     const selfId = `device-${Math.random().toString(36).slice(2, 8)}`;
     return (action: Action) => {
+      const owned = SHEET_OWNED_ACTIONS[action.type];
+      if (owned && sheetOwnerRef.current(owned.section)) {
+        throw new Error(`${owned.label} are managed in Google Sheets. Add or edit the row in the spreadsheet and the hub will pick it up automatically.`);
+      }
       const previous = stateRef.current;
       let next = reducer(previous, action);
       if (ADMIN_ACTIONS.has(action.type) && next !== previous) {
@@ -756,6 +790,12 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           cloudStateHashRef.current = cloudStateFingerprint(next);
           baseDispatch({ type: "REPLACE", state: next });
           queueMicrotask(() => { applyingCloudRef.current = false; });
+          // Self-heal hubState documents written before the Council Hub member list
+          // existed: without the field the Firestore rules deny every hubChat read and
+          // hubState write, so an administrator publishes the merged (complete) state.
+          if (student.role === "admin" && remote.councilHubMembers === undefined) {
+            void writeCloudState(stateRef.current).catch((error) => announce(`The Council Hub member list could not be published: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+          }
         }
         cloudReadyRef.current = true;
         if (!remote && student.role === "admin") {
@@ -954,11 +994,20 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const hasPermission = (feature: string) => !!user && (user.role === "admin" || (user.role === "council" && (state.permissions[user.id] ?? []).includes(feature)));
   const devices = useLocalPresence(user);
 
+  // House points, calendar, and finance come from Google Sheets when it is configured;
+  // otherwise the hub keeps using its own stored data exactly as before.
   const houseTotals = useMemo(() => {
+    if (sheets.housePoints) return { ...sheets.housePoints.totals };
     const totals: Record<House, number> = { Blue: 0, Red: 0, Green: 0 };
     state.pointsLedger.forEach((e) => { totals[e.house] += e.delta; });
     return totals;
-  }, [state.pointsLedger]);
+  }, [sheets.housePoints, state.pointsLedger]);
+  // House Points is a simple result sheet (no dates or students), so when it is
+  // spreadsheet-backed the House Tracker renders `sheets.housePoints.results` and the
+  // local ledger stays out of the way.
+  const pointsLedger = sheets.housePoints ? [] : state.pointsLedger;
+  const calendarEvents = sheets.calendar ? sheets.calendar.events : state.events;
+  const financeEntries = sheets.finances ? sheets.finances.entries : state.finances;
 
   const unreadCount = useMemo(() => {
     if (!user) return 0;
@@ -970,7 +1019,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   };
 
   return (
-    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, unreadCount, notify, feedback, announce, switchDemoRole, hasPermission, devices, firebaseStatus, firebaseEmail, signInGoogle, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
+    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, switchDemoRole, hasPermission, devices, firebaseStatus, firebaseEmail, signInGoogle, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
       {children}
     </HubContext.Provider>
   );

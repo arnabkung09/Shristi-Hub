@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, Clock, MapPin, Megaphone, Newspaper, Plus, Sparkles, Tag, Trash2, UserCheck, Users, X } from "lucide-react";
+import { AlertTriangle, Building2, CalendarDays, CalendarPlus, CalendarClock, Check, ChevronLeft, ChevronRight, Clock, GraduationCap, LayoutGrid, ListOrdered, MapPin, Megaphone, Newspaper, Plus, Sparkles, Sun, Tag, Trash2, Trophy, UserCheck, Users, X } from "lucide-react";
 import { audienceLabel, fmtDate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
 import { categoryToEventType } from "../lib/content";
+import { CALENDAR_TYPES } from "../lib/sheets/types";
 import { GRADES, HOUSES } from "../lib/seed";
-import { Modal } from "./ui";
+import { Btn, Modal } from "./ui";
+import SheetSyncBar from "./SheetSyncBar";
 import type { Audience, EventCategory, NoticePriority, SchoolEvent } from "../lib/types";
+import type { CalendarEntry, CalendarEventType } from "../lib/sheets/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const CATEGORY_BY_TYPE: Record<string, EventCategory> = {
@@ -14,27 +17,93 @@ const CATEGORY_BY_TYPE: Record<string, EventCategory> = {
 const PRIORITY_TONE: Record<NoticePriority, string> = { urgent: "#fb3f63", important: "#f5a623", general: "#8b7bff", event: "#00bd8b" };
 const iso = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const typeOf = (event: SchoolEvent) => event.eventType ?? categoryToEventType(event.category);
+/** Sheet rows carry a start and end time; local events only have a single time. */
+const timeLabel = (event: SchoolEvent) => (event.endTime ? `${event.time || event.endTime}–${event.endTime}` : event.time || "All day");
+/**
+ * The Calendar sheet stores five types; the hub decides how each one looks. Keeping the
+ * presentation here means the spreadsheet stays Date | Type | Details.
+ */
+/** Local (non-sheet) events keep their own status wording. */
+const EVENT_STATUS_TEXT: Record<string, string> = { upcoming: "Upcoming", ongoing: "Today", completed: "Completed", cancelled: "Cancelled" };
+const STATUS_TONE: Record<string, string> = { upcoming: "active", ongoing: "active", completed: "", cancelled: "" };
+
+const CAL_TYPE_META: Record<CalendarEventType, { icon: typeof Sun; pill: string; tone: "slate" | "amber" | "indigo" | "red" | "emerald" }> = {
+  holiday: { icon: Sun, pill: "type-holiday", tone: "slate" },
+  normal: { icon: CalendarClock, pill: "type-normal", tone: "slate" },
+  competition: { icon: Trophy, pill: "type-competition", tone: "amber" },
+  event: { icon: Sparkles, pill: "type-event", tone: "indigo" },
+  examination: { icon: GraduationCap, pill: "type-examination", tone: "red" },
+};
+
+const dayLabel = (dateIso: string, todayIso: string) => {
+  const days = Math.round((Date.parse(`${dateIso}T00:00:00`) - Date.parse(`${todayIso}T00:00:00`)) / 86400000);
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  if (days === 2) return "Day after tomorrow";
+  if (days > 2 && days < 7) return new Date(`${dateIso}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long" });
+  return new Date(`${dateIso}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long" });
+};
+const longDate = (dateIso: string) => new Date(`${dateIso}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+const shortDate = (dateIso: string) => new Date(`${dateIso}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }).toUpperCase();
 
 export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?: string }) {
-  const { state, user, dispatch, announce, hasPermission } = useHub();
-  const canManage = hasPermission("events");
+  const { state, user, dispatch, announce, hasPermission, calendarEvents, sheets } = useHub();
+  // Once the Calendar spreadsheet is connected it becomes the source of truth: the
+  // existing calendar renders its rows and events are created by adding a sheet row.
+  const sheetCalendar = sheets.isEnabled("calendar") ? sheets.calendar : null;
+  const canManage = hasPermission("events") && !sheets.isEnabled("calendar");
   const today = new Date();
   const [cursor, setCursor] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
   const [filter, setFilter] = useState("all");
   const [selected, setSelected] = useState(iso(today));
   const [tab, setTab] = useState(initialTab === "news" ? "news" : "calendar");
+  const [statusFilter] = useState("all");
+  const [view, setView] = useState<"month" | "agenda">("month");
+  const [detail, setDetail] = useState<CalendarEntry | null>(null);
   const [editing, setEditing] = useState<SchoolEvent | null>(null);
   const [creating, setCreating] = useState<string | null>(null);
   const [typeManager, setTypeManager] = useState(false);
   const [newsComposer, setNewsComposer] = useState(false);
 
-  const events = useMemo(() => state.events.filter((e) => filter === "all" || typeOf(e) === filter), [state.events, filter]);
+  const events = useMemo(
+    () => calendarEvents
+      .filter((e) => filter === "all" || typeOf(e) === filter)
+      .filter((e) => statusFilter === "all" || (e.status ?? "upcoming") === statusFilter),
+    [calendarEvents, filter, statusFilter]
+  );
   const byDate = useMemo(() => {
     const map = new Map<string, SchoolEvent[]>();
     events.forEach((event) => map.set(event.date, [...(map.get(event.date) ?? []), event]));
     return map;
   }, [events]);
+  /** Calendar-sheet rows after the type filter — the one dataset behind every calendar view. */
+  const sheetEntries = useMemo(
+    () => (sheetCalendar?.entries ?? []).filter((entry) => filter === "all" || entry.type === filter),
+    [sheetCalendar, filter]
+  );
+  const entriesByDate = useMemo(() => {
+    const map = new Map<string, CalendarEntry[]>();
+    sheetEntries.forEach((entry) => map.set(entry.date, [...(map.get(entry.date) ?? []), entry]));
+    return map;
+  }, [sheetEntries]);
   const news = useMemo(() => (user ? state.announcements.filter((a) => targetsUser(a.audience, user)) : []), [state.announcements, user]);
+  const typeOptions = useMemo(
+    () => (sheetCalendar ? [...new Set([...state.eventTypes, ...calendarEvents.map(typeOf)])] : state.eventTypes),
+    [sheetCalendar, state.eventTypes, calendarEvents]
+  );
+  const counts = useMemo(() => {
+    const todayIso = iso(new Date());
+    const dates = sheetCalendar ? sheetCalendar.entries.map((entry) => entry.date) : calendarEvents.map((event) => event.date);
+    return {
+      today: dates.filter((date) => date === todayIso).length,
+      upcoming: dates.filter((date) => date > todayIso).length,
+      past: dates.filter((date) => date < todayIso).length,
+    };
+  }, [sheetCalendar, calendarEvents]);
+  const upcomingList = useMemo(
+    () => (sheetCalendar ? sheetCalendar.upcoming.filter((entry) => entry.date > iso(new Date())).slice(0, 5) : []),
+    [sheetCalendar]
+  );
 
   if (!user) return null;
   const monthStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
@@ -60,21 +129,39 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
 
       {tab === "calendar" ? (
         <>
+          <SheetSyncBar section="calendar" className="mb-5" />
+
           <section className="panel panel-pad mb-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="eyebrow">Event Type Categories:</h2>
               <div className="flex items-center gap-3">
-                <span className="eyebrow !text-[9px]">Filtered: {filter === "all" ? "All" : filter}</span>
+                <span className="eyebrow !text-[9px]">
+                  {sheetCalendar
+                    ? `Today: ${counts.today} · Upcoming: ${counts.upcoming} · Past: ${counts.past}`
+                    : `Filtered: ${filter === "all" ? "All" : filter}`}
+                </span>
                 {canManage && <button className="text-action" onClick={() => setTypeManager(true)}><Plus />Manage Event Types</button>}
               </div>
             </div>
             <div className="category-chips">
-              <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><Sparkles />All Categories</button>
-              {state.eventTypes.map((type) => (
-                <button key={type} className={filter === type ? "active" : ""} onClick={() => setFilter(type)}><Tag />{type}
-                  <span className="chip-count">{state.events.filter((e) => typeOf(e) === type).length}</span>
-                </button>
-              ))}
+              <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><Sparkles />All</button>
+              {sheetCalendar ? (
+                CALENDAR_TYPES.map(({ key, label }) => {
+                  const Icon = CAL_TYPE_META[key].icon;
+                  return (
+                    <button key={key} className={filter === key ? "active" : ""} onClick={() => setFilter(key)}>
+                      <Icon />{label}
+                      <span className="chip-count">{sheetCalendar.counts[key]}</span>
+                    </button>
+                  );
+                })
+              ) : (
+                typeOptions.map((type) => (
+                  <button key={type} className={filter === type ? "active" : ""} onClick={() => setFilter(type)}><Tag />{type}
+                    <span className="chip-count">{calendarEvents.filter((e) => typeOf(e) === type).length}</span>
+                  </button>
+                ))
+              )}
             </div>
           </section>
 
@@ -84,31 +171,108 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
                 <h2>{cursor.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</h2>
                 <button className="today-pill" onClick={() => { const now = new Date(); setCursor(new Date(now.getFullYear(), now.getMonth(), 1)); setSelected(iso(now)); }}>TODAY</button>
               </div>
-              <div className="pagination-buttons">
-                <button aria-label="Previous month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></button>
-                <button aria-label="Next month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></button>
+              <div className="flex items-center gap-2">
+                {sheetCalendar && (
+                  <div className="view-switch" role="tablist" aria-label="Calendar view">
+                    <button role="tab" aria-selected={view === "month"} className={view === "month" ? "active" : ""} onClick={() => setView("month")}><LayoutGrid />Month</button>
+                    <button role="tab" aria-selected={view === "agenda"} className={view === "agenda" ? "active" : ""} onClick={() => setView("agenda")}><ListOrdered />Agenda</button>
+                  </div>
+                )}
+                <div className="pagination-buttons">
+                  <button aria-label="Previous month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></button>
+                  <button aria-label="Next month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></button>
+                </div>
               </div>
             </header>
-            <div className="calendar-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day.toUpperCase()}</span>)}</div>
-            <div className="calendar-grid">
-              {cells.map((date, index) => {
-                if (!date) return <div key={`blank-${index}`} className="calendar-cell empty" aria-hidden />;
-                const dayEvents = byDate.get(date) ?? [];
-                const isToday = date === iso(today);
-                return (
-                  <button key={date} className={`calendar-cell ${selected === date ? "selected" : ""}`} aria-label={`${fmtDate(date)}, ${dayEvents.length} events`} aria-pressed={selected === date}
-                    onClick={() => setSelected(date)} onDoubleClick={() => canManage && setCreating(date)}>
-                    <span className={`calendar-daynum ${isToday ? "today" : ""}`}>{Number(date.slice(-2))}</span>
-                    <span className="calendar-events">
-                      {dayEvents.slice(0, 3).map((event) => <span key={event.id} className="event-pill" title={event.title}>{event.time} {event.title}</span>)}
-                      {dayEvents.length > 3 && <span className="event-more">+{dayEvents.length - 3} more</span>}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {view === "month" && (
+              <>
+                <div className="calendar-weekdays">{WEEKDAYS.map((day) => <span key={day}>{day.toUpperCase()}</span>)}</div>
+                <div className="calendar-grid">
+                  {cells.map((date, index) => {
+                    if (!date) return <div key={`blank-${index}`} className="calendar-cell empty" aria-hidden />;
+                    const isToday = date === iso(today);
+                    const isPast = date < iso(today);
+                    const sheetDay = entriesByDate.get(date) ?? [];
+                    const localDay = byDate.get(date) ?? [];
+                    const dayType = sheetDay.length ? CAL_TYPE_META[sheetDay[0].type].pill : "";
+                    const count = sheetCalendar ? sheetDay.length : localDay.length;
+                    return (
+                      <button
+                        key={date}
+                        className={`calendar-cell ${selected === date ? "selected" : ""} ${sheetCalendar && isPast ? "past-day" : ""} ${isToday ? "today-day" : ""} ${dayType}`}
+                        aria-label={`${fmtDate(date)}, ${count} ${count === 1 ? "entry" : "entries"}`}
+                        aria-pressed={selected === date}
+                        onClick={() => setSelected(date)}
+                        onDoubleClick={() => canManage && setCreating(date)}
+                      >
+                        <span className={`calendar-daynum ${isToday ? "today" : ""}`}>{Number(date.slice(-2))}</span>
+                        <span className="calendar-events">
+                          {sheetCalendar
+                            ? sheetDay.slice(0, 2).map((entry) => (
+                              <span key={entry.id} className={`event-pill ${CAL_TYPE_META[entry.type].pill}`} title={`${entry.typeLabel}: ${entry.details}`}>
+                                {entry.details}
+                              </span>
+                            ))
+                            : localDay.slice(0, 3).map((event) => <span key={event.id} className="event-pill" title={event.title}>{timeLabel(event)} {event.title}</span>)}
+                          {(sheetCalendar ? sheetDay.length : localDay.length) > (sheetCalendar ? 2 : 3) && (
+                            <span className="event-more">+{(sheetCalendar ? sheetDay.length : localDay.length) - (sheetCalendar ? 2 : 3)} more</span>
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </section>
 
+          {sheetCalendar ? (
+            <section className="panel panel-pad mt-5">
+              <div className="panel-heading">
+                <div>
+                  <h2><CalendarDays />{longDate(selected)}</h2>
+                  <p>
+                    {(() => {
+                      const dayRows = entriesByDate.get(selected) ?? [];
+                      return dayRows.length
+                        ? `${dayRows.length} ${dayRows.length === 1 ? "entry" : "entries"} on the council calendar`
+                        : "Nothing scheduled for this date.";
+                    })()}
+                  </p>
+                </div>
+              </div>
+              {(() => {
+                const dayRows = entriesByDate.get(selected) ?? [];
+                if (!dayRows.length) {
+                  return (
+                    <div className="empty-content">
+                      <CalendarDays />
+                      <strong>Nothing scheduled</strong>
+                      <p>Pick another date, or add a row to the Calendar sheet for this date.</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="day-event-list">
+                    {dayRows.map((entry) => {
+                      const meta = CAL_TYPE_META[entry.type];
+                      const Icon = meta.icon;
+                      return (
+                        <button key={entry.id} className="day-event day-event-button" onClick={() => setDetail(entry)}>
+                          <div className={`day-event-time ${meta.pill}`}><Icon />{entry.typeLabel}</div>
+                          <div className="min-w-0 flex-1 text-left">
+                            <h3>{entry.details}</h3>
+                            <p className="day-event-meta"><CalendarDays />{longDate(entry.date)}<span className="mx-1">/</span><Tag />{entry.typeLabel}</p>
+                          </div>
+                          <span className="text-[10px] text-slate-400">View details</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </section>
+          ) : (
           <section className="panel panel-pad mt-5">
             <div className="panel-heading">
               <div><h2><CalendarDays />{fmtDate(selected)}</h2><p>{selectedEvents.length ? `${selectedEvents.length} scheduled ${selectedEvents.length === 1 ? "event" : "events"}` : "No events scheduled for this date."}</p></div>
@@ -123,16 +287,27 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
                   const full = event.attendees.length >= event.capacity;
                   return (
                     <article key={event.id} className="day-event">
-                      <div className="day-event-time"><Clock />{event.time}</div>
+                      <div className="day-event-time"><Clock />{timeLabel(event)}</div>
                       <div className="min-w-0 flex-1">
                         <h3>{event.title}</h3>
                         <p className="small-note mt-1">{event.description}</p>
-                        <p className="day-event-meta"><MapPin />{event.venue}<span className="mx-1">/</span><Users />{event.attendees.length} of {event.capacity}<span className="mx-1">/</span><Tag />{typeOf(event)}</p>
+                        <p className="day-event-meta">
+                          <MapPin />{event.venue}
+                          <span className="mx-1">/</span><Tag />{typeOf(event)}
+                          {event.department && <><span className="mx-1">/</span><Building2 />{event.department}</>}
+                          {event.status && <><span className="mx-1">/</span><span className={`status-label ${STATUS_TONE[event.status]}`}>{EVENT_STATUS_TEXT[event.status]}</span></>}
+                          {event.sheetId && <><span className="mx-1">/</span>{event.sheetId}</>}
+                        </p>
+                        {!event.sheetId && <p className="day-event-meta"><Users />{event.attendees.length} of {event.capacity}</p>}
                       </div>
                       <div className="day-event-actions">
+                        {event.sheetId ? (
+                          <span className="text-[10px] text-slate-400">Managed in Google Sheets</span>
+                        ) : (
                         <button className={`btn ${registered ? "btn-secondary" : "btn-primary"}`} disabled={!registered && full} onClick={() => dispatch({ type: "RSVP", eventId: event.id, userId: user.id })}>
                           {registered ? <><Check />Registered</> : full ? "Event full" : "Register"}
                         </button>
+                        )}
                         {canManage && <><button className="icon-action" aria-label={`Edit ${event.title}`} onClick={() => setEditing(event)}><UserCheck /></button><button className="icon-action red" aria-label={`Delete ${event.title}`} onClick={() => { dispatch({ type: "DELETE_EVENT", eventId: event.id }); announce("Event removed from the calendar."); }}><Trash2 /></button></>}
                       </div>
                     </article>
@@ -141,6 +316,107 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
               </div>
             )}
           </section>
+          )}
+
+          {sheetCalendar && view === "agenda" && (
+            <section className="panel panel-pad mt-5">
+              <div className="panel-heading">
+                <div>
+                  <h2><ListOrdered />Agenda</h2>
+                  <p>Every date still ahead of us, straight from the Calendar sheet.</p>
+                </div>
+              </div>
+              {(() => {
+                const ahead = sheetEntries.filter((entry) => entry.date >= iso(today));
+                if (!ahead.length) {
+                  return (
+                    <div className="empty-content">
+                      <CalendarDays />
+                      <strong>No upcoming dates</strong>
+                      <p>Add a row to the Calendar sheet and it will appear here and on the homepage.</p>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="agenda-list">
+                    {ahead.map((entry) => {
+                      const meta = CAL_TYPE_META[entry.type];
+                      const Icon = meta.icon;
+                      return (
+                        <div key={entry.id} className="agenda-row">
+                          <button className="agenda-main" onClick={() => setDetail(entry)}>
+                            <span className="agenda-date">{shortDate(entry.date)}</span>
+                            <span className="agenda-body">
+                              <strong>{entry.details}</strong>
+                              <span className={`type-chip ${meta.pill}`}><Icon />{entry.typeLabel}</span>
+                            </span>
+                            <span className="agenda-day">{dayLabel(entry.date, iso(today))}</span>
+                          </button>
+                          <button
+                            className="icon-action"
+                            aria-label={`Show ${entry.details} on the month grid`}
+                            onClick={() => { setCursor(new Date(`${entry.date}T00:00:00`)); setSelected(entry.date); setView("month"); }}
+                          >
+                            <CalendarDays />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </section>
+          )}
+
+          {sheetCalendar && upcomingList.length > 0 && (
+            <section className="panel panel-pad mt-5">
+              <div className="panel-heading">
+                <div><h2><CalendarDays />Upcoming</h2><p>The next {upcomingList.length} {upcomingList.length === 1 ? "date" : "dates"} from the council calendar spreadsheet.</p></div>
+                <button className="btn btn-secondary" onClick={() => { const next = upcomingList[0]; setCursor(new Date(`${next.date}T00:00:00`)); setSelected(next.date); setView("month"); }}>Show on calendar</button>
+              </div>
+              <div className="day-event-list">
+                {upcomingList.map((entry) => {
+                  const meta = CAL_TYPE_META[entry.type];
+                  const Icon = meta.icon;
+                  return (
+                    <button key={entry.id} className="day-event day-event-button" onClick={() => setDetail(entry)}>
+                      <div className={`day-event-time ${meta.pill}`}><Icon />{dayLabel(entry.date, iso(today))}</div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <h3>{entry.details}</h3>
+                        <p className="day-event-meta"><Tag />{entry.typeLabel}<span className="mx-1">/</span><CalendarDays />{longDate(entry.date)}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {/* Detail card: the Calendar sheet only holds Date, Type and Details, so that is all we show. */}
+          <Modal open={!!detail} onClose={() => setDetail(null)} title="Calendar entry">
+            {detail && (
+              <div className="space-y-4">
+                <div className={`type-banner ${CAL_TYPE_META[detail.type].pill}`}>
+                  {(() => { const Icon = CAL_TYPE_META[detail.type].icon; return <Icon />; })()}
+                  <div>
+                    <strong>{detail.typeLabel}</strong>
+                    <span>{dayLabel(detail.date, iso(today))}</span>
+                  </div>
+                </div>
+                <div className="detail-rows">
+                  <div className="detail-row"><span>Details</span><p>{detail.details}</p></div>
+                  <div className="detail-row"><span>Type</span><p>{detail.typeLabel}</p></div>
+                  <div className="detail-row"><span>Date</span><p>{longDate(detail.date)}</p></div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Btn variant="secondary" onClick={() => { setCursor(new Date(`${detail.date}T00:00:00`)); setSelected(detail.date); setView("month"); setDetail(null); }}>
+                    <CalendarDays className="h-4 w-4" /> Show on calendar
+                  </Btn>
+                  <Btn onClick={() => setDetail(null)}>Close</Btn>
+                </div>
+              </div>
+            )}
+          </Modal>
         </>
       ) : (
         <section>

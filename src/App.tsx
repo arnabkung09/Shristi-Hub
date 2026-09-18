@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { AlarmClock, ArrowRight, CircleCheck, ShieldAlert, X } from "lucide-react";
 import { HubProvider, useHub, targetsUser, TAB_KEY } from "./store/hub";
+import { SheetsProvider } from "./lib/sheets/context";
 import { chime } from "./lib/realtime";
 import Navbar, { DemoStrip } from "./components/Navbar";
 import Login from "./components/Login";
@@ -202,9 +203,11 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <HubProvider activeTab={activeTab} setActiveTab={setActiveTab}>
-        <Shell />
-      </HubProvider>
+      <SheetsProvider>
+        <HubProvider activeTab={activeTab} setActiveTab={setActiveTab}>
+          <Shell />
+        </HubProvider>
+      </SheetsProvider>
     </MotionConfig>
   );
 }

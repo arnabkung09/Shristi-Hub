@@ -58,11 +58,42 @@ This is a browser-based demonstration, not production authentication. Data and d
 
 BroadcastChannel synchronizes open tabs on the same browser origin, not devices over a network. Desktop notifications require browser permission in a secure context. Firebase/FCM is shown as not connected. The source spreadsheet URL is retained as roster provenance; the application does not include a spreadsheet importer.
 
+## Google Sheets-backed sections
+
+House Points, Calendar, and Monetary Fund can be sourced from a council spreadsheet
+(`GOOGLE-SHEETS-SETUP.md`). The sheets stay deliberately small — House Points is
+`Specific | Type | House | Position | Teams Won | Points`, Calendar is `Date | Type | Details`,
+and Monetary Fund is `Date | Type | Amount | Description` — and everything else is computed
+by the hub.
+
+`SheetsProvider` wraps the hub provider in `App.tsx`; when a section is connected, the hub
+exposes the derived data through the same context fields the components already used
+(`calendarEvents`, `financeEntries`, `houseTotals`), so the layout, navigation, animations,
+and typography are unchanged. The House Tracker renders `sheets.housePoints.results` (there is
+no student column, so the local points ledger and the per-student table are bypassed), and the
+calendar renders the one `Calendar` dataset: month grid, agenda view, day list, upcoming
+block, five per-type filters, and a Details/Type/Date detail card. Each connected section adds
+a sync strip (`SheetSyncBar`) with the row count, last-updated time, and a **Refresh now**
+button, and the Admin Panel gains a **Google Sheets** tab. Writing actions for a connected
+section are refused with a message pointing at the spreadsheet. Unconnected sections keep
+their existing local behaviour.
+
 ## Verification
 
 The Vite production build is verified. `npm run test:council` bundles `scripts/council-hub.test.ts`
 with esbuild and runs the Council Hub access-control checks in Node: explicit membership, the
 administrator-only add/remove rules, posting and message removal permissions, the member list
 helpers, and guards that keep the reducer and the Firestore rules aligned with the same list.
-Browser interaction tests, Firebase rules emulator tests, and external Google Sheets connectivity
-are not automated in this environment.
+`npm run test:sheets` runs the spreadsheet bridge checks against fixture rows: tolerant cell
+parsing (day-first dates, `Rs` amounts, blank cells and blank rows), the house-name mapping, the
+standard scoring table and explicit `Points` overrides, the five calendar types with
+today/upcoming/past grouping and per-type counts, the income/expense/balance arithmetic, and
+the read-only transport itself against a local stand-in for the Apps Script endpoint (envelope
+parsing, token/section query, server errors, timeouts).
+`npm run test:render` server-renders every screen this feature touches —
+twice: with nothing connected (the hub must look exactly as before) and with a spreadsheet
+connected (standings, events, and the computed balance must reach the existing components),
+plus the empty-tab and failed-refresh states. `npm test` runs all three suites. Browser
+interaction tests, Firebase rules emulator tests, and a live Google endpoint are not automated
+in this environment — run the checklist in `GOOGLE-SHEETS-SETUP.md` after deploying
+`apps-script/Code.gs`.
