@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  Bold, CheckCircle2, Clock, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
+  Bold, CheckCircle2, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
   RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi, WifiOff,
 } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
@@ -20,7 +20,6 @@ import { CouncilHubMembersDialog } from "./admin/CouncilHubMembersPanel";
 import { useCouncilChat } from "./useCouncilChat";
 import {
   clearConfirmationCode, issueConfirmationCode, verifyConfirmationCode,
-  getPendingConfirmation,
 } from "../lib/verification";
 
 /** Renders council chat markup as safe React nodes: **bold**, __underline__, *italic*. */

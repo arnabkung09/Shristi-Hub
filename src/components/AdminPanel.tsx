@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, DatabaseZap, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
+import { Award, Bell, Building2, CheckSquare, CirclePlus, Database, DatabaseZap, FileText, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
-import { departmentFor, downloadJson, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, publicRoster, ratingStats, taskDepartment } from "../lib/admin";
-import { GRADE_VALUES, HOUSE_VALUES, INSTITUTIONAL_EMAIL_DOMAIN } from "../lib/ssot-auth";
+import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, ratingStats, taskDepartment } from "../lib/admin";
 import { renderRichText } from "../lib/content";
 
 import { Modal } from "./ui";

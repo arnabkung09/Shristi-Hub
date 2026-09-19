@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import {
-  CheckCircle2, CircleDashed, Download, EyeOff, Lock, MessageSquareHeart, Plus, Send,
+  CheckCircle2, CircleDashed, Download, Lock, MessageSquareHeart, Plus, Send,
   ShieldCheck, ThumbsDown, ThumbsUp, UserCheck, Users, Vote, XCircle, Search,
 } from "lucide-react";
 import { audienceLabel, fmtDate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
+import { RevealBlocks } from "./Effects";
 import { Avatar, Badge, Btn, Card, EmptyState, Field, Modal, RoleBadge, Select, Tabs, inputCls } from "./ui";
 import { GRADES, HOUSES, SUGGESTION_CATEGORIES } from "../lib/seed";
 import { cn } from "../utils/cn";
@@ -760,6 +761,7 @@ export default function FeedbackAndPolls({ initialTab = "suggestions" }: { initi
   const [tab, setTab] = useState(initialTab === "polls" ? "polls" : "suggestions");
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           tabs={[
@@ -771,6 +773,7 @@ export default function FeedbackAndPolls({ initialTab = "suggestions" }: { initi
         />
       </div>
       {tab === "suggestions" ? <SuggestionBox /> : <PollsTab />}
+      </RevealBlocks>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Award, Building2, Camera, CheckSquare, CircleCheck, ExternalLink, Mail,
 import { fmtDate, initials, uid, useHub } from "../store/hub";
 import { departmentFor, FEATURE_PERMISSIONS, tasksForDepartment } from "../lib/admin";
 import { GRADES } from "../lib/seed";
+import { RevealBlocks } from "./Effects";
 import { Modal } from "./ui";
 import CouncilControls, { type CouncilAction } from "./admin/CouncilControls";
 
@@ -89,7 +90,7 @@ export default function CouncilMembers() {
     }
   };
   return (
-    <>
+    <RevealBlocks>
       <div className="directory-heading"><div><h1>Shristi Student Council Members <span className="outline-count">{officers.length} Executive {officers.length === 1 ? "Member" : "Members"}</span></h1><p>Meet the student council officers, manage council members, or click a department badge to explore completed milestones.</p></div>{admin && <button className="btn btn-primary mt-1" onClick={() => setAction({ kind: "appoint", source: "directory" })}><Shield />Add Member to Directory</button>}</div>
 
       <section className="panel department-explorer"><h2 className="eyebrow">Explore Completed Tasks by Council Department</h2><p className="small-note mb-2">Departments match the Admin Panel list. Completed delegated work is archived here.</p><div className="department-chips">{state.departments.map((department) => <button key={department} onClick={() => setMilestone(department)}><Building2 />{department}<span>{tasksForDepartment(department, state.tasks, state.users, state.departments).filter((t) => t.status === "done").length} Done</span></button>)}</div></section>
@@ -312,6 +313,6 @@ export default function CouncilMembers() {
         </div>
       </Modal>
       {action && <CouncilControls key={`${action.kind}-${action.userId ?? "new"}`} action={action} onClose={() => setAction(null)} />}
-    </>
+    </RevealBlocks>
   );
 }

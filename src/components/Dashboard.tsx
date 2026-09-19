@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useHub, fmtDate, isoDay, targetsUser } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
+import { RevealBlocks } from "./Effects";
 import { Badge, Btn, Card, HouseBadge, SectionTitle, StatCard } from "./ui";
 import { cn } from "../utils/cn";
 import type { House } from "../lib/types";
@@ -67,6 +68,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       {/* Welcome banner */}
       <Card className="relative overflow-hidden p-6 sm:p-7">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.14),transparent_55%)]" />
@@ -220,6 +222,7 @@ export default function Dashboard() {
           </Card>
         )}
       </div>
+      </RevealBlocks>
     </div>
   );
 }

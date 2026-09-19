@@ -351,6 +351,7 @@ export function buildSeedState(): HubState {
     },
     siteRatings: [],
     houseCaptains: {},
+    houseMemberships: { Blue: [], Red: [], Green: [] },
     houseMessages: [],
     councilHubMembers: [PRIMARY_ADMIN.id],
     councilMessages: [],

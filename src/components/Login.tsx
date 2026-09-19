@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   CheckCircle2, Eye, EyeOff, KeyRound, LoaderCircle, Lock, Mail,
-  RefreshCw, ShieldCheck, Sparkles, UserCheck, Users,
+  RefreshCw, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 import { useHub } from "../store/hub";
 import { Crest } from "./ui";

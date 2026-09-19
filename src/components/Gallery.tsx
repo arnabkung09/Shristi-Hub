@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Camera, ChevronLeft, ChevronRight, Images, Link2, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { uid, useHub, fmtDate } from "../store/hub";
+import { RevealBlocks } from "./Effects";
 import { Btn, Card, Field, Modal, SectionTitle, Select, inputCls } from "./ui";
 import { cn } from "../utils/cn";
 
@@ -60,6 +61,7 @@ export default function Gallery() {
 
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       <SectionTitle
         title="Activities & Photo Gallery"
         subtitle="Student life and council milestones, documented"
@@ -178,6 +180,7 @@ export default function Gallery() {
           </div>
         </div>
       </Modal>
+      </RevealBlocks>
     </div>
   );
 }

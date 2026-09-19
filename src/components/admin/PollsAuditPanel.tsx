@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import {
-  Download, Eye, Filter, Lock, Search, ShieldCheck, UserCheck, Users, Vote,
+  Download, Eye, Search, ShieldCheck, UserCheck, Vote,
 } from "lucide-react";
-import { audienceLabel, fmtDate, relativeTime, useHub } from "../../store/hub";
+import { audienceLabel, relativeTime, useHub } from "../../store/hub";
 import { Avatar, Badge, Btn, EmptyState, RoleBadge, inputCls } from "../ui";
 import { cn } from "../../utils/cn";
-import type { Poll, PollBallot } from "../../lib/types";
+import type { PollBallot } from "../../lib/types";
 
 export default function PollsAuditPanel() {
   const { state, setActiveTab } = useHub();

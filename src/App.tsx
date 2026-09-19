@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { ReactLenis } from "lenis/react";
 import { AlarmClock, ArrowRight, CircleCheck, ShieldAlert, X } from "lucide-react";
 import { HubProvider, useHub, targetsUser, TAB_KEY } from "./store/hub";
 import { SheetsProvider } from "./lib/sheets/context";
@@ -201,7 +202,11 @@ export default function App() {
     return () => { window.removeEventListener("popstate", onNavigate); window.removeEventListener("hashchange", onNavigate); };
   }, []);
 
-  return (
+  const [smoothScroll] = useState(() =>
+    typeof window !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+
+  const tree = (
     <MotionConfig reducedMotion="user">
       <SheetsProvider>
         <HubProvider activeTab={activeTab} setActiveTab={setActiveTab}>
@@ -209,5 +214,12 @@ export default function App() {
         </HubProvider>
       </SheetsProvider>
     </MotionConfig>
+  );
+
+  if (!smoothScroll) return tree;
+  return (
+    <ReactLenis root options={{ lerp: 0.1, autoRaf: true }}>
+      {tree}
+    </ReactLenis>
   );
 }
