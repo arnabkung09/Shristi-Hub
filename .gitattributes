@@ -1,2 +1,12 @@
-# Auto detect text files and perform LF normalization
-text=auto
+# Set the default behavior to configure all text files to LF on checkout and commit
+* text=auto eol=lf
+
+# Explicitly ensure code files use LF
+*.js text eol=lf
+*.ts text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+
+# Denote files that are truly binary and should not be modified
+*.png binary
+*.jpg binary
