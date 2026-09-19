@@ -19,7 +19,7 @@ export const COUNCIL_MESSAGE_HISTORY_LIMIT = 500;
 export type CouncilState = Pick<HubState, "councilHubMembers" | "councilMessages" | "users">;
 
 function rank(member: Pick<Student, "role">): number {
-  return member.role === "admin" ? 0 : member.role === "council" ? 1 : 2;
+  return member.role === "admin" ? 0 : member.role === "council" ? 1 : member.role === "teacher" ? 2 : 3;
 }
 
 /** Membership list with stale ids removed, officers first, then alphabetical. */
@@ -147,7 +147,7 @@ export function sortCouncilMessages(messages: CouncilChatMessage[]): CouncilChat
   return [...messages].sort((a, b) => b.timestamp - a.timestamp);
 }
 
-/** Roster accounts that can still be added to the hub, officers first. */
+/** Roster accounts that can still be added to the hub, officers first. Class accounts are excluded. */
 export function councilCandidates(
   state: Pick<CouncilState, "councilHubMembers" | "users">,
   query = "",
@@ -155,6 +155,7 @@ export function councilCandidates(
   const needle = query.trim().toLowerCase();
   return state.users
     .filter((user) => !state.councilHubMembers.includes(user.id))
+    .filter((user) => user.role !== "grade")
     .filter((user) => !needle || `${user.name} ${user.email} ${user.id} ${user.role} ${user.gradeLabel ?? ""} ${user.houseLabel ?? ""} ${user.councilTitle ?? ""}`.toLowerCase().includes(needle))
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }

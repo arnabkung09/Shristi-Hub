@@ -71,7 +71,7 @@ const ts = (daysOffset: number, h = 10, m = 0) => {
 const dateStr = (daysOffset: number) => new Date(now + daysOffset * DAY).toISOString().slice(0, 10);
 
 function buildStudents(): Student[] {
-  return SHRISTI_USER_ROSTER.map((user) => ({
+  const students: Student[] = SHRISTI_USER_ROSTER.map((user) => ({
     id: user.id,
     name: user.name,
     email: user.email,
@@ -88,7 +88,119 @@ function buildStudents(): Student[] {
     department: user.role === "admin" ? "General" : user.councilTitle?.includes("Captain") ? "Sports & Recreation" : user.councilTitle?.includes("Editorial") ? "Media & Communications" : user.councilTitle?.includes("Cultural") ? "Events & Activities" : "General",
     createdAt: user.createdAt,
     isStaff: false,
+    aliases: [],
+    verifiedAliases: [],
   }));
+
+  const teachers: Student[] = [
+    {
+      id: "tch-001",
+      name: "Anita Sharma",
+      email: "anita.sharma@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 10,
+      gradeLabel: "Grade 10",
+      house: "Blue",
+      houseLabel: "Blue House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: ["anita.personal@gmail.com"],
+      verifiedAliases: ["anita.personal@gmail.com"],
+    },
+    {
+      id: "tch-002",
+      name: "Bikram Thapa",
+      email: "bikram.thapa@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 9,
+      gradeLabel: "Grade 9",
+      house: "Red",
+      houseLabel: "Red House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "tch-003",
+      name: "Sunita Gurung",
+      email: "sunita.gurung@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 8,
+      gradeLabel: "Grade 8",
+      house: "Green",
+      houseLabel: "Green House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: [],
+      verifiedAliases: [],
+    },
+  ];
+
+  const classAccounts: Student[] = [
+    {
+      id: "cls-010",
+      name: "Grade 10 Class",
+      email: "grade10@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 10,
+      gradeLabel: "Grade 10",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "cls-009",
+      name: "Grade 9 Class",
+      email: "grade9@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 9,
+      gradeLabel: "Grade 9",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "cls-008",
+      name: "Grade 8 Class",
+      email: "grade8@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 8,
+      gradeLabel: "Grade 8",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+  ];
+
+  return [...students, ...teachers, ...classAccounts];
 }
 
 export const ADMIN_USER: Student = {
@@ -154,14 +266,31 @@ export function buildSeedState(): HubState {
   ];
 
   const suggestions: Suggestion[] = [
-    { id: "sg-1", category: "Canteen", text: "Can we get a juice and fruit counter during the short break?", anonymous: true, authorLabel: "Anonymous", status: "implemented", response: "Approved! A fruit counter pilot launches next Monday.", responderName: "Arnab Shrestha", timestamp: ts(-12) },
-    { id: "sg-2", category: "Facilities", text: "The fans in Classroom 4-B make a loud rattling noise during tests.", anonymous: true, authorLabel: "Anonymous", status: "consideration", responderName: "Arnab Shrestha", response: "Logged with maintenance — inspection is scheduled this week.", timestamp: ts(-4) },
-    { id: "sg-3", category: "Clubs", text: "A chess club would be amazing for students across Grades 6–10.", anonymous: true, authorLabel: "Anonymous", status: "pending", timestamp: ts(0, 7, 50) },
+    { id: "sg-1", category: "Canteen", text: "Can we get a juice and fruit counter during the short break?", anonymous: false, authorId: "shr-001", authorLabel: "Aarav Sharma · Grade 10 · Blue House", authorEmail: "aarav.sharma@shristiacademy.edu.np", authorRole: "student", authorGrade: 10, authorHouse: "Blue", status: "implemented", response: "Approved! A fruit counter pilot launches next Monday.", responderName: "Arnab Shrestha", timestamp: ts(-12) },
+    { id: "sg-2", category: "Facilities", text: "The fans in Classroom 4-B make a loud rattling noise during tests.", anonymous: false, authorId: "shr-002", authorLabel: "Pooja Thapa · Grade 9 · Red House", authorEmail: "pooja.thapa@shristiacademy.edu.np", authorRole: "student", authorGrade: 9, authorHouse: "Red", status: "consideration", responderName: "Arnab Shrestha", response: "Logged with maintenance — inspection is scheduled this week.", timestamp: ts(-4) },
+    { id: "sg-3", category: "Clubs", text: "A chess club would be amazing for students across Grades 6–10.", anonymous: false, authorId: "shr-003", authorLabel: "Rohan Gurung · Grade 10 · Green House", authorEmail: "rohan.gurung@shristiacademy.edu.np", authorRole: "student", authorGrade: 10, authorHouse: "Green", status: "pending", timestamp: ts(0, 7, 50) },
   ];
 
   const polls: Poll[] = [
-    { id: "pl-1", question: "Spirit Day theme for Founders' Week?", description: "Winning theme becomes the official dress code for Friday.", options: ["Retro 90s", "Monochrome", "Neon Future", "Cultural Heritage"], votes: [0, 0, 0, 0], voters: [], expires: dateStr(2), audience: { kind: "all" }, creatorName: "Asmita Shrestha", createdAt: ts(-2) },
-    { id: "pl-2", question: "Which counter should join the canteen?", description: "The Welfare desk will pilot the winner for one month.", options: ["Momo Station", "Salad Bar", "Waffle Corner", "Smoothie Counter"], votes: [0, 0, 0, 0], voters: [], expires: dateStr(5), audience: { kind: "all" }, creatorName: "Anjali Nepal", createdAt: ts(-1) },
+    {
+      id: "pl-1",
+      question: "Spirit Day theme for Founders' Week?",
+      description: "Winning theme becomes the official dress code for Friday.",
+      options: ["Retro 90s", "Monochrome", "Neon Future", "Cultural Heritage"],
+      votes: [1, 2, 0, 1],
+      voters: ["shr-001", "shr-002", "shr-003", "shr-004"],
+      ballots: [
+        { userId: "shr-001", userName: "Aarav Sharma", userEmail: "aarav.sharma@shristiacademy.edu.np", userRole: "student", userGrade: 10, userHouse: "Blue", optionIndex: 0, optionLabel: "Retro 90s", timestamp: ts(-1, 14) },
+        { userId: "shr-002", userName: "Pooja Thapa", userEmail: "pooja.thapa@shristiacademy.edu.np", userRole: "student", userGrade: 9, userHouse: "Red", optionIndex: 1, optionLabel: "Monochrome", timestamp: ts(-1, 15) },
+        { userId: "shr-003", userName: "Rohan Gurung", userEmail: "rohan.gurung@shristiacademy.edu.np", userRole: "student", userGrade: 10, userHouse: "Green", optionIndex: 1, optionLabel: "Monochrome", timestamp: ts(-1, 16) },
+        { userId: "shr-004", userName: "Suman Shrestha", userEmail: "suman.shrestha@shristiacademy.edu.np", userRole: "student", userGrade: 11, userHouse: "Blue", optionIndex: 3, optionLabel: "Cultural Heritage", timestamp: ts(0, 9) },
+      ],
+      expires: dateStr(2),
+      audience: { kind: "all" },
+      creatorName: "Asmita Shrestha",
+      createdAt: ts(-2),
+    },
+    { id: "pl-2", question: "Which counter should join the canteen?", description: "The Welfare desk will pilot the winner for one month.", options: ["Momo Station", "Salad Bar", "Waffle Corner", "Smoothie Counter"], votes: [0, 0, 0, 0], voters: [], ballots: [], expires: dateStr(5), audience: { kind: "all" }, creatorName: "Anjali Nepal", createdAt: ts(-1) },
   ];
 
   const meetings: Meeting[] = [

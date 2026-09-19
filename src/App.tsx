@@ -136,7 +136,7 @@ function Shell() {
       case "events":
         return <EventsAndNews initialTab={q.includes("compose=notice") || q.includes("tab=notices") ? "news" : "calendar"} />;
       case "notices": return <EventsAndNews initialTab="news" />;
-      case "tasks": return canManage ? <TaskManagement openNewOnMount={q.includes("new=1")} /> : <Restricted />;
+      case "tasks": return <TaskManagement openNewOnMount={canManage && q.includes("new=1")} />;
       case "voice": return <FeedbackAndPolls initialTab={q.includes("polls=1") ? "polls" : "suggestions"} />;
       case "meetings": return <MeetingsAndFiles />;
       case "finances": return <Finances openNewOnMount={q.includes("new=1")} />;

@@ -51,7 +51,7 @@ service cloud.firestore {
     }
 
     match /hubState/main {
-      allow read: if activeMember();
+      allow read: if admin() || activeMember();
       allow create, update: if admin()
         && request.resource.data.councilHubMembers is list
         && request.resource.data.councilHubMembers.size() <= 1000;
@@ -117,6 +117,12 @@ service cloud.firestore {
       allow create, update: if admin()
         && request.resource.data.keys().hasOnly(['vapidKey', 'updatedAt'])
         && request.resource.data.vapidKey is string;
+      allow delete: if admin();
+    }
+
+    match /publicConfig/sheets {
+      allow read: if signedIn();
+      allow create, update: if admin();
       allow delete: if admin();
     }
 

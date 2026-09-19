@@ -60,7 +60,7 @@ export default function Dashboard() {
     { label: "New Task", desc: "Assign council work", icon: <ClipboardList className="h-4.5 w-4.5" />, tab: "tasks?new=1", manageOnly: true },
     { label: "Record Transaction", desc: "Income or expense", icon: <Wallet className="h-4.5 w-4.5" />, tab: "finances?new=1", manageOnly: true },
     { label: "Browse Events", desc: `${upcomingEvents.length} upcoming`, icon: <CalendarDays className="h-4.5 w-4.5" />, tab: "events" },
-    { label: "Submit Suggestion", desc: "Anonymous option available", icon: <MessageSquareHeart className="h-4.5 w-4.5" />, tab: "voice" },
+    { label: "Submit Suggestion", desc: "Share feedback with council", icon: <MessageSquareHeart className="h-4.5 w-4.5" />, tab: "voice" },
     { label: "Vote Now", desc: `${activePolls.length} active polls`, icon: <Vote className="h-4.5 w-4.5" />, tab: "voice?polls=1" },
     { label: "Broadcast Hub", desc: "Ping all devices", icon: <Radio className="h-4.5 w-4.5" />, tab: "broadcast", manageOnly: true },
   ].filter((a) => !a.manageOnly || hasPermission(a.tab.split("?")[0]));

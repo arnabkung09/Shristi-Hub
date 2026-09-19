@@ -12,12 +12,14 @@ export interface Student {
   email: string;
   /** Optional personal or secondary emails that authenticate this same account. */
   aliases?: string[];
+  /** Alias emails that have been verified via 6-digit confirmation code. */
+  verifiedAliases?: string[];
   password: string;
   passwordHash?: string;
   /** Teachers may have no class. */
   grade: number | null;
   gradeLabel: GradeLabel | null;
-  /** Teachers may belong to no house. */
+  /** Teachers have individual houses; class accounts belong to no house. */
   house: House | null;
   houseLabel: HouseLabel | null;
   status: AccountStatus;
@@ -29,6 +31,8 @@ export interface Student {
   createdAt: string;
   isStaff?: boolean;
 }
+
+export type Teacher = Student;
 
 export interface Session {
   userId: string;
@@ -129,6 +133,7 @@ export interface CouncilTask {
   createdBy: string;
   createdAt: number;
   department?: string;
+  completedAt?: number;
 }
 
 export type SuggestionCategory = "Academics" | "Facilities" | "Canteen" | "Sports" | "Clubs" | "Student Welfare";
@@ -138,12 +143,28 @@ export interface Suggestion {
   id: string;
   category: SuggestionCategory;
   text: string;
-  anonymous: boolean;
+  anonymous?: boolean;
   authorId?: string;
   authorLabel: string;
+  authorEmail?: string;
+  authorRole?: Role;
+  authorGrade?: number | null;
+  authorHouse?: House | null;
   status: SuggestionStatus;
   response?: string;
   responderName?: string;
+  timestamp: number;
+}
+
+export interface PollBallot {
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userRole?: Role;
+  userGrade?: number | null;
+  userHouse?: House | null;
+  optionIndex: number;
+  optionLabel?: string;
   timestamp: number;
 }
 
@@ -154,6 +175,7 @@ export interface Poll {
   options: string[];
   votes: number[];
   voters: string[];
+  ballots?: PollBallot[];
   expires: string;
   audience: Audience;
   creatorName: string;

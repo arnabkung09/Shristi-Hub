@@ -164,9 +164,11 @@ export function HouseMark({ house, className }: { house: House | null; className
   );
 }
 
-export function RoleBadge({ role }: { role: "admin" | "council" | "student" }) {
+export function RoleBadge({ role }: { role: Role }) {
   if (role === "admin") return <Badge tone="violet">Admin</Badge>;
   if (role === "council") return <Badge tone="indigo">Council</Badge>;
+  if (role === "teacher") return <Badge tone="amber">Teacher</Badge>;
+  if (role === "grade") return <Badge tone="sky">Class Account</Badge>;
   return <Badge tone="slate">Student</Badge>;
 }
 
