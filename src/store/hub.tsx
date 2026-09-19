@@ -113,6 +113,8 @@ type Action =
   | { type: "ADD_ANNOUNCEMENT"; announcement: Announcement; notification: AppNotification }
   | { type: "ADD_TASK"; task: CouncilTask; notification?: AppNotification }
   | { type: "MOVE_TASK"; taskId: string; status: CouncilTask["status"] }
+  | { type: "EDIT_TASK"; task: Partial<CouncilTask> & { id: string } }
+  | { type: "DELETE_TASK"; taskId: string }
   | { type: "ADD_SUGGESTION"; suggestion: Suggestion }
   | { type: "REVIEW_SUGGESTION"; suggestionId: string; status: Suggestion["status"]; response: string; responderName: string }
   | { type: "VOTE"; pollId: string; optionIndex: number; userId: string }
@@ -171,7 +173,7 @@ const SHEET_OWNED_ACTIONS: Record<string, { section: SheetSection; label: string
 const ACTION_FEATURES: Record<string, string> = {
   AWARD_POINTS: "houses", ADD_EVENT: "events", TOGGLE_ATTENDANCE: "events", ADD_ANNOUNCEMENT: "events",
   UPDATE_EVENT: "events", DELETE_EVENT: "events",
-  ADD_TASK: "tasks", MOVE_TASK: "tasks", REVIEW_SUGGESTION: "voice", ADD_POLL: "voice",
+  ADD_TASK: "tasks", MOVE_TASK: "tasks", EDIT_TASK: "tasks", DELETE_TASK: "tasks", REVIEW_SUGGESTION: "voice", ADD_POLL: "voice",
   ADD_MEETING: "meetings", SAVE_MINUTES: "meetings", ADD_TRANSACTION: "finances",
   ADD_PHOTO: "gallery", SET_ACTIVE_IMAGE: "gallery", BROADCAST: "broadcast",
 };
@@ -193,7 +195,7 @@ function toSsotUser(student: Student) {
   };
 }
 
-function reducer(state: HubState, action: Action): HubState {
+export function reducer(state: HubState, action: Action): HubState {
   const actor = state.users.find((u) => u.id === state.session?.userId);
   if (ADMIN_ACTIONS.has(action.type) && actor?.role !== "admin") throw new Error("Only an administrator can make this change.");
   const feature = ACTION_FEATURES[action.type];
@@ -280,14 +282,71 @@ function reducer(state: HubState, action: Action): HubState {
     case "ADD_TASK":
       return {
         ...state,
-        tasks: [action.task, ...state.tasks],
+        tasks: [
+          {
+            ...action.task,
+            completedAt: action.task.status === "done" ? (action.task.completedAt ?? Date.now()) : undefined,
+          },
+          ...state.tasks,
+        ],
         notifications: action.notification ? [action.notification, ...state.notifications].slice(0, 60) : state.notifications,
       };
     case "MOVE_TASK":
-      if (actor?.role !== "admin" && !state.tasks.some((task) => task.id === action.taskId && task.assigneeId === actor?.id)) throw new Error("Only the assigned officer or an administrator can update this task.");
+      if (
+        actor?.role !== "admin" &&
+        !state.permissions[actor?.id ?? ""]?.includes("tasks") &&
+        !state.tasks.some((task) => task.id === action.taskId && task.assigneeId === actor?.id)
+      ) {
+        throw new Error("Only the assigned officer, a task manager, or an administrator can update this task.");
+      }
       return {
         ...state,
-        tasks: state.tasks.map((t) => (t.id === action.taskId ? { ...t, status: action.status } : t)),
+        tasks: state.tasks.map((t) =>
+          t.id === action.taskId
+            ? {
+                ...t,
+                status: action.status,
+                completedAt: action.status === "done" ? (t.completedAt ?? Date.now()) : undefined,
+              }
+            : t
+        ),
+      };
+    case "EDIT_TASK":
+      if (
+        actor?.role !== "admin" &&
+        !state.permissions[actor?.id ?? ""]?.includes("tasks") &&
+        !state.tasks.some((task) => task.id === action.task.id && task.assigneeId === actor?.id)
+      ) {
+        throw new Error("Only the assigned officer, a task manager, or an administrator can edit this task.");
+      }
+      return {
+        ...state,
+        tasks: state.tasks.map((t) =>
+          t.id === action.task.id
+            ? {
+                ...t,
+                ...action.task,
+                completedAt:
+                  action.task.status === "done"
+                    ? (action.task.completedAt ?? t.completedAt ?? Date.now())
+                    : action.task.status && action.task.status !== "done"
+                    ? undefined
+                    : t.completedAt,
+              }
+            : t
+        ),
+      };
+    case "DELETE_TASK":
+      if (
+        actor?.role !== "admin" &&
+        !state.permissions[actor?.id ?? ""]?.includes("tasks") &&
+        !state.tasks.some((task) => task.id === action.taskId && task.assigneeId === actor?.id)
+      ) {
+        throw new Error("Only the assigned officer, a task manager, or an administrator can remove this task.");
+      }
+      return {
+        ...state,
+        tasks: state.tasks.filter((t) => t.id !== action.taskId),
       };
     case "ADD_SUGGESTION":
       return { ...state, suggestions: [action.suggestion, ...state.suggestions] };

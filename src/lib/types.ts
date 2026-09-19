@@ -133,6 +133,7 @@ export interface CouncilTask {
   createdBy: string;
   createdAt: number;
   department?: string;
+  completedAt?: number;
 }
 
 export type SuggestionCategory = "Academics" | "Facilities" | "Canteen" | "Sports" | "Clubs" | "Student Welfare";
