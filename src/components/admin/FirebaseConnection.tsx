@@ -54,6 +54,7 @@ export default function FirebaseConnection() {
   const [message, setMessage] = useState("Testing the configured Firebase project...");
   const [syncing, setSyncing] = useState<"upload" | "download" | null>(null);
   const [confirmLoad, setConfirmLoad] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
   const [checks, setChecks] = useState<{ label: string; pass: boolean }[]>([]);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
@@ -370,8 +371,11 @@ export default function FirebaseConnection() {
               Full Site Data Synchronization
             </h2>
             <p>
-              Upload writes the complete sanitized site state, council branding, and student
-              roster to Firestore. Load updates this browser with the cloud state document.
+              <strong>Save</strong> stores the complete site state — branding, house logos,
+              student roster, council settings, tasks, events, polls, and every other section —
+              into the shared Firestore document (<code>hubState/main</code>). Any future version
+              of this site you deploy automatically loads this saved data the moment an
+              administrator signs in, so your configuration carries across deploys.
             </p>
           </div>
           {lastSynced && (
@@ -452,14 +456,14 @@ export default function FirebaseConnection() {
           <button
             className="btn btn-primary"
             disabled={firebaseStatus !== "connected" || syncing !== null}
-            onClick={() => void upload()}
+            onClick={() => setConfirmSave(true)}
           >
             {syncing === "upload" ? (
               <LoaderCircle className="animate-spin" />
             ) : (
               <CloudUpload />
             )}
-            Sync all site data into Firestore
+            Save all site data to Firestore
           </button>
           <button
             className="btn btn-secondary"
@@ -587,6 +591,43 @@ export default function FirebaseConnection() {
           <button className="btn btn-primary" onClick={() => void download()}>
             <CloudDownload />
             Load and replace local data
+          </button>
+        </div>
+      </Modal>
+
+      {/* Confirmation Modal for Save (store all site data in Firestore) */}
+      <Modal
+        open={confirmSave}
+        onClose={() => setConfirmSave(false)}
+        title="Save all site data to Firestore?"
+        icon={<CloudUpload />}
+        subtitle="This overwrites the shared cloud copy with your current local site data."
+      >
+        <p className="inline-message">
+          Every section of the site — branding, house logos, the full student roster, council
+          departments, tasks, events, polls, suggestions, finances, gallery, and settings — will
+          be written to <code>hubState/main</code>. Any future version of this site you deploy
+          will automatically load this saved data as soon as an administrator signs in, so your
+          configuration survives the update.
+        </p>
+        <p className="inline-message mt-3 flex gap-2">
+          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          <span>You must be signed in with the primary administrator Google account ({PRIMARY_ADMIN_EMAIL}) to write to Firestore.</span>
+        </p>
+        <div className="dialog-actions">
+          <button className="btn btn-secondary" onClick={() => setConfirmSave(false)}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={syncing !== null}
+            onClick={() => {
+              setConfirmSave(false);
+              void upload();
+            }}
+          >
+            <CloudUpload />
+            Save to Firestore
           </button>
         </div>
       </Modal>
