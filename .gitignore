@@ -1,1 +1,8 @@
+# Dependencies — reinstall per platform with `npm install`
 node_modules/
+
+# Build output — regenerated on every `npm run build` / `firebase deploy`
+dist/
+
+# Firebase local deploy cache
+.firebase/
