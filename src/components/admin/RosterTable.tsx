@@ -8,15 +8,12 @@ import { useHub } from "../../store/hub";
 import type { House, Role, Student } from "../../lib/types";
 import { GRADES, HOUSES } from "../../lib/seed";
 import {
-  buildStudentRecord, houseFullName, houseLogo, PRIMARY_ADMIN_ID,
+  buildStudentRecord, generateAccountPassword, houseFullName, houseLogo, PRIMARY_ADMIN_ID,
   publicRoster, downloadJson,
 } from "../../lib/admin";
 import { assertInstitutionalEmail } from "../../lib/ssot-auth";
 import { ROSTER_SOURCE_ISSUES, ROSTER_SOURCE_URL } from "../../lib/whitelist-seed";
 import { Modal } from "../ui";
-import {
-  clearConfirmationCode, getPendingConfirmation, issueConfirmationCode,
-} from "../../lib/verification";
 
 type DatabaseTab = "students" | "teachers" | "classes";
 type RowAction = { kind: "edit" | "password" | "activation" | "remove" | "emails"; student: Student };
@@ -514,8 +511,8 @@ function AddAccountModal({
   const [house, setHouse] = useState<House | null>(type === "classes" ? null : "Blue");
   const [error, setError] = useState("");
 
-  const defaultPassword =
-    type === "teachers" ? "teacher123" : type === "classes" ? "grade123" : "student123";
+  // One random one-time password per account instead of a shared role default.
+  const [defaultPassword] = useState(() => generateAccountPassword());
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -534,6 +531,7 @@ function AddAccountModal({
         grade,
         house,
         role,
+        password: defaultPassword,
       });
 
       dispatch({ type: "ADD_STUDENT", student: newAccount });
@@ -765,12 +763,10 @@ function AccountDialog({
     try {
       const trimmed = newEmail.trim().toLowerCase();
       dispatch({ type: "ADD_STUDENT_EMAIL", userId: student.id, email: trimmed });
-      // Issue confirmation code
-      const code = issueConfirmationCode(student.id, trimmed, currentStudent.email);
       setSentCodeNotice(
-        `Added ${trimmed} (Pending Verification). A 6-digit confirmation code [ ${code} ] was dispatched to primary school account ${currentStudent.email}.`
+        `Added ${trimmed}. It stays unusable for sign-in until an administrator confirms it here with “Verify now”.`
       );
-      announce(`Added ${trimmed}. Confirmation code required on login.`);
+      announce(`Added ${trimmed}. Confirm it here to allow sign-in with that email.`);
       setNewEmail("");
       setError("");
     } catch (err) {
@@ -778,29 +774,24 @@ function AccountDialog({
     }
   };
 
+  /**
+   * Confirming an alias is an administrator decision: the identity is added to the roster
+   * record's verified list and published with the next sync. There is deliberately no
+   * self-service code — the old flow generated it in the browser, so it proved nothing.
+   */
   const handleVerifyEmail = (em: string) => {
     try {
       dispatch({ type: "VERIFY_STUDENT_EMAIL", userId: student.id, email: em });
-      clearConfirmationCode(student.id, em);
-      announce(`Verified ${em} for ${student.name}.`);
+      announce(`Confirmed ${em} for ${student.name}. They can now sign in with it.`);
       setSentCodeNotice(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to verify email.");
+      setError(err instanceof Error ? err.message : "Unable to confirm email.");
     }
-  };
-
-  const handleSendCode = (em: string) => {
-    const code = issueConfirmationCode(student.id, em, currentStudent.email);
-    setSentCodeNotice(
-      `Dispatched 6-digit confirmation code [ ${code} ] to official school account ${currentStudent.email}.`
-    );
-    announce(`Confirmation code ${code} sent to ${currentStudent.email}.`);
   };
 
   const handleRemoveEmail = (em: string) => {
     try {
       dispatch({ type: "REMOVE_STUDENT_EMAIL", userId: student.id, email: em });
-      clearConfirmationCode(student.id, em);
       announce(`Removed ${em} from ${student.name}'s authorized emails.`);
       setError("");
     } catch (err) {
@@ -827,13 +818,13 @@ function AccountDialog({
       {kind === "emails" ? (
         <div className="form-stack">
           <p className="inline-message">
-            <strong>{currentStudent.email}</strong> is the base school account. You can link additional personal or alternate sign-in emails. When the user logs in with an added email, a 6-digit confirmation code is sent to their base school account to verify it.
+            <strong>{currentStudent.email}</strong> is the base school account. Added emails stay unusable for sign-in until an administrator confirms them here — the roster is the single source of truth, and confirming is recorded on this account.
           </p>
 
           {sentCodeNotice && (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs leading-relaxed text-emerald-300">
-              <p className="font-semibold flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> Code Sent to School Email</p>
-              <p className="mt-1 font-mono text-[11px]">{sentCodeNotice}</p>
+              <p className="font-semibold flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4" /> Login email updated</p>
+              <p className="mt-1 text-[11px]">{sentCodeNotice}</p>
             </div>
           )}
 
@@ -845,8 +836,6 @@ function AccountDialog({
               {allEmails.map((em, idx) => {
                 const isPrimary = idx === 0;
                 const isVerified = isPrimary || (currentStudent.verifiedAliases ?? []).includes(em);
-                const pending = !isPrimary && !isVerified ? getPendingConfirmation(student.id, em) : null;
-
                 return (
                   <div
                     key={em}
@@ -866,33 +855,23 @@ function AccountDialog({
                       ) : (
                         <span
                           className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-400"
-                          title={pending ? `A confirmation code was issued ${new Date(pending.createdAt).toLocaleString()}` : "Send a 6-digit code, then verify this email."}
+                          title="Administrator confirmation required before this email can sign in."
                         >
-                          <Clock className="h-3 w-3" /> Pending Verification · Code Required
+                          <Clock className="h-3 w-3" /> Awaiting administrator confirmation
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
                       {!isPrimary && !isVerified && (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-outline !min-h-[26px] !px-2.5 !py-0.5 !text-[9px]"
-                            title="Send 6-digit confirmation code to base school email"
-                            onClick={() => handleSendCode(em)}
-                          >
-                            Send Code
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary !min-h-[26px] !px-2.5 !py-0.5 !text-[9px]"
-                            title="Mark email as verified directly"
-                            onClick={() => handleVerifyEmail(em)}
-                          >
-                            <Check className="h-3 w-3" /> Verify Now
-                          </button>
-                        </>
+                        <button
+                          type="button"
+                          className="btn btn-primary !min-h-[26px] !px-2.5 !py-0.5 !text-[9px]"
+                          title="Confirm this email so the account can sign in with it"
+                          onClick={() => handleVerifyEmail(em)}
+                        >
+                          <Check className="h-3 w-3" /> Verify now
+                        </button>
                       )}
                       {!isPrimary && (
                         <button
@@ -1055,17 +1034,11 @@ function AccountDialog({
                     type="button"
                     className="btn btn-outline"
                     onClick={() => {
-                      const def =
-                        student.role === "teacher"
-                          ? "teacher123"
-                          : student.role === "grade"
-                          ? "grade123"
-                          : "student123";
-                      setPassword(def);
+                      setPassword(generateAccountPassword());
                       setReveal(true);
                     }}
                   >
-                    Use default ({student.role === "teacher" ? "teacher123" : student.role === "grade" ? "grade123" : "student123"})
+                    Generate one-time password
                   </button>
                   <button
                     type="button"

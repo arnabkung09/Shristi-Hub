@@ -5,7 +5,7 @@ import { AlarmClock, ArrowRight, CircleCheck, ShieldAlert, X } from "lucide-reac
 import { HubProvider, useHub, targetsUser, TAB_KEY } from "./store/hub";
 import { SheetsProvider } from "./lib/sheets/context";
 import { chime } from "./lib/realtime";
-import Navbar, { DemoStrip } from "./components/Navbar";
+import Navbar from "./components/Navbar";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
 import HousePoints from "./components/HousePoints";
@@ -151,7 +151,6 @@ function Shell() {
     <div className="app-shell">
       <MouseGlow />
       <a href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }} className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3 focus:text-black">Skip to main content</a>
-      <DemoStrip />
       <Navbar />
       <main className="site-container site-main" id="main-content" tabIndex={-1}>
         <div key={activeTab} className="page-motion">

@@ -22,11 +22,11 @@ import {
   removeCouncilMessage,
 } from "../lib/council";
 import { useLocalPresence, type ConnectedDevice } from "../lib/presence";
-import { issueConfirmationCode } from "../lib/verification";
 import { useSheets, type SheetsContextValue } from "../lib/sheets/context";
 import type { SheetSection } from "../lib/sheets/types";
 import {
   firebaseAuth,
+  PRIMARY_ADMIN_EMAIL,
   cloudStateFingerprint,
   createFirebasePassword,
   observeFirebaseAuth,
@@ -48,6 +48,33 @@ import {
 const STORAGE_KEY = "shristi-council-school-roster-v5";
 const SESSION_KEY = "shristi-preview-session-v3";
 const TAB_KEY = "shristi-council-tab-v3";
+
+/**
+ * Local (non-Firebase) sign-in is a development convenience: it powers the preview sign-in
+ * panel on the login screen and the offline preview. Production builds authenticate
+ * exclusively through Firebase Authentication, so no shared password can ever open an
+ * administrator session on the live site.
+ */
+export const DEVELOPMENT_BUILD = (() => {
+  try {
+    // Vite substitutes `import.meta.env.DEV` with a literal when it bundles the app, so
+    // this collapses to a compile-time constant in the shipped code.
+    return import.meta.env.DEV === true;
+  } catch {
+    // Non-Vite bundles (the test harnesses) have no import.meta.env: treat as production.
+    return false;
+  }
+})();
+
+/** Passwords never reach browser storage in a production build. */
+function withoutStoredCredentials(state: HubState): HubState {
+  if (DEVELOPMENT_BUILD) return { ...state, session: null };
+  return {
+    ...state,
+    session: null,
+    users: state.users.map((student) => ({ ...student, password: "", passwordHash: "" })),
+  };
+}
 
 export const uid = () => `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -747,7 +774,6 @@ interface HubContextValue {
   notify: (n: Omit<AppNotification, "id" | "timestamp" | "readBy" | "kind">) => void;
   feedback: { id: number; text: string; tone: "success" | "error" } | null;
   announce: (text: string, tone?: "success" | "error") => void;
-  switchDemoRole: (role: Role) => void;
   hasPermission: (feature: string) => boolean;
   devices: ConnectedDevice[];
   firebaseStatus: "signed-out" | "connecting" | "connected" | "error";
@@ -852,7 +878,9 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     return {
       ...localUser,
       ...cloudUser,
-      password: localUser?.password ?? "student123",
+      // Cloud-created accounts authenticate through Firebase; they never inherit a
+      // shared local password.
+      password: localUser?.password ?? "",
       passwordHash: localUser?.passwordHash ?? "firebase-auth",
       aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
     } as Student;
@@ -894,6 +922,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const [firebaseStatus, setFirebaseStatus] = useState<HubContextValue["firebaseStatus"]>(firebaseAuth.currentUser ? "connecting" : "signed-out");
   const [firebaseEmail, setFirebaseEmail] = useState<string | null>(firebaseAuth.currentUser?.email ?? null);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
+  // Cloud readiness is React state (not only a ref) so the auto-sync effects re-run the
+  // moment the Firestore subscription attaches — otherwise the first write after sign-in
+  // was silently skipped until the next state change.
+  const [cloudReady, setCloudReady] = useState(false);
   const stateRef = useRef(state);
   const cloudReadyRef = useRef(false);
   const cloudStateHashRef = useRef("");
@@ -921,7 +953,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, session: null }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(state)));
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
     } catch { announce("Storage is full or unavailable. Your latest changes are only saved in this tab.", "error"); }
   }, [state]);
@@ -984,18 +1016,36 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     if (isAlias && !isVerified) {
       await signOutFirebase();
-      const code = issueConfirmationCode(student.id, normalized, student.email);
-      throw new Error(`VERIFICATION_CODE_REQUIRED:${student.id}:${normalized}:${student.email}:${code}`);
+      // Aliases are administrator-controlled identities. There is no self-service code
+      // (the old 6-digit step was generated on the client, so it protected nothing);
+      // an administrator confirms the alias on the roster instead.
+      throw new Error(`ALIAS_NOT_CONFIRMED:${encodeURIComponent(normalized)}:${encodeURIComponent(student.email)}`);
     }
 
-    await provisionFirebaseProfile(student, stateRef.current.users);
+    // Firestore provisioning is best-effort: a signed-in roster member must still be able
+    // to use the hub when rules are not deployed yet, while being told cloud sync is off.
+    let cloudProvisioned = true;
+    try {
+      await provisionFirebaseProfile(student, stateRef.current.users);
+    } catch (error) {
+      cloudProvisioned = false;
+      announce(
+        `Signed in as ${student.name}, but Firestore could not provision this account: ${error instanceof Error ? error.message : "unknown error"} Cloud sync is off for this session.`,
+        "error",
+      );
+    }
     dispatch({ type: "LOGIN", userId: student.id });
-    setFirebaseStatus("connected");
     setFirebaseEmail(normalized);
     setNeedsPasswordSetup(!firebaseUserHasPassword());
+    if (!cloudProvisioned) {
+      setFirebaseStatus("error");
+      return;
+    }
+    setFirebaseStatus("connected");
 
     cloudUnsubscribeRef.current?.();
     cloudReadyRef.current = false;
+    setCloudReady(false);
     cloudUnsubscribeRef.current = subscribeCloudState(
       (remote) => {
         if (remote) {
@@ -1020,6 +1070,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           }
         }
         cloudReadyRef.current = true;
+        setCloudReady(true);
         if (!remote && student.role === "admin") {
           rosterHashRef.current = JSON.stringify(stateRef.current.users.map((entry) => [entry.id, entry.email, entry.aliases, entry.name, entry.grade, entry.house, entry.role, entry.status, entry.councilTitle, entry.department]));
           cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
@@ -1072,37 +1123,45 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       setActiveTab(student?.role === "admin" ? "admin" : "dashboard");
       announce(`Signed in securely as ${signedIn.email}.`);
     } catch (error) {
-      if (localStudent) {
-        const matches =
-          localStudent.password === password ||
-          (localStudent.role === "admin" && password === "admin123") ||
-          (localStudent.role === "council" && password === "council123") ||
-          (localStudent.role === "teacher" && password === "teacher123") ||
-          (localStudent.role === "grade" && password === "grade123") ||
-          (localStudent.role === "student" && password === "student123");
-
-        if (matches) {
-          dispatch({ type: "LOGIN", userId: localStudent.id });
-          setFirebaseStatus("signed-out");
-          setFirebaseEmail(null);
-          setActiveTab(localStudent.role === "admin" ? "admin" : "dashboard");
-          announce(`Signed in as ${localStudent.name}.`);
-          return;
-        }
+      // Development-only offline fallback: the account's own password, never a shared
+      // role password. Production sign-in is Firebase Authentication only, so no account
+      // — least of all an administrator — can be opened by guessing a default.
+      if (DEVELOPMENT_BUILD && localStudent?.password && localStudent.password === password) {
+        dispatch({ type: "LOGIN", userId: localStudent.id });
+        setFirebaseStatus("signed-out");
+        setFirebaseEmail(null);
+        setActiveTab(localStudent.role === "admin" ? "admin" : "dashboard");
+        announce(`Signed in as ${localStudent.name} (development build).`);
+        return;
       }
       setFirebaseStatus("error");
+      if (!DEVELOPMENT_BUILD && error instanceof Error && "code" in error) {
+        const code = String((error as { code?: string }).code ?? "");
+        if (code.includes("operation-not-allowed")) {
+          throw new Error("Password sign-in is not enabled for this Firebase project yet. Use “Sign in with Google”, or ask the administrator to enable Email/Password in Firebase Authentication.");
+        }
+        if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found") || code.includes("invalid-login-credentials")) {
+          throw new Error("Email or password is incorrect. If you have never created a password, sign in with Google first and set one from Admin Panel → account security.");
+        }
+      }
       throw error;
     }
   };
 
+  /**
+   * Preview sign-in without a Firebase session. Development builds only: production code
+   * refuses outright, so no shipped bundle can open an account this way. The login screen
+   * renders a matching development-only panel.
+   */
   const signInDirect = (userId: string) => {
+    if (!DEVELOPMENT_BUILD) throw new Error("Preview sign-in is disabled on the live platform.");
     const student = stateRef.current.users.find((u) => u.id === userId);
     if (!student) throw new Error("Account not found.");
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseStatus("signed-out");
     setFirebaseEmail(null);
     setActiveTab(student.role === "admin" ? "admin" : "dashboard");
-    announce(`Signed in as ${student.name}.`);
+    announce(`Signed in as ${student.name} (development build).`);
   };
 
   const createAccountPassword = async (password: string) => {
@@ -1128,11 +1187,25 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
     if (current?.role !== "admin") throw new Error("Administrator access is required.");
     if (!firebaseAuth.currentUser) throw new Error("Sign in with Google before uploading site data.");
-    await syncCloudRoster(stateRef.current.users);
+    // The shared hub document is writable by any administrator; roster identities are
+    // rule-restricted to the primary administrator. A secondary admin still gets the full
+    // site upload and an explicit note about the roster part.
+    let rosterPublished = true;
+    try {
+      await syncCloudRoster(stateRef.current.users);
+    } catch (error) {
+      rosterPublished = false;
+      if (!/permission|denied|primary administrator/i.test(error instanceof Error ? error.message : "")) throw error;
+    }
     await writeCloudState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
     rosterHashRef.current = JSON.stringify(stateRef.current.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-    announce("All site data including branding, houses, and roster records were uploaded to Firestore.");
+    announce(
+      rosterPublished
+        ? "All site data including branding, houses, and roster records were uploaded to Firestore."
+        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore. Roster identities stay under the primary administrator (${PRIMARY_ADMIN_EMAIL}) — sign in with that account to publish new sign-in emails.`,
+      rosterPublished ? "success" : "error",
+    );
   };
 
   const loadAllFromFirestore = async () => {
@@ -1153,6 +1226,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     cloudUnsubscribeRef.current?.();
     cloudUnsubscribeRef.current = null;
     cloudReadyRef.current = false;
+    setCloudReady(false);
     cloudBootstrappedRef.current = false;
     if (firebaseAuth.currentUser) await signOutFirebase();
     dispatch({ type: "LOGOUT" });
@@ -1179,9 +1253,11 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   useEffect(() => {
     if (firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
-    return subscribeFirebaseInbox((notification) => {
-      dispatch({ type: "PUSH_NOTIFICATION", notification });
-    });
+    return subscribeFirebaseInbox(
+      (notification) => { dispatch({ type: "PUSH_NOTIFICATION", notification }); },
+      // A denied listener must not break the session; the local inbox keeps working.
+      () => undefined,
+    );
   }, [firebaseStatus, dispatch]);
 
   useEffect(() => {
@@ -1195,7 +1271,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, []);
 
   useEffect(() => {
-    if (!cloudReadyRef.current || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
+    if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
     if (currentUser?.role !== "admin") return;
     const stateHash = cloudStateFingerprint(state);
@@ -1213,10 +1289,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       }
     }, 900);
     return () => clearTimeout(timer);
-  }, [state, firebaseStatus]);
+  }, [state, firebaseStatus, cloudReady]);
 
   useEffect(() => {
-    if (!cloudReadyRef.current || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
+    if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
     if (!currentUser || currentUser.role === "admin") return;
     const activityHash = JSON.stringify({
@@ -1233,26 +1309,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       void syncFirebaseUserActivity(state).catch((error) => announce(`Your activity could not sync: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
     }, 700);
     return () => clearTimeout(timer);
-  }, [state, firebaseStatus]);
-
-  const switchDemoRole = (role: Role) => {
-    const activateDemo = () => {
-      const current = stateRef.current;
-      const demo = current.users.find((u) => role === "admin" ? u.id === PRIMARY_ADMIN_ID : u.role === role);
-      if (!demo) return;
-      cloudUnsubscribeRef.current?.();
-      cloudUnsubscribeRef.current = null;
-      cloudReadyRef.current = false;
-      cloudBootstrappedRef.current = false;
-      dispatch({ type: "LOGIN", userId: demo.id });
-      setFirebaseStatus("signed-out");
-      setFirebaseEmail(null);
-      setActiveTab(role === "admin" ? "admin" : "dashboard");
-      announce(`Now previewing ${role} permissions as ${demo.name}. Firebase sync is off in demo mode.`);
-    };
-    if (firebaseAuth.currentUser) void signOutFirebase().finally(activateDemo);
-    else activateDemo();
-  };
+  }, [state, firebaseStatus, cloudReady]);
 
   const sessionUserId = state.session?.userId;
   const user = sessionUserId ? state.users.find((u) => u.id === sessionUserId && u.status === "active") ?? null : null;
@@ -1285,7 +1342,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   };
 
   return (
-    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, switchDemoRole, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
+    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
       {children}
     </HubContext.Provider>
   );

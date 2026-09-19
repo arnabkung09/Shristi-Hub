@@ -2,9 +2,14 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function signedIn() { return request.auth != null; }
+    function profile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    // Only an active administrator may replace school branding or gallery images.
     function admin() {
       return signedIn()
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+        && profile().role == 'admin'
+        && profile().status == 'active';
     }
 
     match /branding/{fileName} {

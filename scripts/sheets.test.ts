@@ -435,6 +435,60 @@ await test("house mappings from the admin panel are validated", () => {
   assert.equal(config.normaliseHouseMapInput(null), undefined);
 });
 
+/* ---------------------------------------------- built-in endpoint (hardcoded) */
+
+/** Installs a tiny localStorage so the precedence rules can be exercised in Node. */
+function withStorage(values: Record<string, string> = {}) {
+  const map = new Map(Object.entries(values));
+  (globalThis as unknown as { localStorage: unknown }).localStorage = {
+    getItem: (key: string) => (map.has(key) ? map.get(key)! : null),
+    setItem: (key: string, value: string) => { map.set(key, String(value)); },
+    removeItem: (key: string) => { map.delete(key); },
+    clear: () => map.clear(),
+    key: (index: number) => [...map.keys()][index] ?? null,
+    get length() { return map.size; },
+  };
+}
+
+await test("the council's deployed Apps Script endpoint is built in", () => {
+  assert.match(config.BUILT_IN_SHEETS_API_URL, /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/);
+  assert.equal(config.builtInConfig()?.apiUrl, config.BUILT_IN_SHEETS_API_URL);
+  // The built-in endpoint must be a real, valid Sheets connection on its own.
+  assert.equal(config.normaliseConfig({ apiUrl: config.BUILT_IN_SHEETS_API_URL })?.apiUrl, config.BUILT_IN_SHEETS_API_URL);
+});
+
+await test("the built-in endpoint is used when nothing has been configured", () => {
+  withStorage();
+  assert.equal(config.resolveConfig()?.apiUrl, config.BUILT_IN_SHEETS_API_URL);
+  assert.equal(config.resolveConfigSource(), "built-in");
+  assert.equal(config.sectionEnabled(config.resolveConfig(), "calendar"), true);
+});
+
+await test("a saved connection beats the built-in endpoint", () => {
+  withStorage({ [config.SHEETS_CONFIG_KEY]: JSON.stringify({ apiUrl: "https://script.google.com/macros/s/SavedByAdmin/exec" }) });
+  assert.equal(config.resolveConfig()?.apiUrl, "https://script.google.com/macros/s/SavedByAdmin/exec");
+  assert.equal(config.resolveConfigSource(), "browser");
+  withStorage();
+});
+
+await test("disconnecting switches every section back to the hub's own data", () => {
+  withStorage({ [config.SHEETS_DISABLED_KEY]: "1" });
+  assert.equal(config.resolveConfig(), null);
+  assert.equal(config.resolveConfigSource(), "none");
+  assert.equal(config.sectionEnabled(config.resolveConfig(), "housePoints"), false);
+  withStorage();
+});
+
+await test("saving a connection clears an earlier disconnect", () => {
+  withStorage({ [config.SHEETS_DISABLED_KEY]: "1" });
+  config.saveCachedConfig(config.builtInConfig());
+  assert.equal(config.sheetsExplicitlyDisabled(), false);
+  assert.equal(config.resolveConfigSource(), "browser");
+  config.saveCachedConfig(null);
+  assert.equal(config.resolveConfig(), null);
+  withStorage();
+});
+
 await test("section labels and houses match the hub vocabulary", () => {
   assert.deepEqual(types.SHEET_SECTIONS, ["housePoints", "calendar", "finances"]);
   assert.equal(types.SHEET_LABELS.housePoints, "House Points");
@@ -527,6 +581,56 @@ await test("server errors, HTTP failures and wrong payloads are reported distinc
     assert.match(result.message, /Tabs found: House Points, Calendar, Monetary Fund/);
   } finally {
     await missingTab.close();
+  }
+});
+
+await test("a browser that blocks the cross-origin fetch still reads the sheet over JSONP", async () => {
+  // Chrome/Safari block the script.google.com → script.googleusercontent.com redirect for
+  // `fetch` in some configurations. The client must transparently fall back to the JSONP
+  // form of the same endpoint, which is what this fake DOM exercises end to end.
+  type Globals = { fetch: unknown; document: unknown; window: unknown };
+  const globals = globalThis as unknown as Globals;
+  const original: Globals = { fetch: globals.fetch, document: globals.document, window: globals.window };
+  const payload = {
+    ok: true, section: "housePoints", updatedAt: "2026-09-19T07:00:00.000Z", count: 1,
+    rows: [{ specific: "Spelling Bee (Senior)", type: "Individual", house: "Annapurna", position: 1, teamsWon: 1, points: 3 }],
+    warnings: [],
+  };
+  try {
+    globals.fetch = async () => { throw new TypeError("Failed to fetch"); };
+    globals.window = globalThis;
+    globals.document = {
+      head: {
+        appendChild(script: { _callback?: string }) {
+          const name = script._callback;
+          setTimeout(() => {
+            (globalThis as unknown as Record<string, unknown>)[String(name)](payload);
+          }, 0);
+        },
+      },
+      createElement: () => {
+        const script: Record<string, unknown> = { remove() {} };
+        Object.defineProperty(script, "src", {
+          set(value: string) { script._callback = new URL(value).searchParams.get("callback"); },
+          get() { return ""; },
+        });
+        return script;
+      },
+    } as unknown as Globals["document"];
+
+    const envelope = await client.fetchSection<Record<string, unknown>>(
+      "housePoints",
+      { apiUrl: "https://script.google.com/macros/s/AKfyFallback/exec" },
+      { timeoutMs: 2000 },
+    );
+    assert.equal(envelope.ok, true);
+    assert.equal(envelope.count, 1);
+    const derived = derive.deriveHousePoints({ rows: parse.parseRows(envelope.rows, parse.parseHousePointRow) });
+    assert.equal(derived.totals.Red, 3);
+  } finally {
+    globals.fetch = original.fetch;
+    globals.document = original.document;
+    globals.window = original.window;
   }
 });
 

@@ -120,9 +120,23 @@ service cloud.firestore {
       allow delete: if admin();
     }
 
+    // The spreadsheet endpoint is public, read-only configuration (see
+    // GOOGLE-SHEETS-SETUP.md): any visitor — signed in or not — must be able to read it so
+    // the House Points, Calendar and Monetary Fund sections paint on first load. It holds
+    // a public Apps Script /exec URL, never a Google API key or OAuth secret, and only
+    // administrators may change it. The shape is validated so the document can never grow
+    // into a place to stash arbitrary data.
     match /publicConfig/sheets {
-      allow read: if signedIn();
-      allow create, update: if admin();
+      allow read: if true;
+      allow create, update: if admin()
+        && request.resource.data.keys().hasOnly(['apiUrl', 'token', 'houseMap', 'sections', 'pollSeconds', 'updatedAt'])
+        && request.resource.data.apiUrl is string
+        && request.resource.data.apiUrl.matches('^https://.*')
+        && request.resource.data.apiUrl.size() <= 500
+        && (!('token' in request.resource.data) || (request.resource.data.token is string && request.resource.data.token.size() <= 200))
+        && (!('pollSeconds' in request.resource.data) || request.resource.data.pollSeconds == null
+            || (request.resource.data.pollSeconds is int && request.resource.data.pollSeconds >= 15 && request.resource.data.pollSeconds <= 3600))
+        && (!('sections' in request.resource.data) || request.resource.data.sections is map);
       allow delete: if admin();
     }
 

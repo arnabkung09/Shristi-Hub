@@ -122,7 +122,33 @@ Calendar rows come back as `{ "date": "2026-05-02", "type": "Holiday", "details"
 and Monetary Fund rows as
 `{ "date": "2026-05-02", "type": "Income", "amount": 5000, "description": "Event collection" }`.
 
+### Read transport
+
+The browser tries `fetch` first. Google answers a `/exec` request with a redirect to
+`script.googleusercontent.com`, which some browsers refuse for cross-origin `fetch`, so the
+client automatically repeats the request as JSONP (`&callback=…`, which Apps Script answers
+with the same JSON wrapped in a function call). **Test connection** uses the same path, so a
+green result means the sections really will load. There is no Google API key, service
+account or OAuth secret anywhere in this flow.
+
 ## 3. Connect the hub
+
+**The council's endpoint is already built in.** `src/lib/sheets/config.ts` hardcodes the
+deployed `/exec` URL, so House Points, Calendar and Monetary Fund read from the council
+spreadsheet on every device with no setup at all — signed in or not. The precedence is:
+
+| Order | Source | Notes |
+| --- | --- | --- |
+| 1 | Admin Panel → Google Sheets (this browser) | Wins over everything else once saved |
+| 2 | Firestore `publicConfig/sheets` | Published by **Save connection**, reaches every device |
+| 3 | `VITE_COUNCIL_SHEETS_API` | Build-time override |
+| 4 | Built-in endpoint (`BUILT_IN_SHEETS_API_URL`) | Active by default |
+
+**Disconnect** in the admin panel turns the sections back to the hub's own stored data on
+that device and removes the shared Firestore override; saving a connection (or pressing
+*restore the built-in endpoint* and saving) switches them back on.
+
+To point the hub at a different spreadsheet:
 
 1. Sign in as an administrator → **Admin Panel → Google Sheets**.
 2. Paste the `/exec` URL, and the shared token if you set one.
@@ -138,10 +164,13 @@ and Monetary Fund rows as
    strip with the row count, the last-sync time, and **Refresh now**.
 
 Admins' settings are stored in this browser and mirrored to the Firestore document
-`publicConfig/sheets`, so other signed-in admins pick them up when they open the hub.
+`publicConfig/sheets`, so **every** visitor picks them up when they open the hub (that
+document is public, read-only configuration — see `FIREBASE-SETUP.md`). If the Firestore
+write fails, the panel says so: the connection still works in that browser, and signing in
+with Google publishes it for everyone.
 
-**Build-time alternative (no admin step).** Add the endpoint to the environment before
-building or starting the dev server:
+**Build-time alternative.** Add the endpoint to the environment before building or starting
+the dev server to override the built-in URL for a whole deployment:
 
 ```bash
 # .env.local

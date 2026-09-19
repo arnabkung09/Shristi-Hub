@@ -1,19 +1,15 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
-  CheckCircle2, Eye, EyeOff, KeyRound, LoaderCircle, Lock, Mail,
-  RefreshCw, ShieldCheck, Sparkles, Users,
+  Eye, EyeOff, KeyRound, LoaderCircle, Mail, ShieldAlert, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
-import { useHub } from "../store/hub";
+import { DEVELOPMENT_BUILD, useHub } from "../store/hub";
 import { Crest } from "./ui";
-import {
-  clearConfirmationCode, issueConfirmationCode, verifyConfirmationCode,
-} from "../lib/verification";
 
 type LoginMode = "google" | "password";
 
 export default function Login() {
-  const { state, dispatch, signInGoogle, signInPassword, firebaseStatus, announce } = useHub();
+  const { state, signInGoogle, signInPassword, signInDirect, firebaseStatus, announce } = useHub();
   const [mode, setMode] = useState<LoginMode>("google");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -21,14 +17,8 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 6-digit verification code step for unverified aliases
-  const [verificationPending, setVerificationPending] = useState<{
-    userId: string;
-    aliasEmail: string;
-    schoolEmail: string;
-    code: string;
-  } | null>(null);
-  const [confirmationInput, setConfirmationInput] = useState("");
+  // An added (alias) email only works after an administrator confirms it on the roster.
+  const [aliasPending, setAliasPending] = useState<{ aliasEmail: string; schoolEmail: string } | null>(null);
 
   const working = firebaseStatus === "connecting" || loading;
 
@@ -39,15 +29,12 @@ export default function Login() {
       await signInGoogle();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg.startsWith("VERIFICATION_CODE_REQUIRED:")) {
-        const parts = msg.split(":");
-        setVerificationPending({
-          userId: parts[1],
-          aliasEmail: parts[2],
-          schoolEmail: parts[3],
-          code: parts[4],
-        });
-        announce(`Confirmation code sent to your official school account: ${parts[3]}.`);
+      // "ALIAS_NOT_CONFIRMED:<alias>:<school email>" — both values are URI encoded by the
+      // store, so an email address never has to survive naive string splitting.
+      if (msg.startsWith("ALIAS_NOT_CONFIRMED:")) {
+        const [aliasEmail, schoolEmail] = msg.slice("ALIAS_NOT_CONFIRMED:".length).split(":").map((part) => decodeURIComponent(part));
+        setAliasPending({ aliasEmail, schoolEmail });
+        announce("Ask a council administrator to confirm this email on the school roster.");
         return;
       }
       setError(err instanceof Error ? err.message : "Google sign-in failed.");
@@ -92,18 +79,8 @@ export default function Login() {
         !isAlias || (targetUser.verifiedAliases ?? []).includes(rawId);
 
       if (isAlias && !isVerified) {
-        // Unverified added email: Issue a 6-digit confirmation code to their base school account
-        const code = issueConfirmationCode(targetUser.id, rawId, targetUser.email);
-        setVerificationPending({
-          userId: targetUser.id,
-          aliasEmail: rawId,
-          schoolEmail: targetUser.email,
-          code,
-        });
-        announce(
-          `Confirmation code sent to your official school account: ${targetUser.email}.`
-        );
-        setLoading(false);
+        setAliasPending({ aliasEmail: rawId, schoolEmail: targetUser.email });
+        announce("Ask a council administrator to confirm this email on the school roster.");
         return;
       }
 
@@ -114,58 +91,6 @@ export default function Login() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleVerifyConfirmationCode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationPending) return;
-
-    setError(null);
-    const valid = verifyConfirmationCode(
-      verificationPending.userId,
-      verificationPending.aliasEmail,
-      confirmationInput
-    );
-
-    if (!valid) {
-      setError("Invalid 6-digit confirmation code. Please check your school email and try again.");
-      return;
-    }
-
-    try {
-      // Permanently mark alias as verified
-      dispatch({
-        type: "VERIFY_STUDENT_EMAIL",
-        userId: verificationPending.userId,
-        email: verificationPending.aliasEmail,
-      });
-      clearConfirmationCode(verificationPending.userId, verificationPending.aliasEmail);
-
-      // Sign in the user
-      dispatch({ type: "LOGIN", userId: verificationPending.userId });
-      announce(`${verificationPending.aliasEmail} verified successfully. Welcome to Council Hub!`);
-      setVerificationPending(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Verification failed.");
-    }
-  };
-
-  const handleResendCode = () => {
-    if (!verificationPending) return;
-    const newCode = issueConfirmationCode(
-      verificationPending.userId,
-      verificationPending.aliasEmail,
-      verificationPending.schoolEmail
-    );
-    setVerificationPending({ ...verificationPending, code: newCode });
-    announce(`New 6-digit code sent to ${verificationPending.schoolEmail}.`);
-  };
-
-  const fillDemoAccount = (email: string, pass: string) => {
-    setMode("password");
-    setIdentifier(email);
-    setPassword(pass);
-    setError(null);
   };
 
   return (
@@ -256,87 +181,38 @@ export default function Login() {
           </div>
 
           <div className="rounded-3xl border border-black/[0.06] bg-white p-7 shadow-xl shadow-black/[0.04] dark:border-white/[0.07] dark:bg-ink-900 dark:shadow-none sm:p-8">
-            {verificationPending ? (
-              /* 6-Digit Confirmation Code Form */
+            {aliasPending ? (
+              /* An unconfirmed alias cannot sign in by itself: identity changes are made by
+                 an administrator on the roster, never by a code the client generates. */
               <div>
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-500">
-                  <Lock className="h-3.5 w-3.5" /> Verification Code Required
+                  <ShieldAlert className="h-3.5 w-3.5" /> Administrator Confirmation Needed
                 </span>
                 <h2 className="mt-3 font-display text-2xl font-bold text-slate-900 dark:text-white">
-                  Confirm Login Email
+                  Confirm This Sign-in Email
                 </h2>
                 <p className="mt-1.5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                  You are signing in with added alias <strong className="font-mono text-slate-800 dark:text-slate-200">{verificationPending.aliasEmail}</strong>.
-                  A 6-digit confirmation code was sent to your official school account:
+                  <strong className="font-mono text-slate-800 dark:text-slate-200">{aliasPending.aliasEmail}</strong> is
+                  listed as an added sign-in email, but it has not been confirmed yet.
                 </p>
 
-                <div className="mt-3 rounded-xl border border-indigo-500/30 bg-indigo-500/[0.08] p-3 text-xs">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
-                    School Account Recipient:
-                  </span>
-                  <p className="mt-0.5 font-mono font-semibold text-indigo-200">
-                    {verificationPending.schoolEmail}
-                  </p>
-                  <p className="mt-1.5 border-t border-indigo-500/20 pt-1 text-[10px] text-slate-400">
-                    📨 Simulated School Inbox Alert: Your confirmation code is{" "}
-                    <strong className="font-mono text-white">{verificationPending.code}</strong>
+                <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3.5 text-xs leading-relaxed text-amber-200">
+                  <p className="font-semibold text-amber-300">What to do</p>
+                  <p className="mt-1">
+                    Sign in with the official school account{" "}
+                    <strong className="font-mono">{aliasPending.schoolEmail}</strong>, or ask a council administrator to
+                    confirm <strong className="font-mono">{aliasPending.aliasEmail}</strong> on the roster
+                    (Admin Panel → Students → Login Emails → <em>Verify Now</em>).
                   </p>
                 </div>
 
-                <form onSubmit={handleVerifyConfirmationCode} className="mt-5 space-y-4">
-                  <label className="form-field">
-                    <span>Enter 6-digit confirmation code</span>
-                    <input
-                      required
-                      type="text"
-                      maxLength={6}
-                      autoFocus
-                      className="control !py-3 text-center font-mono text-xl tracking-[0.4em] font-bold"
-                      placeholder="······"
-                      value={confirmationInput}
-                      onChange={(e) =>
-                        setConfirmationInput(e.target.value.replace(/\D/g, "").slice(0, 6))
-                      }
-                    />
-                  </label>
-
-                  {error && (
-                    <p className="rounded-xl bg-red-500/10 px-3.5 py-2.5 text-xs font-medium leading-relaxed text-red-600 dark:text-red-300">
-                      {error}
-                    </p>
-                  )}
-
-                  <div className="flex gap-2 pt-2">
-                    <button
-                      type="button"
-                      className="btn btn-secondary flex-1"
-                      onClick={() => {
-                        setVerificationPending(null);
-                        setConfirmationInput("");
-                        setError(null);
-                      }}
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={confirmationInput.length !== 6}
-                      className="btn btn-primary flex-1"
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Verify & Sign In
-                    </button>
-                  </div>
-
-                  <div className="pt-2 text-center">
-                    <button
-                      type="button"
-                      className="text-action !text-xs"
-                      onClick={handleResendCode}
-                    >
-                      <RefreshCw className="h-3 w-3" /> Resend code to school email
-                    </button>
-                  </div>
-                </form>
+                <button
+                  type="button"
+                  className="btn btn-primary mt-5 w-full"
+                  onClick={() => { setAliasPending(null); setError(null); }}
+                >
+                  Back to sign in
+                </button>
               </div>
             ) : (
               /* Standard Login Screen */
@@ -451,62 +327,35 @@ export default function Login() {
                   </p>
                 )}
 
-                {/* Quick Demo Credentials helper */}
-                <div className="mt-6 border-t border-black/[0.06] pt-4 dark:border-white/[0.08]">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Quick demo accounts:
-                  </span>
-                  <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
-                      onClick={() => fillDemoAccount("sita.rai@shristiacademy.edu.np", "student123")}
-                    >
-                      🎓 Student
-                      <span className="block text-[8px] font-normal text-slate-400">student123</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
-                      onClick={() =>
-                        fillDemoAccount("anita.sharma@shristiacademy.edu.np", "teacher123")
-                      }
-                    >
-                      👨‍🏫 Teacher
-                      <span className="block text-[8px] font-normal text-slate-400">teacher123 (Blue)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
-                      onClick={() => fillDemoAccount("grade10@shristiacademy.edu.np", "grade123")}
-                    >
-                      🏫 Class Acc.
-                      <span className="block text-[8px] font-normal text-slate-400">grade123 (Neutral)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
-                      onClick={() => fillDemoAccount("anjali.nepal@shristiacademy.edu.np", "council123")}
-                    >
-                      🛡️ Council
-                      <span className="block text-[8px] font-normal text-slate-400">council123</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="col-span-2 rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent sm:col-span-2"
-                      onClick={() => fillDemoAccount("72019arnab@shristiacademy.edu.np", "admin123")}
-                    >
-                      👑 Admin
-                      <span className="block text-[8px] font-normal text-slate-400">
-                        72019arnab · admin123
-                      </span>
-                    </button>
+                {DEVELOPMENT_BUILD && (
+                  /* Local preview builds only: pick a roster account without a Firebase
+                     session. Production builds render nothing here and refuse the call. */
+                  <div className="mt-6 border-t border-black/[0.06] pt-4 dark:border-white/[0.08]">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Development sign-in · this build only
+                    </span>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                      {state.users.filter((account) => account.status === "active").slice(0, 6).map((account) => (
+                        <button
+                          key={account.id}
+                          type="button"
+                          className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
+                          onClick={() => {
+                            try {
+                              signInDirect(account.id);
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "Unable to open that account.");
+                            }
+                          }}
+                        >
+                          {account.name.split(" ")[0]}
+                          <span className="block text-[8px] font-normal text-slate-400">{account.role}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+
               </div>
             )}
           </div>

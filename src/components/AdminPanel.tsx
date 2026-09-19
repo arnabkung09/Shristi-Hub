@@ -37,7 +37,7 @@ export default function AdminPanel() {
     { id: "feedback", label: `Site Feedback (${state.siteRatings.length})`, icon: Star },
     { id: "terms", label: "Terms & Credits", icon: FileText },
   ];
-  if (user?.role !== "admin") return <div className="empty-content"><LockKeyhole /><strong>Administrator access required</strong><p>Switch to the admin demo role to preview this workspace.</p></div>;
+  if (user?.role !== "admin") return <div className="empty-content"><LockKeyhole /><strong>Administrator access required</strong><p>Sign in with an administrator account to open this workspace. Council officers manage their sections from the Council Hub.</p></div>;
   const select = (id: string) => setActiveTab(`admin?section=${id}`);
   return (
     <div>
