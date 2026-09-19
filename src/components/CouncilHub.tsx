@@ -124,12 +124,12 @@ export default function CouncilHub() {
               ? `${user.name} is not on the Council Hub member list, so the conversation stays hidden. Add the accounts that should take part below.`
               : `${user.name} is not on the Council Hub member list yet. Ask a council administrator to add your account.`}</p>
             {canManage
-              ? <button className="btn btn-primary" onClick={() => setMembersOpen(true)}><Users />Add students to the Council Hub</button>
+              ? <button className="btn btn-primary" onClick={() => setMembersOpen(true)}><Users />Add members to the Council Hub</button>
               : <button className="btn btn-secondary" disabled={requested} onClick={requestAccess}><ShieldCheck />{requested ? "Access request sent" : "Request access"}</button>}
           </div>
           {canManage && (
             <section className="panel panel-pad mt-5">
-              <div className="panel-heading"><div><h2><Users />Current Council Hub members</h2><p>Only these accounts can read and post in the hub.</p></div><button className="btn btn-secondary" onClick={() => setMembersOpen(true)}><UserPlus />Add or remove students</button></div>
+              <div className="panel-heading"><div><h2><Users />Current Council Hub members</h2><p>Only these accounts can read and post in the hub.</p></div><button className="btn btn-secondary" onClick={() => setMembersOpen(true)}><UserPlus />Add or remove members</button></div>
               <MemberList members={members} />
             </section>
           )}

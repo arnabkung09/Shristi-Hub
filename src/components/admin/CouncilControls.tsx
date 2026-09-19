@@ -20,10 +20,10 @@ export default function CouncilControls({ action, onClose }: { action: CouncilAc
   const readOnly = user?.role !== "admin";
 
   const councilMembersAddedViaAdmin = useMemo(() => {
-    // Only students who were added to the council via the admin panel (councilHubMembers)
-    // and are not yet in the directory as officers
+    // Members who were added to the council via the admin panel (councilHubMembers)
+    // and are eligible for the directory
     return state.users.filter(
-      (u) => u.id !== PRIMARY_ADMIN_ID && state.councilHubMembers.includes(u.id) && u.role === "student"
+      (u) => u.id !== PRIMARY_ADMIN_ID && state.councilHubMembers.includes(u.id) && (u.role === "student" || u.role === "teacher")
     );
   }, [state.users, state.councilHubMembers]);
 
@@ -102,11 +102,11 @@ export default function CouncilControls({ action, onClose }: { action: CouncilAc
               </label>
             ) : (
               <label className="form-field">
-                <span>Student</span>
+                <span>Account</span>
                 <select className="control" value={studentId} onChange={(e) => setStudentId(e.target.value)} required>
-                  <option value="">Select a student from the roster</option>
-                  {state.users.filter((u) => u.id !== PRIMARY_ADMIN_ID && u.role === "student").map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} / {u.gradeLabel}</option>
+                  <option value="">Select a student or teacher from the roster</option>
+                  {state.users.filter((u) => u.id !== PRIMARY_ADMIN_ID && (u.role === "student" || u.role === "teacher")).map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} / {u.gradeLabel ?? "Staff"}</option>
                   ))}
                 </select>
               </label>

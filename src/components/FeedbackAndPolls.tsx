@@ -33,13 +33,18 @@ function SuggestionBox() {
   if (!user) return null;
 
   const submit = () => {
-    if (text.trim().length < 12) return;
+    if (text.trim().length < 12 || user.role === "grade") return;
+    const authorLabel = anonymous
+      ? "Anonymous"
+      : user.role === "teacher"
+        ? `${user.name} · Teacher (${user.house ? user.house + " House" : "Staff"})`
+        : `${user.name} · Grade ${user.grade ?? "—"}`;
     dispatch({
       type: "ADD_SUGGESTION",
       suggestion: {
         id: uid(), category: category as SuggestionCategory, text: text.trim(),
         anonymous, authorId: anonymous ? undefined : user.id,
-        authorLabel: anonymous ? "Anonymous" : `${user.name} · Grade ${user.grade}`,
+        authorLabel,
         status: "pending", timestamp: Date.now(),
       },
     });
@@ -56,44 +61,51 @@ function SuggestionBox() {
         </h3>
         <p className="mt-1 text-xs text-slate-400">Every entry is read at the weekly council sync.</p>
 
-        <div className="mt-4 space-y-4">
-          <Field label="Category">
-            <Select value={category} onChange={setCategory}>
-              {SUGGESTION_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-            </Select>
-          </Field>
-          <Field label="Your suggestion or concern">
-            <textarea rows={5} className={inputCls} value={text} onChange={(e) => setText(e.target.value)} placeholder="Be specific — what should change, and where?" />
-          </Field>
+        {user.role === "grade" ? (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs leading-relaxed text-amber-400">
+            <p className="font-bold flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> Participation restricted</p>
+            <p className="mt-1.5 text-slate-300">Class accounts cannot submit suggestions or vote in surveys. Please sign in with an individual student or teacher account to participate.</p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            <Field label="Category">
+              <Select value={category} onChange={setCategory}>
+                {SUGGESTION_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              </Select>
+            </Field>
+            <Field label="Your suggestion or concern">
+              <textarea rows={5} className={inputCls} value={text} onChange={(e) => setText(e.target.value)} placeholder="Be specific — what should change, and where?" />
+            </Field>
 
-          <button
-            onClick={() => setAnonymous((v) => !v)}
-            className={cn(
-              "flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all",
-              anonymous ? "border-violet-500/40 bg-violet-500/[0.08]" : "border-black/10 hover:bg-black/[0.02] dark:border-white/10 dark:hover:bg-white/[0.04]"
-            )}
-          >
-            <span className={cn("grid h-9 w-9 place-items-center rounded-lg", anonymous ? "bg-violet-500/15 text-violet-500" : "bg-black/[0.05] text-slate-400 dark:bg-white/[0.06]")}>
-              <EyeOff className="h-4 w-4" />
-            </span>
-            <span className="flex-1">
-              <span className="block text-sm font-bold text-slate-800 dark:text-slate-100">Submit anonymously</span>
-              <span className="block text-[11px] text-slate-400">
-                {anonymous ? "Identity fully stripped — safe for sensitive concerns" : `Posting as ${user.name} · Grade ${user.grade}`}
+            <button
+              onClick={() => setAnonymous((v) => !v)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-all",
+                anonymous ? "border-violet-500/40 bg-violet-500/[0.08]" : "border-black/10 hover:bg-black/[0.02] dark:border-white/10 dark:hover:bg-white/[0.04]"
+              )}
+            >
+              <span className={cn("grid h-9 w-9 place-items-center rounded-lg", anonymous ? "bg-violet-500/15 text-violet-500" : "bg-black/[0.05] text-slate-400 dark:bg-white/[0.06]")}>
+                <EyeOff className="h-4 w-4" />
               </span>
-            </span>
-            <span className={cn("relative h-6 w-11 rounded-full transition-colors", anonymous ? "bg-violet-500" : "bg-slate-300 dark:bg-slate-600")}>
-              <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", anonymous ? "left-[22px]" : "left-0.5")} />
-            </span>
-          </button>
+              <span className="flex-1">
+                <span className="block text-sm font-bold text-slate-800 dark:text-slate-100">Submit anonymously</span>
+                <span className="block text-[11px] text-slate-400">
+                  {anonymous ? "Identity fully stripped — safe for sensitive concerns" : `Posting as ${user.name} · ${user.role === "teacher" ? "Staff / Teacher" : `Grade ${user.grade ?? "—"}`}`}
+                </span>
+              </span>
+              <span className={cn("relative h-6 w-11 rounded-full transition-colors", anonymous ? "bg-violet-500" : "bg-slate-300 dark:bg-slate-600")}>
+                <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all", anonymous ? "left-[22px]" : "left-0.5")} />
+              </span>
+            </button>
 
-          <Btn className="w-full" disabled={text.trim().length < 12} onClick={submit}>
-            <Send className="h-4 w-4" /> {sent ? "Submitted — thank you!" : "Submit to council"}
-          </Btn>
-          {text.trim().length > 0 && text.trim().length < 12 && (
-            <p className="text-center text-[11px] text-slate-400">A little more detail helps (min 12 characters)</p>
-          )}
-        </div>
+            <Btn className="w-full" disabled={text.trim().length < 12} onClick={submit}>
+              <Send className="h-4 w-4" /> {sent ? "Submitted — thank you!" : "Submit to council"}
+            </Btn>
+            {text.trim().length > 0 && text.trim().length < 12 && (
+              <p className="text-center text-[11px] text-slate-400">A little more detail helps (min 12 characters)</p>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Feed */}
@@ -164,7 +176,8 @@ function PollCard({ poll }: { poll: Poll }) {
 
   const closed = poll.expires < new Date().toISOString().slice(0, 10);
   const voted = poll.voters.includes(user.id);
-  const locked = voted || closed;
+  const isClassAccount = user.role === "grade";
+  const locked = voted || closed || isClassAccount;
   const total = poll.votes.reduce((a, b) => a + b, 0);
   const leader = Math.max(...poll.votes);
 
@@ -237,6 +250,8 @@ function PollCard({ poll }: { poll: Poll }) {
           <Badge tone="indigo"><Lock className="h-3 w-3" /> Vote submitted</Badge>
         ) : closed ? (
           <Badge tone="slate"><Lock className="h-3 w-3" /> Voting closed</Badge>
+        ) : isClassAccount ? (
+          <Badge tone="amber"><Lock className="h-3 w-3" /> Class accounts cannot vote in polls</Badge>
         ) : (
           <Btn className="min-h-[36px] text-xs" disabled={selected === null} onClick={() => {
             if (selected === null) return;

@@ -15,7 +15,7 @@ export const GRADE_VALUES = [
   "Grade 9",
   "Grade 10",
 ] as const;
-export const ROLE_VALUES = ["admin", "council", "student", "teacher"] as const;
+export const ROLE_VALUES = ["admin", "council", "student", "teacher", "grade"] as const;
 export const STATUS_VALUES = ["active", "pending"] as const;
 export const COUNCIL_HUB_ACCESS = "councilHub" as const;
 
@@ -30,7 +30,7 @@ export interface WhitelistedStudent {
   name: string;
   /** Teacher accounts may have no class. */
   grade: CanonicalGrade | null;
-  /** Teacher accounts may belong to no house. */
+  /** Teacher accounts and class accounts may belong to no house. */
   house: CanonicalHouse | null;
   role: CanonicalRole;
   councilTitle?: string;
@@ -42,17 +42,24 @@ export function isTeacher(student: { role: CanonicalRole }): boolean {
   return student.role === "teacher";
 }
 
+export function isClassAccount(student: { role: CanonicalRole }): boolean {
+  return student.role === "grade";
+}
+
 export function displayGrade(grade: CanonicalGrade | null, role: CanonicalRole): string {
-  return grade ?? (role === "teacher" ? "Staff" : "—");
+  if (grade) return grade;
+  return role === "teacher" ? "Staff" : role === "grade" ? "Class" : "—";
 }
 
 export function displayHouseLabel(house: CanonicalHouse | null, role: CanonicalRole): string {
-  return house ?? (role === "teacher" ? "No House" : "—");
+  if (house) return house;
+  return role === "teacher" ? "No House" : role === "grade" ? "No House" : "—";
 }
 
 export interface User extends WhitelistedStudent {
   passwordHash: string;
   aliases?: string[];
+  verifiedAliases?: string[];
 }
 
 export class AuthorizationError extends Error {
@@ -117,13 +124,14 @@ export function validateWhitelistedStudentShape(student: WhitelistedStudent): Wh
   if (!student.id.trim()) throw new AuthorizationError(400, "Student id is required.");
   if (!student.name.trim()) throw new AuthorizationError(400, "Student name is required.");
   const isTeacherRecord = student.role === "teacher";
+  const isGradeRecord = student.role === "grade";
   if (student.grade === null) {
     if (!isTeacherRecord) throw new AuthorizationError(400, "Only teacher accounts may have no class.");
   } else if (!isCanonicalGrade(student.grade)) throw new AuthorizationError(400, "Grade must be between Grade 1 and Grade 10.");
   if (student.house === null) {
-    if (!isTeacherRecord) throw new AuthorizationError(400, "Only teacher accounts may have no house.");
+    if (!isTeacherRecord && !isGradeRecord) throw new AuthorizationError(400, "Only teacher or grade accounts may have no house.");
   } else if (!isCanonicalHouse(student.house)) throw new AuthorizationError(400, "House must be Blue House, Red House, or Green House.");
-  if (!isCanonicalRole(student.role)) throw new AuthorizationError(400, "Role must be admin, council, student, or teacher.");
+  if (!isCanonicalRole(student.role)) throw new AuthorizationError(400, "Role must be admin, council, student, teacher, or grade.");
   if (!isCanonicalStatus(student.status)) throw new AuthorizationError(400, "Status must be active or pending.");
   if (Number.isNaN(Date.parse(student.createdAt))) throw new AuthorizationError(400, "createdAt must be a valid ISO timestamp.");
   return { ...student, email };

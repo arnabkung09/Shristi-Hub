@@ -84,14 +84,23 @@ export function downloadJson(filename: string, data: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function buildStudentRecord(input: { id: string; name: string; email: string; grade: number | null; house: House | null; role?: "student" | "teacher" }): Student {
+export function buildStudentRecord(input: {
+  id: string;
+  name: string;
+  email: string;
+  grade: number | null;
+  house: House | null;
+  role?: Role;
+  aliases?: string[];
+  verifiedAliases?: string[];
+}): Student {
   const role = input.role ?? "student";
-  const isTeacherRecord = role === "teacher";
+  const defaultPw = role === "teacher" ? "teacher123" : role === "grade" ? "grade123" : "student123";
   return {
     id: input.id,
     name: input.name.trim(),
     email: normalizeEmail(input.email),
-    password: isTeacherRecord ? "teacher123" : "student123",
+    password: defaultPw,
     passwordHash: "seeded-password-hash",
     grade: input.grade,
     gradeLabel: input.grade ? canonicalGradeFromNumber(input.grade) : null,
@@ -99,6 +108,8 @@ export function buildStudentRecord(input: { id: string; name: string; email: str
     houseLabel: input.house ? `${input.house} House` : null,
     status: "pending",
     role,
+    aliases: input.aliases ?? [],
+    verifiedAliases: input.verifiedAliases ?? [],
     createdAt: new Date().toISOString(),
   };
 }

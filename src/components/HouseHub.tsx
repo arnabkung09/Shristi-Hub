@@ -14,7 +14,7 @@ const HOUSE_THEME: Record<House, { bg: string; text: string; ring: string }> = {
 };
 
 export default function HouseHub() {
-  const { state, user, dispatch, announce, houseTotals } = useHub();
+  const { state, user, dispatch, announce, houseTotals, setActiveTab } = useHub();
   const admin = user?.role === "admin";
   const [active, setActive] = useState<House>(user && !admin && user.house ? user.house : "Blue");
   const [composer, setComposer] = useState(false);
@@ -41,6 +41,19 @@ export default function HouseHub() {
   const behind = leader.points - position.points;
 
   if (!user) return null;
+
+  if (user.role === "grade") {
+    return (
+      <div className="empty-content py-16">
+        <ShieldCheck className="h-10 w-10 text-slate-400" />
+        <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">House Neutral Account</h2>
+        <p className="max-w-md text-xs text-slate-400">Class accounts are neutral administrative logins and are not assigned to a house. House Hub discussions and captain notices are reserved for house members.</p>
+        <button className="btn btn-primary mt-4" onClick={() => setActiveTab("houses")}>
+          View House Points & Standings
+        </button>
+      </div>
+    );
+  }
 
   const post = () => {
     try {

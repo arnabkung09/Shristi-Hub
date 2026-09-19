@@ -12,12 +12,14 @@ export interface Student {
   email: string;
   /** Optional personal or secondary emails that authenticate this same account. */
   aliases?: string[];
+  /** Alias emails that have been verified via 6-digit confirmation code. */
+  verifiedAliases?: string[];
   password: string;
   passwordHash?: string;
   /** Teachers may have no class. */
   grade: number | null;
   gradeLabel: GradeLabel | null;
-  /** Teachers may belong to no house. */
+  /** Teachers have individual houses; class accounts belong to no house. */
   house: House | null;
   houseLabel: HouseLabel | null;
   status: AccountStatus;
@@ -29,6 +31,8 @@ export interface Student {
   createdAt: string;
   isStaff?: boolean;
 }
+
+export type Teacher = Student;
 
 export interface Session {
   userId: string;

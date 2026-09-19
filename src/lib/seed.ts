@@ -71,7 +71,7 @@ const ts = (daysOffset: number, h = 10, m = 0) => {
 const dateStr = (daysOffset: number) => new Date(now + daysOffset * DAY).toISOString().slice(0, 10);
 
 function buildStudents(): Student[] {
-  return SHRISTI_USER_ROSTER.map((user) => ({
+  const students: Student[] = SHRISTI_USER_ROSTER.map((user) => ({
     id: user.id,
     name: user.name,
     email: user.email,
@@ -88,7 +88,119 @@ function buildStudents(): Student[] {
     department: user.role === "admin" ? "General" : user.councilTitle?.includes("Captain") ? "Sports & Recreation" : user.councilTitle?.includes("Editorial") ? "Media & Communications" : user.councilTitle?.includes("Cultural") ? "Events & Activities" : "General",
     createdAt: user.createdAt,
     isStaff: false,
+    aliases: [],
+    verifiedAliases: [],
   }));
+
+  const teachers: Student[] = [
+    {
+      id: "tch-001",
+      name: "Anita Sharma",
+      email: "anita.sharma@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 10,
+      gradeLabel: "Grade 10",
+      house: "Blue",
+      houseLabel: "Blue House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: ["anita.personal@gmail.com"],
+      verifiedAliases: ["anita.personal@gmail.com"],
+    },
+    {
+      id: "tch-002",
+      name: "Bikram Thapa",
+      email: "bikram.thapa@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 9,
+      gradeLabel: "Grade 9",
+      house: "Red",
+      houseLabel: "Red House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "tch-003",
+      name: "Sunita Gurung",
+      email: "sunita.gurung@shristiacademy.edu.np",
+      password: "teacher123",
+      passwordHash: "teacher-password-hash",
+      grade: 8,
+      gradeLabel: "Grade 8",
+      house: "Green",
+      houseLabel: "Green House",
+      status: "active",
+      role: "teacher",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: true,
+      aliases: [],
+      verifiedAliases: [],
+    },
+  ];
+
+  const classAccounts: Student[] = [
+    {
+      id: "cls-010",
+      name: "Grade 10 Class",
+      email: "grade10@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 10,
+      gradeLabel: "Grade 10",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "cls-009",
+      name: "Grade 9 Class",
+      email: "grade9@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 9,
+      gradeLabel: "Grade 9",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+    {
+      id: "cls-008",
+      name: "Grade 8 Class",
+      email: "grade8@shristiacademy.edu.np",
+      password: "grade123",
+      passwordHash: "grade-password-hash",
+      grade: 8,
+      gradeLabel: "Grade 8",
+      house: null,
+      houseLabel: null,
+      status: "active",
+      role: "grade",
+      createdAt: "2026-01-01T08:00:00.000Z",
+      isStaff: false,
+      aliases: [],
+      verifiedAliases: [],
+    },
+  ];
+
+  return [...students, ...teachers, ...classAccounts];
 }
 
 export const ADMIN_USER: Student = {

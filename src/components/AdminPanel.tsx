@@ -24,7 +24,7 @@ export default function AdminPanel() {
   }, [section]);
   const officerCount = state.users.filter((u) => u.role !== "student" && (u.status === "active" || state.permissions[u.id])).length;
   const tabs = [
-    { id: "roster", label: `Students (${state.users.length})`, icon: Database },
+    { id: "roster", label: `Databases (${state.users.length})`, icon: Database },
     { id: "officers", label: `Council Officers (${officerCount})`, icon: Users },
     { id: "hub", label: `Council Hub (${state.councilHubMembers.length})`, icon: MessagesSquare },
     { id: "sheets", label: "Google Sheets", icon: Sheet },
