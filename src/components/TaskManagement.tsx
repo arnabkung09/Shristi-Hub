@@ -61,6 +61,11 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
   const [mineOnly, setMineOnly] = useState(false);
   const [boardDeptFilter, setBoardDeptFilter] = useState<string>("all");
 
+  // Quick inline delegation bar
+  const [quickDept, setQuickDept] = useState<string>("");
+  const [quickTitle, setQuickTitle] = useState("");
+  const [quickAssignee, setQuickAssignee] = useState("");
+
   // Drag and Drop state
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
@@ -73,7 +78,11 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
   const [editingTask, setEditingTask] = useState<CouncilTask | null>(null);
   const [deletingTask, setDeletingTask] = useState<CouncilTask | null>(null);
 
-  // New task form state
+  // Quick inline log bar
+  const [quickLogDept, setQuickLogDept] = useState<string>("");
+  const [quickLogTitle, setQuickLogTitle] = useState("");
+
+  // New task modal form state
   const [createError, setCreateError] = useState<string | null>(null);
   const [createForm, setCreateForm] = useState({
     title: "",
@@ -174,6 +183,51 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     setOpen(true);
   };
 
+  // Quick inline task creation
+  const handleQuickCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickTitle.trim()) return;
+    const assignedDept = quickDept || (boardDeptFilter !== "all" ? boardDeptFilter : (state.departments[0] ?? "General"));
+
+    const newTask: CouncilTask = {
+      id: uid(),
+      title: quickTitle.trim(),
+      details: "",
+      due: defaultDueDate(7),
+      priority: "Medium",
+      assigneeId: quickAssignee,
+      status: "todo",
+      createdBy: user.name,
+      createdAt: Date.now(),
+      department: assignedDept,
+    };
+
+    const notification = quickAssignee
+      ? {
+          id: uid(),
+          title: "New task assigned to you",
+          body: `"${newTask.title}" — due ${fmtDate(newTask.due)} · Medium priority (${assignedDept} Dept).`,
+          timestamp: Date.now(),
+          urgent: false,
+          senderName: user.name,
+          senderRole: user.role,
+          audience: { kind: "user" as const, userId: quickAssignee },
+          actionTab: "tasks",
+          readBy: [],
+          kind: "system" as const,
+        }
+      : undefined;
+
+    try {
+      dispatch({ type: "ADD_TASK", task: newTask, notification });
+      announce(`Task "${newTask.title}" delegated to ${assignedDept} Department.`);
+      setQuickTitle("");
+      setQuickAssignee("");
+    } catch (err) {
+      announce(err instanceof Error ? err.message : "Unable to delegate task.", "error");
+    }
+  };
+
   // Open direct Add Completed Task modal
   const handleOpenAddLog = () => {
     const initialDept = logDeptFilter !== "all" ? logDeptFilter : (state.departments[0] ?? "General");
@@ -187,6 +241,37 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     });
     setAddLogError(null);
     setAddLogOpen(true);
+  };
+
+  // Quick inline completed log addition
+  const handleQuickLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickLogTitle.trim()) return;
+    const assignedDept = quickLogDept || (logDeptFilter !== "all" ? logDeptFilter : (state.departments[0] ?? "General"));
+
+    const newTask: CouncilTask = {
+      id: uid(),
+      title: quickLogTitle.trim(),
+      details: "",
+      due: new Date().toISOString().slice(0, 10),
+      priority: "Medium",
+      assigneeId: "",
+      status: "done",
+      createdBy: user.name,
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      department: assignedDept,
+    };
+
+    try {
+      dispatch({ type: "ADD_TASK", task: newTask });
+      announce(`"${newTask.title}" logged in ${assignedDept} Department completed records!`, "success");
+      setRecentlyCompletedId(newTask.id);
+      setTimeout(() => setRecentlyCompletedId(null), 4000);
+      setQuickLogTitle("");
+    } catch (err) {
+      announce(err instanceof Error ? err.message : "Unable to log completed task.", "error");
+    }
   };
 
   // Open edit modal for a completed task
@@ -204,7 +289,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     setEditError(null);
   };
 
-  // Create & delegate a new task
+  // Create & delegate a new task from modal
   const handleCreateTask = () => {
     if (!createForm.title.trim()) return setCreateError("Task title is required.");
     const chosenDept = createForm.department || (state.departments[0] ?? "General");
@@ -344,6 +429,10 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
         announce(`"${task.title}" completed and automatically logged to ${dept} Department records!`, "success");
         setRecentlyCompletedId(task.id);
         setTimeout(() => setRecentlyCompletedId(null), 4000);
+        // Ensure the logged department is visible in the Done by Department log
+        if (logDeptFilter !== "all" && logDeptFilter !== dept) {
+          setLogDeptFilter("all");
+        }
       } else if (task.status === "done") {
         announce(`"${task.title}" reopened to ${COLUMNS.find((c) => c.id === targetCol)?.label ?? targetCol}.`);
       } else {
@@ -367,7 +456,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
         title="Task Management Board"
         subtitle={
           canManage
-            ? "Drag tasks across columns to update their status. Dragging to Completed automatically logs them by department."
+            ? "Assign work directly by department. Drag tasks to the Completed column to automatically log them in the department records."
             : "Follow student council initiatives, delegated tasks, and completed department milestones."
         }
         action={
@@ -410,6 +499,67 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
           </div>
         }
       />
+
+      {/* Quick Task Delegation Bar (Simplified & Fast!) */}
+      {canManage && (
+        <div className="rounded-2xl border border-accent/25 bg-gradient-to-r from-accent/[0.05] to-accent/[0.01] p-3.5 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-accent">
+              <Sparkles className="h-3.5 w-3.5" /> Quick Task Delegation
+            </span>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Department is assigned immediately on task creation
+            </span>
+          </div>
+          <form onSubmit={handleQuickCreate} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {/* Department selector */}
+            <div className="flex items-center gap-1 shrink-0">
+              <Building2 className="h-3.5 w-3.5 text-accent shrink-0 hidden sm:block" />
+              <select
+                value={quickDept || (boardDeptFilter !== "all" ? boardDeptFilter : (state.departments[0] ?? "General"))}
+                onChange={(e) => setQuickDept(e.target.value)}
+                className="control !w-auto !py-1.5 !text-xs font-bold text-accent dark:bg-ink-800"
+                aria-label="Department for quick task"
+              >
+                {state.departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d} Department
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Task Title */}
+            <input
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              placeholder="What needs to be delegated? Type title and press Enter..."
+              className="control !py-1.5 !text-xs flex-1"
+              required
+            />
+
+            {/* Optional Assignee */}
+            <select
+              value={quickAssignee}
+              onChange={(e) => setQuickAssignee(e.target.value)}
+              className="control !w-auto shrink-0 !py-1.5 !text-xs text-slate-600 dark:text-slate-300 dark:bg-ink-800"
+              aria-label="Assignee for quick task"
+            >
+              <option value="">Department Team (Unassigned)</option>
+              {council.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} {c.councilPost ? `(${c.councilPost})` : ""}
+                </option>
+              ))}
+            </select>
+
+            {/* Submit */}
+            <Btn type="submit" className="shrink-0 !min-h-[34px] !py-1 !text-xs whitespace-nowrap">
+              <Plus className="h-3.5 w-3.5" /> Delegate Task
+            </Btn>
+          </form>
+        </div>
+      )}
 
       {/* Board Department Filter Bar */}
       <div className="flex flex-wrap items-center gap-2">
@@ -506,7 +656,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
               <div className="flex-1 space-y-2.5">
                 {colTasks.length === 0 && (
                   <p className="rounded-xl border border-dashed border-black/10 px-3 py-8 text-center text-xs text-slate-400 dark:border-white/10">
-                    {col.id === "done" ? "No completed tasks yet" : "No tasks in this column"}
+                    {col.id === "done" ? "No completed tasks yet — drag work here to complete" : "No tasks in this column"}
                   </p>
                 )}
                 {colTasks.map((t) => {
@@ -570,8 +720,43 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
           )}
         </div>
 
+        {/* Quick Log Form for the Department Log */}
+        {canManage && (
+          <form
+            onSubmit={handleQuickLog}
+            className="mt-4 flex flex-col gap-2 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3 sm:flex-row sm:items-center"
+          >
+            <div className="flex items-center gap-1.5 shrink-0 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <span>Quick Log:</span>
+            </div>
+            <select
+              value={quickLogDept || (logDeptFilter !== "all" ? logDeptFilter : (state.departments[0] ?? "General"))}
+              onChange={(e) => setQuickLogDept(e.target.value)}
+              className="control !w-auto shrink-0 !py-1.5 !text-xs font-bold text-emerald-700 dark:text-emerald-300 dark:bg-ink-800"
+              aria-label="Department for quick completed log"
+            >
+              {state.departments.map((d) => (
+                <option key={d} value={d}>
+                  {d} Department
+                </option>
+              ))}
+            </select>
+            <input
+              value={quickLogTitle}
+              onChange={(e) => setQuickLogTitle(e.target.value)}
+              placeholder="Record completed task / finished milestone into log..."
+              className="control !py-1.5 !text-xs flex-1"
+              required
+            />
+            <Btn type="submit" variant="success" className="shrink-0 !min-h-[34px] !py-1 !text-xs whitespace-nowrap">
+              <Plus className="h-3.5 w-3.5" /> Add to Log
+            </Btn>
+          </form>
+        )}
+
         {/* Filter Controls: Department Chips & Search Bar */}
-        <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between border-b border-black/[0.06] pb-4 dark:border-white/[0.06]">
+        <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between border-b border-black/[0.06] pb-4 dark:border-white/[0.06]">
           {/* Department Chips */}
           <div className="flex flex-wrap items-center gap-1.5">
             <button
@@ -703,7 +888,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
                     </div>
                   </div>
 
-                  {/* Actions for log item */}
+                  {/* Actions for log item (Editable: Edit, Remove, Reopen) */}
                   {canManage && (
                     <div className="flex shrink-0 items-center gap-2 pl-7 sm:pl-0">
                       <button
@@ -742,7 +927,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
       </section>
 
       {/* ============================================================ */}
-      {/* MODAL 1: SIMPLIFIED TASK DELEGATION MODAL                    */}
+      {/* MODAL 1: DETAILED TASK DELEGATION MODAL                     */}
       {/* ============================================================ */}
       <Modal
         open={open && canManage}
