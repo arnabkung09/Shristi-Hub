@@ -4,7 +4,8 @@
  * The suite renders the real components (no mocking of the app's own modules, apart from
  * the Modal → portal stub that react-dom/server requires) in three data states:
  *
- *   1. nothing connected  — the hub must look exactly as it did before this feature
+ *   1. disconnected — an administrator turned the integration off; the hub must look
+ *      exactly as it did before this feature
  *   2. a loaded spreadsheet — totals, events and the balance must reach the existing UI
  *   3. an empty or failing sheet — the screen must say so instead of going blank
  *
@@ -143,6 +144,22 @@ export const checks: Check[] = [
       return SHEETS_ON
         ? { ok: html.includes("Google Sheets") && html.includes("Refresh now"), detail: `${html.length} chars` }
         : { ok: html === "", detail: "hidden while unconnected" };
+    },
+  },
+  {
+    name: "the built-in council endpoint applies with no configuration at all",
+    run: () => {
+      // A brand-new browser has neither a saved connection nor the disconnect flag: the
+      // hardcoded Apps Script endpoint must take over by itself.
+      const previous = globalThis.localStorage.getItem("shristi-sheets-disabled-v1");
+      globalThis.localStorage.removeItem("shristi-sheets-disabled-v1");
+      try {
+        const html = renderToString(withHub(<SheetSyncBar section="housePoints" />));
+        const wired = html.includes("Google Sheets") && html.includes("Refresh now");
+        return { ok: wired, detail: wired ? "built-in endpoint active" : "no strip rendered" };
+      } finally {
+        if (previous !== null) globalThis.localStorage.setItem("shristi-sheets-disabled-v1", previous);
+      }
     },
   },
   {

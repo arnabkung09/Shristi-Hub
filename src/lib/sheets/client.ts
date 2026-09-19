@@ -142,14 +142,23 @@ export interface PingResult {
 }
 
 /** Verifies the API URL, deployment access, and that all three tabs are readable. */
-export async function pingSheetApi(config: SheetsConfig): Promise<PingResult> {
+export async function pingSheetApi(config: SheetsConfig, options: { allowJsonp?: boolean } = {}): Promise<PingResult> {
   try {
-    const envelope = await fetchSection<Record<string, unknown>>("ping" as SheetSection, config, { allowJsonp: false, timeoutMs: 12000 });
+    // Same transport as a real refresh (fetch first, JSONP fallback), so a green test
+    // means the sections really will load in this browser.
+    const envelope = await fetchSection<Record<string, unknown>>("ping" as SheetSection, config, {
+      allowJsonp: options.allowJsonp !== false,
+      timeoutMs: 12000,
+    });
     const first = envelope.rows[0] ?? {};
     const tabs = Array.isArray(first.tabs) ? first.tabs.join(", ") : "House Points, Calendar, Monetary Fund";
+    const missing = Array.isArray(first.missingTabs) ? first.missingTabs : [];
+    const name = typeof first.spreadsheetName === "string" && first.spreadsheetName ? `“${first.spreadsheetName}”` : "the council spreadsheet";
     return {
       ok: true,
-      message: `Connected. Tabs found: ${tabs}.`,
+      message: missing.length
+        ? `Connected to ${name}, but these tabs are missing: ${missing.join(", ")}. Run setup() in Apps Script.`
+        : `Connected to ${name}. Tabs found: ${tabs}.`,
       spreadsheetName: typeof first.spreadsheetName === "string" ? first.spreadsheetName : undefined,
       updatedAt: envelope.updatedAt,
     };

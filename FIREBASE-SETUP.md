@@ -28,6 +28,10 @@ firebase deploy --only firestore:rules,firestore:indexes,hosting
 
 Hosting runs `npm run build` before deployment. This configuration uses no Cloud Storage and no Cloud Functions, so it is compatible with Firebase's Spark plan.
 
+> The rules in this repository are the deployed source of truth (`firebase.json` points at
+> `firestore.rules`). `backend/firestore.rules` is the older roster service's copy and must
+> not be deployed.
+
 ## Data Model
 
 - `roster/{studentId}`: server-managed account identity and authorized emails.
@@ -88,14 +92,24 @@ publicConfig/sheets
   pollSeconds  60
 ```
 
-Every signed-in member may read the document so their hub paints the sheet data on load;
-only administrators may write it. The rules validate the shape (known keys only, an `https`
-Apps Script URL). No Google API key, service-account JSON, or OAuth secret is stored here —
+**Everyone** may read the document — signed in or not — so the House Points, Calendar and
+Monetary Fund sections paint from the built-in endpoint on first load; only administrators
+may write it, and the rules validate the shape (known keys only, an `https` URL, a clamped
+refresh interval). No Google API key, service-account JSON, or OAuth secret is stored here —
 the endpoint is public and read-only, and all edits happen inside the spreadsheet itself.
 
 ## Security Notes
 
 - No service-account credentials are shipped to the browser.
+- **Production sign-in is Firebase Authentication only.** Google OAuth or a Firebase
+  Email/Password credential is required; there is no local password store and no shared
+  role password. Local (non-Firebase) password sign-in and the role switcher exist only in
+  development builds and are refused by the shipped code.
+- Added sign-in emails (aliases) are confirmed by an administrator on the roster
+  (Admin Panel → Students → Login Emails → **Verify now**). There is no self-service
+  confirmation code, because the old one was generated in the browser and proved nothing.
+- Passwords never reach browser storage: production builds persist the roster without the
+  `password` field.
 - Firestore rules allow only the authenticated primary administrator to seed roster/index data and admins to overwrite admin-controlled hub state.
 - Council Hub reads and writes are checked against the explicit member list in the rules, so a signed-in account that was never added cannot read the conversation even with a modified client.
 - Email lookups in the rules (`emailIndex`, profile provisioning, the primary-admin check) compare lowercased addresses, because Google sign-in tokens keep the letter case the account was created with while the roster stores lowercase emails — mixed-case addresses otherwise fail with `permission-denied`.

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  Bold, CheckCircle2, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
+  Bold, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
   RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi, WifiOff,
 } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
@@ -14,13 +14,10 @@ import {
 } from "../lib/council";
 import { PRIMARY_ADMIN_ID } from "../lib/admin";
 import type { Student } from "../lib/types";
-import { HouseMark, Modal } from "./ui";
+import { HouseMark } from "./ui";
 import { Reveal } from "./Effects";
 import { CouncilHubMembersDialog } from "./admin/CouncilHubMembersPanel";
 import { useCouncilChat } from "./useCouncilChat";
-import {
-  clearConfirmationCode, issueConfirmationCode, verifyConfirmationCode,
-} from "../lib/verification";
 
 /** Renders council chat markup as safe React nodes: **bold**, __underline__, *italic*. */
 function renderBody(raw: string) {
@@ -48,9 +45,6 @@ export default function CouncilHub() {
   const [requested, setRequested] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [codeModal, setCodeModal] = useState<string | null>(null);
-  const [codeInput, setCodeInput] = useState("");
-  const [codeError, setCodeError] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const canManage = canManageCouncilHubMembers(user);
@@ -59,21 +53,6 @@ export default function CouncilHub() {
   if (!user) return null;
 
   const unverifiedAlias = user.aliases?.find((a) => !(user.verifiedAliases ?? []).includes(a));
-
-  const handleVerifyCode = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!codeModal) return;
-    const ok = verifyConfirmationCode(user.id, codeModal, codeInput);
-    if (!ok) {
-      setCodeError("Invalid 6-digit confirmation code. Please check your school email and try again.");
-      return;
-    }
-    dispatch({ type: "VERIFY_STUDENT_EMAIL", userId: user.id, email: codeModal });
-    clearConfirmationCode(user.id, codeModal);
-    announce(`Verified ${codeModal} successfully! You can now sign into the Council Hub with this account.`);
-    setCodeModal(null);
-    setCodeInput("");
-  };
 
   const send = async () => {
     if (busy) return;
@@ -142,33 +121,23 @@ export default function CouncilHub() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-4 text-xs">
           <div>
             <p className="font-bold text-amber-400 flex items-center gap-1.5">
-              <Lock className="h-4 w-4" /> Added Login Email Pending Verification
+              <Lock className="h-4 w-4" /> Added Login Email Awaiting Confirmation
             </p>
             <p className="mt-1 text-slate-300">
-              Your account has an added login email <strong>{unverifiedAlias}</strong>. To verify this email for normal Council Hub sign-in, enter the 6-digit confirmation code sent to your official school account (<strong>{user.email}</strong>).
+              Your account has an added login email <strong>{unverifiedAlias}</strong>. A council administrator confirms
+              added emails on the roster before they can be used to sign in — ask one to run
+              Admin Panel → Students → Login Emails → <em>Verify now</em> for this address. You can keep using
+              <strong> {user.email}</strong> in the meantime.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="btn btn-outline !min-h-[32px] !text-xs"
-              onClick={() => {
-                const code = issueConfirmationCode(user.id, unverifiedAlias, user.email);
-                announce(`6-digit confirmation code [ ${code} ] sent to ${user.email}.`);
-              }}
-            >
-              Send Code
-            </button>
+          {canManage && (
             <button
               className="btn btn-primary !min-h-[32px] !text-xs"
-              onClick={() => {
-                setCodeModal(unverifiedAlias);
-                setCodeError("");
-                setCodeInput("");
-              }}
+              onClick={() => setMembersOpen(true)}
             >
-              Enter 6-Digit Code
+              <Users /> Manage members
             </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -287,42 +256,6 @@ export default function CouncilHub() {
 
       <CouncilHubMembersDialog open={membersOpen} onClose={() => setMembersOpen(false)} />
 
-      {codeModal && (
-        <Modal
-          open
-          onClose={() => setCodeModal(null)}
-          title="Verify Added Login Email"
-          subtitle={`Confirmation code sent to ${user.email}`}
-          icon={<Lock />}
-        >
-          <form onSubmit={handleVerifyCode} className="form-stack">
-            <p className="inline-message">
-              A 6-digit confirmation code was sent to your official school account: <strong>{user.email}</strong>. Enter it below to verify <strong>{codeModal}</strong> for Council Hub sign-in.
-            </p>
-            <label className="form-field">
-              <span>Enter 6-digit confirmation code</span>
-              <input
-                required
-                maxLength={6}
-                autoFocus
-                className="control !py-3 text-center font-mono text-xl tracking-[0.4em] font-bold"
-                placeholder="······"
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              />
-            </label>
-            {codeError && <p role="alert" className="inline-message error">{codeError}</p>}
-            <div className="dialog-actions">
-              <button type="button" className="btn btn-secondary" onClick={() => setCodeModal(null)}>
-                Cancel
-              </button>
-              <button type="submit" disabled={codeInput.length !== 6} className="btn btn-primary">
-                <CheckCircle2 className="h-4 w-4" /> Verify Email
-              </button>
-            </div>
-          </form>
-        </Modal>
-      )}
     </div>
   );
 }

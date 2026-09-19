@@ -93,6 +93,23 @@ export function downloadCsv(filename: string, content: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/**
+ * One-time password for an administrator-created account. Random per account instead of a
+ * shared role default, so knowing the role never reveals a working credential.
+ * Generated with the platform CSPRNG when available.
+ */
+export function generateAccountPassword(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(8);
+  const source = typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function"
+    ? crypto
+    : undefined;
+  if (source) source.getRandomValues(bytes);
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  const code = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+  return `SHR-${code.slice(0, 4)}-${code.slice(4)}`;
+}
+
 export function buildStudentRecord(input: {
   id: string;
   name: string;
@@ -102,9 +119,11 @@ export function buildStudentRecord(input: {
   role?: Role;
   aliases?: string[];
   verifiedAliases?: string[];
+  /** Pre-generated one-time password; a fresh random one is used when omitted. */
+  password?: string;
 }): Student {
   const role = input.role ?? "student";
-  const defaultPw = role === "teacher" ? "teacher123" : role === "grade" ? "grade123" : "student123";
+  const defaultPw = input.password ?? generateAccountPassword();
   return {
     id: input.id,
     name: input.name.trim(),

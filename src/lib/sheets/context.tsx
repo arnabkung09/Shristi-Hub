@@ -1,9 +1,13 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from "react";
-import { readCloudSheetsConfig, writeCloudSheetsConfig } from "../firebase-client";
+import { observeFirebaseAuth, readCloudSheetsConfig, subscribeCloudSheetsConfig, writeCloudSheetsConfig } from "../firebase-client";
 import { describeError, fetchSection } from "./client";
-import { cachedConfig, envConfig, normaliseConfig, pollMs, saveCachedConfig, sectionEnabled, type SheetsConfig } from "./config";
+import {
+  CONFIG_SOURCE_LABELS, normaliseConfig, pollMs, resolveConfig, resolveConfigSource,
+  saveCachedConfig, sectionEnabled, sheetsExplicitlyDisabled,
+} from "./config";
+import type { SheetsConfig, SheetsConfigSource } from "./config";
 import { deriveCalendar, deriveFinances, deriveHousePoints } from "./derive";
 import { parseCalendarRow, parseHousePointRow, parseRows, parseTransactionRow } from "./parse";
 import { SHEET_SECTIONS, SHEET_LABELS } from "./types";
@@ -32,6 +36,9 @@ export interface SectionStatus extends SectionRuntime {
 
 export interface SheetsContextValue {
   config: SheetsConfig | null;
+  /** Where the active configuration came from (built-in endpoint, admin, env…). */
+  source: SheetsConfigSource;
+  sourceLabel: string;
   isConfigured: boolean;
   isEnabled: (section: SheetSection) => boolean;
   status: (section: SheetSection) => SectionStatus;
@@ -55,6 +62,8 @@ function mergeWarnings(...groups: Array<string[] | undefined>): string[] {
 
 const DISABLED: SheetsContextValue = {
   config: null,
+  source: "none",
+  sourceLabel: CONFIG_SOURCE_LABELS.none,
   isConfigured: false,
   isEnabled: () => false,
   status: (section) => ({ ...emptyRuntime, source: "local", label: SHEET_LABELS[section] }),
@@ -74,7 +83,10 @@ const DISABLED: SheetsContextValue = {
 export const SheetsContext = createContext<SheetsContextValue>(DISABLED);
 
 export function SheetsProvider({ children }: { children: ReactNode }) {
-  const [config, setConfig] = useState<SheetsConfig | null>(() => cachedConfig() ?? envConfig());
+  // The built-in council endpoint is active out of the box; an administrator-saved
+  // configuration (browser or Firestore) takes over as soon as it is available.
+  const [config, setConfig] = useState<SheetsConfig | null>(() => resolveConfig());
+  const [source, setSource] = useState<SheetsConfigSource>(() => resolveConfigSource());
   const [runtime, setRuntime] = useState<Record<SheetSection, SectionRuntime>>(makeRuntime);
   const [housePoints, setHousePoints] = useState<HousePointsData | null>(null);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
@@ -163,30 +175,71 @@ export function SheetsProvider({ children }: { children: ReactNode }) {
     };
   }, [config, load]);
 
-  // Administrator-managed endpoint from Firestore (signed-in sessions only).
+  // Administrator-managed endpoint from Firestore. It is read before, during, and after
+  // sign-in (the document is public, read-only configuration) and kept live, so a URL
+  // saved once by an administrator reaches every visitor — signed in or not.
   useEffect(() => {
     let cancelled = false;
-    void readCloudSheetsConfig()
-      .then((remote) => {
-        if (cancelled || !remote) return;
-        const normalised = normaliseConfig(remote);
-        if (!normalised) return;
-        saveCachedConfig(normalised);
-        setConfig(normalised);
-      })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
+    let unsubscribe: (() => void) | undefined;
+
+    const applyRemote = (remote: Partial<SheetsConfig> | null | undefined) => {
+      if (cancelled || !remote) return;
+      // An administrator who disconnected on this device stays disconnected until they
+      // save a connection again — a shared document must not switch the sections back on
+      // behind their back.
+      if (sheetsExplicitlyDisabled()) return;
+      const normalised = normaliseConfig(remote);
+      if (!normalised) return;
+      saveCachedConfig(normalised);
+      setConfig(normalised);
+      setSource("firestore");
+    };
+
+    const loadOnce = () => {
+      void readCloudSheetsConfig()
+        .then((remote) => applyRemote(remote))
+        .catch(() => undefined);
+    };
+
+    const startSubscription = () => {
+      unsubscribe?.();
+      unsubscribe = subscribeCloudSheetsConfig((remote) => applyRemote(remote));
+    };
+
+    startSubscription();
+    loadOnce();
+
+    // A freshly signed-in session may be the first one allowed to read the document, so
+    // re-read and re-subscribe whenever the authentication state changes.
+    const stopAuth = observeFirebaseAuth(() => {
+      if (cancelled) return;
+      startSubscription();
+      loadOnce();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      stopAuth();
+    };
   }, []);
 
   const saveConfig = useCallback(async (next: SheetsConfig | null) => {
     const normalised = next ? normaliseConfig(next) : null;
+    // Apply locally first so the sections react immediately…
     saveCachedConfig(normalised);
     setConfig(normalised);
-    if (normalised) await writeCloudSheetsConfig(normalised);
+    setSource(normalised ? "browser" : "none");
+    // …then publish, so the whole school sees the same endpoint on every device. A
+    // failure here (signed out, rules, offline) is surfaced to the administrator instead
+    // of being swallowed.
+    await writeCloudSheetsConfig(normalised);
   }, []);
 
   const value = useMemo<SheetsContextValue>(() => ({
     config,
+    source,
+    sourceLabel: CONFIG_SOURCE_LABELS[source],
     isConfigured: Boolean(config),
     isEnabled: (section) => Boolean(config && sectionEnabled(config, section)),
     status: (section) => ({ ...runtime[section], source: config && sectionEnabled(config, section) ? "sheets" : "local", label: SHEET_LABELS[section] }),
@@ -201,7 +254,7 @@ export function SheetsProvider({ children }: { children: ReactNode }) {
     refresh,
     refreshAll,
     saveConfig,
-  }), [config, runtime, housePoints, calendar, finances, refresh, refreshAll, saveConfig]);
+  }), [config, source, runtime, housePoints, calendar, finances, refresh, refreshAll, saveConfig]);
 
   return <SheetsContext.Provider value={value}>{children}</SheetsContext.Provider>;
 }

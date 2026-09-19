@@ -45,6 +45,10 @@ if (withSheets) {
     pollSeconds: 60,
     sections: { housePoints: true, calendar: true, finances: true },
   }));
+} else {
+  // The built-in council endpoint is active by default, so "nothing connected" is the
+  // state an administrator creates by disconnecting the integration.
+  store.set("shristi-sheets-disabled-v1", "1");
 }
 
 /* Modal renders through createPortal, which react-dom/server cannot do. */

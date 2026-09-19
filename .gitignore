@@ -6,3 +6,8 @@ dist/
 
 # Firebase local deploy cache
 .firebase/
+
+# Local secrets — never commit these
+.env
+.env.*
+serviceAccount*.json

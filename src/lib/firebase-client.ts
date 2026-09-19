@@ -245,7 +245,10 @@ export async function sendFirebaseNotification(input: { title: string; body: str
   return { targetedUsers: targets.length };
 }
 
-export function subscribeFirebaseInbox(callback: (notification: AppNotification) => void) {
+export function subscribeFirebaseInbox(
+  callback: (notification: AppNotification) => void,
+  onError?: (error: Error) => void,
+) {
   const current = firebaseAuth.currentUser;
   if (!current) return () => undefined;
   const seen = new Set<string>();
@@ -256,6 +259,10 @@ export function subscribeFirebaseInbox(callback: (notification: AppNotification)
       const data = change.doc.data();
       callback({ id: change.doc.id, title: String(data.title), body: String(data.body), urgent: Boolean(data.urgent), timestamp: Number(data.timestamp) || Date.now(), senderName: String(data.senderName || "Council"), senderRole: "admin", audience: { kind: "user", userId: "cloud" }, actionTab: String(data.actionTab || "dashboard"), readBy: [], kind: "broadcast" });
     });
+  }, (error) => {
+    // Never let a denied/offline inbox read surface as an unhandled rejection: in-app
+    // notifications stay local-only until the listener can attach again.
+    onError?.(error);
   });
 }
 
@@ -352,7 +359,8 @@ export async function removeHubChat(room: HubRoom, messageId: string) {
  * `/exec` URL only — never a Google API key, service account, or OAuth secret.
  */
 export async function readCloudSheetsConfig(): Promise<Partial<SheetsConfig> | null> {
-  if (!firebaseAuth.currentUser) return null;
+  // The document is public read-only configuration, so it is read before sign-in as well:
+  // that is what makes the endpoint reach a visitor who has not authenticated yet.
   try {
     const snapshot = await getDoc(doc(firebaseDb, "publicConfig", "sheets"));
     return snapshot.exists() ? snapshot.data() as Partial<SheetsConfig> : null;
@@ -361,9 +369,21 @@ export async function readCloudSheetsConfig(): Promise<Partial<SheetsConfig> | n
   }
 }
 
-export async function writeCloudSheetsConfig(config: SheetsConfig): Promise<void> {
-  if (!firebaseAuth.currentUser) return;
-  await setDoc(doc(firebaseDb, "publicConfig", "sheets"), {
+/**
+ * Publishes (or clears) the shared spreadsheet endpoint. Throws when the write is not
+ * allowed, so the administrator is told the change is only saved in their browser instead
+ * of believing the whole school received it.
+ */
+export async function writeCloudSheetsConfig(config: SheetsConfig | null): Promise<void> {
+  if (!firebaseAuth.currentUser) {
+    throw new Error("Sign in with Google to publish this connection to every device. It is saved in this browser for now.");
+  }
+  const reference = doc(firebaseDb, "publicConfig", "sheets");
+  if (!config) {
+    await deleteDoc(reference);
+    return;
+  }
+  await setDoc(reference, {
     apiUrl: config.apiUrl,
     token: config.token ?? "",
     houseMap: config.houseMap ?? {},
@@ -373,11 +393,17 @@ export async function writeCloudSheetsConfig(config: SheetsConfig): Promise<void
   });
 }
 
-export function subscribeCloudSheetsConfig(callback: (config: Partial<SheetsConfig>) => void): () => void {
-  if (!firebaseAuth.currentUser) return () => undefined;
+export function subscribeCloudSheetsConfig(
+  callback: (config: Partial<SheetsConfig>) => void,
+  onError?: (error: Error) => void,
+): () => void {
   return onSnapshot(doc(firebaseDb, "publicConfig", "sheets"), (snapshot) => {
     if (snapshot.exists()) callback(snapshot.data() as Partial<SheetsConfig>);
-  }, () => undefined);
+  }, (error) => {
+    // A denied or offline read must never break the page: the built-in endpoint and the
+    // browser-saved configuration keep working.
+    onError?.(error);
+  });
 }
 
 export { app as firebaseApp };

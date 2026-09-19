@@ -69,7 +69,7 @@ export function validateAccount(account: Student) {
 export function createTeacher(input: { name: string; email: string; grade: number | null; house: House }): Teacher {
   const teacher: Teacher = {
     id: `teacher-${crypto.randomUUID()}`, name: input.name.trim(), email: input.email.trim().toLowerCase(),
-    aliases: [], verifiedAliases: [], password: "teacher123", role: "teacher", isStaff: true, status: "pending",
+    aliases: [], verifiedAliases: [], password: "", role: "teacher", isStaff: true, status: "pending",
     grade: input.grade, gradeLabel: input.grade == null ? null : `Grade ${input.grade}` as Teacher["gradeLabel"],
     house: input.house, houseLabel: `${input.house} House`,
     createdAt: new Date().toISOString(),
@@ -85,7 +85,7 @@ export function createClassAccount(input: { name: string; email: string; grade: 
     email: input.email.trim().toLowerCase(),
     aliases: [],
     verifiedAliases: [],
-    password: "grade123",
+    password: "",
     role: "grade",
     isStaff: false,
     status: "active",

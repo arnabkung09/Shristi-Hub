@@ -8,7 +8,8 @@ import { useSheets } from "../../lib/sheets/context";
 import { pingSheetApi } from "../../lib/sheets/client";
 import { DEFAULT_HOUSE_MAP, effectiveHouseMap } from "../../lib/sheets/derive";
 import {
-  DEFAULT_POLL_SECONDS, MAX_POLL_SECONDS, MIN_POLL_SECONDS, isValidApiUrl, normaliseConfig,
+  BUILT_IN_SHEETS_API_URL, DEFAULT_POLL_SECONDS, MAX_POLL_SECONDS, MIN_POLL_SECONDS,
+  isValidApiUrl, normaliseConfig,
 } from "../../lib/sheets/config";
 import { SHEET_LABELS, SHEET_SECTIONS } from "../../lib/sheets/types";
 import type { House, HouseMap, SheetSection } from "../../lib/sheets/types";
@@ -115,20 +116,28 @@ export default function SheetsConnection() {
     if (!config) { setError("Enter the Apps Script Web app URL that ends with /exec."); return; }
     setSaving(true);
     try {
+      // Applies in this browser first, then publishes to Firestore for every device.
       await sheets.saveConfig(config);
-      announce("Google Sheets connection saved. The three sections now read from the spreadsheet.");
+      announce("Google Sheets connection saved and published. Every device now reads the spreadsheet.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unable to save the connection.");
+      // The local connection is already live; only the shared copy failed.
+      setError(`${e instanceof Error ? e.message : "Unable to publish the connection."} The sections in this browser are already reading from it.`);
+      announce("Google Sheets connection saved in this browser. Sign in with Google to share it with every device.", "error");
     } finally {
       setSaving(false);
     }
   };
 
   const disconnect = async () => {
-    await sheets.saveConfig(null);
+    try {
+      await sheets.saveConfig(null);
+      announce("Google Sheets disconnected. The three sections show the hub's own stored data again.", "error");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to publish the disconnect.");
+      announce("Google Sheets disconnected in this browser only — sign in with Google to apply it everywhere.", "error");
+    }
     setConfirmClear(false);
     setStatus(null);
-    announce("Google Sheets disconnected. The three sections show the hub's own stored data again.", "error");
   };
 
   const configured = sheets.isConfigured;
@@ -155,9 +164,23 @@ export default function SheetsConnection() {
               spellCheck={false}
             />
           </label>
+          <div className="integration-row">
+            <span>Endpoint source</span>
+            <strong className="text-right text-[11px]">{sheets.sourceLabel}</strong>
+          </div>
           <p className="small-note">
-            Deploy <code>apps-script/Code.gs</code> as a Web app (Execute as: <strong>Me</strong>, Who has access: <strong>Anyone</strong>),
-            then paste the <code>/exec</code> URL here. Full steps: <code>GOOGLE-SHEETS-SETUP.md</code>.
+            The council's own read-only endpoint is built in and active out of the box, so nothing has to be pasted for
+            House Points, Calendar and Monetary Fund to work. Paste another <code>/exec</code> URL to point the hub at a
+            different spreadsheet, or{" "}
+            <button
+              type="button"
+              className="text-action inline !p-0 align-baseline"
+              onClick={() => setApiUrl(BUILT_IN_SHEETS_API_URL)}
+            >
+              restore the built-in endpoint
+            </button>
+            . Deploying your own copy: <code>apps-script/Code.gs</code> as a Web app (Execute as: <strong>Me</strong>,
+            Who has access: <strong>Anyone</strong>) — full steps in <code>GOOGLE-SHEETS-SETUP.md</code>.
           </p>
 
           <div className="form-grid">
@@ -298,8 +321,10 @@ export default function SheetsConnection() {
 
       <Modal open={confirmClear} onClose={() => setConfirmClear(false)} title="Disconnect Google Sheets" icon={<Unplug />}>
         <p className="inline-message">
-          House Points, Calendar, and Monetary Fund will go back to the hub's own stored data. Nothing is deleted from the
-          spreadsheet, and you can reconnect at any time by pasting the URL again.
+          House Points, Calendar, and Monetary Fund will go back to the hub's own stored data on this device, and the
+          shared Firestore override is removed. Nothing is ever deleted from the spreadsheet. The built-in council
+          endpoint stays available: save a connection (or press “restore the built-in endpoint” and save) to switch
+          the sections back to the sheet.
         </p>
         <div className="dialog-actions">
           <button className="btn btn-secondary" onClick={() => setConfirmClear(false)}>Cancel</button>

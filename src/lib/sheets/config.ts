@@ -5,10 +5,22 @@ import type { HouseMap, SheetSection } from "./types";
  * Where the Council Hub finds the read-only Google Sheets API.
  *
  * Precedence: an administrator-set configuration (Firestore `publicConfig/sheets`,
- * mirrored into localStorage) beats the build-time `VITE_COUNCIL_SHEETS_API` value.
- * Only the public Apps Script `/exec` URL lives on the client — never a Google API key,
- * service account, or OAuth secret.
+ * mirrored into localStorage) beats the build-time `VITE_COUNCIL_SHEETS_API` value, which
+ * beats the built-in deployment endpoint below. Only public Apps Script `/exec` URLs live
+ * on the client — never a Google API key, service account, or OAuth secret.
  */
+
+/**
+ * The council's deployed Apps Script read API.
+ *
+ * Hardcoded on purpose: the endpoint is public, read-only, and answers without any
+ * credential, so the three spreadsheet-owned sections (House Points, Calendar, Monetary
+ * Fund) work out of the box — no admin step, no environment variable needed. An
+ * administrator can still override it in Admin Panel → Google Sheets, and an explicit
+ * disconnect switches the sections back to the hub's own stored data.
+ */
+export const BUILT_IN_SHEETS_API_URL =
+  "https://script.google.com/macros/s/AKfycbxfxpiahF3PGrm4BTpZzKI13jQPsmu4ViDiK39bxxP_zWrrPEPewJYgpjZJ8PM-whD-/exec";
 
 export interface SheetsConfig {
   /** Public Apps Script web app URL ending in `/exec`. */
@@ -23,7 +35,12 @@ export interface SheetsConfig {
   pollSeconds?: number;
 }
 
+/** Where the active configuration came from, for the admin panel and status strip. */
+export type SheetsConfigSource = "firestore" | "browser" | "environment" | "built-in" | "none";
+
 export const SHEETS_CONFIG_KEY = "shristi-sheets-config-v1";
+/** Set when an administrator explicitly disconnects, so the built-in endpoint stays off. */
+export const SHEETS_DISABLED_KEY = "shristi-sheets-disabled-v1";
 export const DEFAULT_POLL_SECONDS = 60;
 export const MIN_POLL_SECONDS = 15;
 export const MAX_POLL_SECONDS = 3600;
@@ -91,6 +108,11 @@ function parseConfig(raw: string | null): SheetsConfig | null {
   }
 }
 
+/** The deployed council endpoint, as a ready-to-use configuration. */
+export function builtInConfig(): SheetsConfig | null {
+  return normaliseConfig({ apiUrl: BUILT_IN_SHEETS_API_URL });
+}
+
 /** Build-time configuration: `VITE_COUNCIL_SHEETS_API` / `VITE_COUNCIL_SHEETS_TOKEN`. */
 export function envConfig(): SheetsConfig | null {
   const apiUrl = envValue("VITE_COUNCIL_SHEETS_API");
@@ -111,18 +133,65 @@ export function cachedConfig(): SheetsConfig | null {
   }
 }
 
+/** True when an administrator explicitly disconnected the spreadsheet sections. */
+export function sheetsExplicitlyDisabled(): boolean {
+  try {
+    return localStorage.getItem(SHEETS_DISABLED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Persists the administrator's choice. Passing `null` means "disconnect": the built-in
+ * endpoint is switched off too, so the sections fall back to the hub's stored data until an
+ * administrator saves a connection again.
+ */
 export function saveCachedConfig(config: SheetsConfig | null): void {
   try {
-    if (config) localStorage.setItem(SHEETS_CONFIG_KEY, JSON.stringify(config));
-    else localStorage.removeItem(SHEETS_CONFIG_KEY);
+    if (config) {
+      localStorage.setItem(SHEETS_CONFIG_KEY, JSON.stringify(config));
+      localStorage.removeItem(SHEETS_DISABLED_KEY);
+    } else {
+      localStorage.removeItem(SHEETS_CONFIG_KEY);
+      localStorage.setItem(SHEETS_DISABLED_KEY, "1");
+    }
   } catch {
     /* Storage may be unavailable; the in-memory config still applies for this session. */
   }
 }
 
-export function resolveConfig(): SheetsConfig | null {
+/** Configuration saved in this browser, without falling back to the built-in endpoint. */
+export function savedConfig(): SheetsConfig | null {
   return cachedConfig() ?? envConfig();
 }
+
+/**
+ * The configuration the hub should run on right now:
+ * administrator-saved browser config → build-time environment → built-in endpoint,
+ * unless an administrator disconnected the integration.
+ */
+export function resolveConfig(): SheetsConfig | null {
+  const saved = cachedConfig() ?? envConfig();
+  if (saved) return saved;
+  return sheetsExplicitlyDisabled() ? null : builtInConfig();
+}
+
+/** Which layer supplied the active configuration. */
+export function resolveConfigSource(): SheetsConfigSource {
+  if (cachedConfig()) return "browser";
+  if (envConfig()) return "environment";
+  if (!sheetsExplicitlyDisabled() && builtInConfig()) return "built-in";
+  return "none";
+}
+
+export const CONFIG_SOURCE_LABELS: Record<SheetsConfigSource, string> = {
+  firestore: "Shared Firestore configuration",
+  browser: "Saved in this browser",
+  environment: "Build environment variable",
+  "built-in": "Built-in council endpoint",
+  none: "Not connected",
+};
 
 export function pollMs(config: SheetsConfig | null): number {
   return Math.max(MIN_POLL_SECONDS, config?.pollSeconds ?? DEFAULT_POLL_SECONDS) * 1000;

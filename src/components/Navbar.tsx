@@ -5,7 +5,6 @@ import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
 import { enableFirebasePush, firebaseAuth } from "../lib/firebase-client";
-import type { Role } from "../lib/types";
 
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
@@ -36,27 +35,6 @@ function useDismiss(open: boolean, close: () => void) {
     return () => { document.removeEventListener("pointerdown", pointer); document.removeEventListener("keydown", key); };
   }, [open]);
   return ref;
-}
-
-export function DemoStrip() {
-  const { user, switchDemoRole } = useHub();
-  return (
-    <div className="demo-strip">
-      <span className="demo-tag">DEMO PLATFORM</span>
-      <span className="demo-explainer">Explore the council workspace. Switch roles to preview permissions.</span>
-      <div className="demo-roles" aria-label="Preview role">
-        {(["student", "teacher", "grade", "council", "admin"] as Role[]).map((role) => (
-          <button
-            key={role}
-            aria-pressed={user?.role === role}
-            onClick={() => switchDemoRole(role)}
-          >
-            {role === "grade" ? "class" : role}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function NotificationBell() {

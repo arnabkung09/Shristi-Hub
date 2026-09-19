@@ -1,3 +1,11 @@
+// ---------------------------------------------------------------------------
+// STALE — do not deploy this file.
+//
+// The deployed rules live in the repository root (`/firestore.rules`, wired up by
+// `firebase.json`). This copy belongs to the earlier standalone roster service and is kept
+// only for reference; it uses a different data model (whitelistedStudents, passwordHash in
+// users) and would break the Council Hub, chat and Google Sheets configuration documents.
+// ---------------------------------------------------------------------------
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
