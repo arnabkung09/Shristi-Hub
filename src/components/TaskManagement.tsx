@@ -29,7 +29,7 @@ const COLUMNS: Array<{ id: TaskStatus; label: string; icon: React.ReactNode; acc
   { id: "todo", label: "To Do", icon: <CircleDashed className="h-4 w-4" />, accent: "text-slate-500 dark:text-slate-300" },
   { id: "progress", label: "In Progress", icon: <Loader className="h-4 w-4" />, accent: "text-blue-500 dark:text-blue-300" },
   { id: "review", label: "Under Review", icon: <ScanSearch className="h-4 w-4" />, accent: "text-amber-600 dark:text-amber-300" },
-  { id: "done", label: "Completed", icon: <CheckCircle2 className="h-4 w-4" />, accent: "text-emerald-600 dark:text-emerald-300" },
+  { id: "done", label: "Complete", icon: <CheckCircle2 className="h-4 w-4" />, accent: "text-emerald-600 dark:text-emerald-300" },
 ];
 
 const PRIORITY_TONE: Record<TaskPriority, "slate" | "blue" | "amber" | "red"> = {
@@ -640,6 +640,18 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
               <div className="mb-3 flex items-center gap-2 px-1.5">
                 <span className={col.accent}>{col.icon}</span>
                 <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{col.label}</span>
+                {isDoneCol && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      document.getElementById("done-by-department")?.scrollIntoView({ behavior: "smooth" });
+                    }}
+                    className="text-[10px] font-bold text-emerald-600 hover:underline dark:text-emerald-400"
+                    title="Jump to Done by Department log"
+                  >
+                    Dept Log ↓
+                  </button>
+                )}
                 <span className="ml-auto rounded-full bg-black/[0.06] px-2 py-0.5 text-[11px] font-bold text-slate-500 dark:bg-white/[0.08] dark:text-slate-300">
                   {colTasks.length}
                 </span>
@@ -648,7 +660,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
               {/* Special Drop Notice for Completed Column */}
               {isOver && isDoneCol && (
                 <div className="mb-2.5 flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/20 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-200 animate-pulse">
-                  <Sparkles className="h-3.5 w-3.5" /> Drop to complete & log to department!
+                  <Sparkles className="h-3.5 w-3.5" /> Drop to complete & auto-log in Done by Department!
                 </div>
               )}
 
@@ -660,7 +672,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
                   </p>
                 )}
                 {colTasks.map((t) => {
-                  const canMove = user.role === "admin" || (canManage && (t.assigneeId === user.id || !t.assigneeId || user.role === "council"));
+                  const canMove = user.role === "admin" || canManage || t.assigneeId === user.id;
                   return (
                     <TaskCard
                       key={t.id}
