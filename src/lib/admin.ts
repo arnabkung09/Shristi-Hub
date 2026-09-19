@@ -1,4 +1,4 @@
-import type { CouncilTask, House, HouseBranding, SiteRating, Student } from "./types";
+import type { CouncilTask, House, HouseBranding, Role, SiteRating, Student } from "./types";
 import { canonicalGradeFromNumber, normalizeEmail } from "./ssot-auth";
 
 export const PRIMARY_ADMIN_ID = "shr-085";

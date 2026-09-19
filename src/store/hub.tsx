@@ -22,6 +22,7 @@ import {
   removeCouncilMessage,
 } from "../lib/council";
 import { useLocalPresence, type ConnectedDevice } from "../lib/presence";
+import { issueConfirmationCode } from "../lib/verification";
 import { useSheets, type SheetsContextValue } from "../lib/sheets/context";
 import type { SheetSection } from "../lib/sheets/types";
 import {
@@ -138,6 +139,7 @@ type Action =
   | { type: "SET_HOUSE_BRANDING"; house: House; name: string; logoUrl: string }
   | { type: "SUBMIT_RATING"; userId: string; userName: string; house: House; value: number; comment: string }
   | { type: "SET_HOUSE_CAPTAIN"; house: House; userId: string }
+  | { type: "SET_HOUSE_MEMBERSHIP"; house: House; accountId: string; include: boolean }
   | { type: "POST_HOUSE_MESSAGE"; message: HouseMessage }
   | { type: "DELETE_HOUSE_MESSAGE"; messageId: string }
   | { type: "POST_COUNCIL_MESSAGE"; message: CouncilChatMessage }
@@ -157,7 +159,7 @@ type Action =
   | { type: "DELEGATE_TASK"; taskId: string; assigneeId: string; department: string }
   | { type: "BROADCAST"; record: BroadcastRecord; notification: AppNotification };
 
-const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER"]);
+const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER"]);
 /**
  * Actions whose data now lives in a Google Sheet. The sheets are the single source of
  * truth for these three sections, so the hub refuses to write them locally and points
@@ -327,9 +329,11 @@ export function reducer(state: HubState, action: Action): HubState {
                 ...t,
                 ...action.task,
                 completedAt:
+                  // The else branch below has no "done" left, so any explicit status
+                  // here reopens the task and clears the completion timestamp.
                   action.task.status === "done"
                     ? (action.task.completedAt ?? t.completedAt ?? Date.now())
-                    : action.task.status && action.task.status !== "done"
+                    : action.task.status !== undefined
                     ? undefined
                     : t.completedAt,
               }
@@ -626,6 +630,26 @@ export function reducer(state: HubState, action: Action): HubState {
       if (action.userId) captains[action.house] = action.userId; else delete captains[action.house];
       return { ...state, houseCaptains: captains };
     }
+    case "SET_HOUSE_MEMBERSHIP": {
+      const memberships = {
+        Blue: [...(state.houseMemberships.Blue ?? [])],
+        Red: [...(state.houseMemberships.Red ?? [])],
+        Green: [...(state.houseMemberships.Green ?? [])],
+      };
+      const list = memberships[action.house];
+      if (action.include) {
+        if (!list.includes(action.accountId)) memberships[action.house] = [...list, action.accountId];
+      } else {
+        memberships[action.house] = list.filter((id) => id !== action.accountId);
+        // Removing a captain from their own house hub also clears the appointment.
+        if (state.houseCaptains[action.house] === action.accountId) {
+          const captains = { ...state.houseCaptains };
+          delete captains[action.house];
+          return { ...state, houseMemberships: memberships, houseCaptains: captains };
+        }
+      }
+      return { ...state, houseMemberships: memberships };
+    }
     case "POST_HOUSE_MESSAGE":
       if (!action.message.title.trim() || !action.message.body.trim()) throw new Error("A title and message are required.");
       return { ...state, houseMessages: [action.message, ...state.houseMessages].slice(0, 200) };
@@ -728,6 +752,11 @@ interface HubContextValue {
   devices: ConnectedDevice[];
   firebaseStatus: "signed-out" | "connecting" | "connected" | "error";
   firebaseEmail: string | null;
+  /** True when the signed-in Google account still needs a hub password set. */
+  needsPasswordSetup: boolean;
+  createAccountPassword: (password: string) => Promise<void>;
+  /** Grant or revoke an account's access to a house hub without touching its primary house. */
+  setHouseMembership: (house: House, accountId: string, include: boolean) => Promise<void>;
   signInGoogle: () => Promise<void>;
   signInPassword: (email: string, password: string) => Promise<void>;
   signInDirect: (userId: string) => void;
@@ -797,6 +826,13 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
       : seed.legal,
     eventTypes: parsed.eventTypes?.length ? parsed.eventTypes : seed.eventTypes,
     houseCaptains: parsed.houseCaptains ?? seed.houseCaptains,
+    houseMemberships: parsed.houseMemberships
+      ? {
+          Blue: [...(parsed.houseMemberships.Blue ?? [])],
+          Red: [...(parsed.houseMemberships.Red ?? [])],
+          Green: [...(parsed.houseMemberships.Green ?? [])],
+        }
+      : seed.houseMemberships,
     houseMessages: parsed.houseMessages ?? seed.houseMessages,
     houses: parsed.houses
       ? {
@@ -1071,6 +1107,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     announce("Your password was created. You can now sign in with your school email and password.");
   };
 
+  const setHouseMembership = async (house: House, accountId: string, include: boolean) => {
+    const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
+    if (current?.role !== "admin") throw new Error("Only an administrator can manage house hub members.");
+    const account = stateRef.current.users.find((student) => student.id === accountId);
+    if (!account) throw new Error("That account no longer exists in the roster.");
+    if (account.role === "grade") throw new Error("Class accounts cannot be added to a house hub.");
+    dispatch({ type: "SET_HOUSE_MEMBERSHIP", house, accountId, include });
+  };
+
   const uploadAllToFirestore = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
     if (current?.role !== "admin") throw new Error("Administrator access is required.");
@@ -1230,7 +1275,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   };
 
   return (
-    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, switchDemoRole, hasPermission, devices, firebaseStatus, firebaseEmail, signInGoogle, signInPassword, signInDirect, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
+    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, switchDemoRole, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
       {children}
     </HubContext.Provider>
   );

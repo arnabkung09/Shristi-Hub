@@ -3,6 +3,7 @@ import {
   ArrowDownLeft, ArrowUpRight, IndianRupee, Plus, ReceiptText, Scale, TrendingUp,
 } from "lucide-react";
 import { uid, useHub } from "../store/hub";
+import { RevealBlocks } from "./Effects";
 import { Badge, Btn, Card, Field, Modal, SectionTitle, Select, StatCard, inputCls } from "./ui";
 import SheetSyncBar from "./SheetSyncBar";
 import { cn } from "../utils/cn";
@@ -65,6 +66,7 @@ export default function Finances({ openNewOnMount = false }: { openNewOnMount?: 
 
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       <SectionTitle
         title="Finance & Budget Transparency"
         subtitle="Every rupee in and out of the council treasury — fully public to students"
@@ -200,6 +202,7 @@ export default function Finances({ openNewOnMount = false }: { openNewOnMount?: 
           </div>
         </div>
       </Modal>
+      </RevealBlocks>
     </div>
   );
 }

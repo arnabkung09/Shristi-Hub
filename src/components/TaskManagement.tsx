@@ -16,9 +16,9 @@ import {
   Search,
   Sparkles,
   Trash2,
-  UserCheck,
 } from "lucide-react";
 import { uid, useHub, fmtDate } from "../store/hub";
+import { RevealBlocks } from "./Effects";
 import { Avatar, Badge, Btn, Card, Field, Modal, SectionTitle, Select, inputCls } from "./ui";
 import { TASK_PRIORITIES } from "../lib/seed";
 import { cn } from "../utils/cn";
@@ -451,6 +451,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
 
   return (
     <div className="space-y-8">
+      <RevealBlocks>
       {/* Page Title & Primary Actions */}
       <SectionTitle
         title="Task Management Board"
@@ -1348,6 +1349,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
           </div>
         </div>
       </Modal>
+      </RevealBlocks>
     </div>
   );
 }

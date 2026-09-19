@@ -1,11 +1,11 @@
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import { type HTMLAttributes, type ReactNode, useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "../utils/cn";
 import { avatarHue, initials, useHub } from "../store/hub";
 import { houseFullName, houseLogo } from "../lib/admin";
-import type { House } from "../lib/types";
+import type { House, Role } from "../lib/types";
 
 /* ---------------- crest ---------------- */
 
@@ -34,13 +34,16 @@ export function Crest({ className, src }: { className?: string; src?: string }) 
 
 /* ---------------- layout primitives ---------------- */
 
-export function Card({ children, className }: { children: ReactNode; className?: string }) {
+export function Card({ children, className, ...rest }: { children: ReactNode; className?: string } & Omit<HTMLAttributes<HTMLDivElement>, "children">) {
   return (
-    <div className={cn(
-      "rounded-2xl border border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(16,18,22,0.05)]",
-      "dark:border-white/[0.07] dark:bg-ink-900 dark:shadow-none",
-      className
-    )}>
+    <div
+      className={cn(
+        "rounded-2xl border border-black/[0.07] bg-white shadow-[0_1px_2px_rgba(16,18,22,0.05)]",
+        "dark:border-white/[0.07] dark:bg-ink-900 dark:shadow-none",
+        className
+      )}
+      {...rest}
+    >
       {children}
     </div>
   );
@@ -103,7 +106,7 @@ export function Btn({
 
 /* ---------------- badges ---------------- */
 
-type Tone = "slate" | "indigo" | "red" | "amber" | "emerald" | "blue" | "green" | "violet";
+type Tone = "slate" | "indigo" | "red" | "amber" | "emerald" | "blue" | "green" | "violet" | "sky";
 
 const tones: Record<Tone, string> = {
   slate: "bg-slate-500/10 text-slate-600 ring-slate-500/25 dark:text-slate-300",
@@ -114,6 +117,7 @@ const tones: Record<Tone, string> = {
   blue: "bg-blue-500/10 text-blue-600 ring-blue-500/25 dark:text-blue-300",
   green: "bg-green-500/10 text-green-600 ring-green-500/25 dark:text-green-300",
   violet: "bg-violet-500/10 text-violet-600 ring-violet-500/25 dark:text-violet-300",
+  sky: "bg-sky-500/10 text-sky-600 ring-sky-500/25 dark:text-sky-300",
 };
 
 export function Badge({ children, tone = "slate", className }: { children: ReactNode; tone?: Tone; className?: string }) {
@@ -343,6 +347,7 @@ export function StatCard({ icon, label, value, sub, tone = "indigo" }: {
     blue: "bg-blue-500/10 text-blue-500 dark:text-blue-300",
     green: "bg-green-500/10 text-green-600 dark:text-green-300",
     violet: "bg-violet-500/10 text-violet-600 dark:text-violet-300",
+    sky: "bg-sky-500/10 text-sky-600 dark:text-sky-300",
   };
   return (
     <Card className="animate-slide-up p-4 sm:p-5">

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { AnimatePresence } from "framer-motion";
 import { cn } from "../utils/cn";
+import { Modal } from "./ui";
 
 /* Scroll-triggered reveal: fades/slides content in the first time it enters view. */
 export function Reveal({
@@ -42,6 +44,37 @@ export function Reveal({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * Wraps a page's top-level blocks so each one fades and rises the first time it
+ * scrolls into view, with a gentle stagger down the page. Blocks that are plain
+ * text or empty are passed through untouched.
+ */
+export function RevealBlocks({ children, step = 80 }: { children: ReactNode; step?: number }) {
+  const parts = Children.toArray(children);
+  let index = 0;
+  return (
+    <>
+      {parts.map((child, idx) => {
+        // Primitives (whitespace strings, numbers, booleans) pass through as-is.
+        if (child == null || typeof child !== "object") return child;
+        const el = child as ReactElement;
+        // AnimatePresence often holds a fixed/absolute overlay (e.g. the gallery
+        // lightbox) and Modal portals to <body>; a transformed reveal wrapper
+        // would break their containing blocks or leave an empty spacer, so
+        // pass both through untouched.
+        if (el.type === AnimatePresence || el.type === Modal) return child;
+        const delay = Math.min(index * step, 480);
+        index += 1;
+        return (
+          <Reveal key={el.key ?? `block-${idx}`} delay={delay} className="h-full min-w-0">
+            {child}
+          </Reveal>
+        );
+      })}
+    </>
   );
 }
 

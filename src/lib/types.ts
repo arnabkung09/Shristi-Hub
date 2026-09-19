@@ -341,6 +341,8 @@ export interface HubState {
   legal: LegalContent;
   eventTypes: string[];
   houseCaptains: Partial<Record<House, string>>;
+  /** Extra accounts (any student or teacher) granted access to each house hub. */
+  houseMemberships: Record<House, string[]>;
   houseMessages: HouseMessage[];
   houses: Record<House, HouseBranding>;
   siteRatings: SiteRating[];

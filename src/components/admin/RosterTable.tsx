@@ -16,7 +16,6 @@ import { ROSTER_SOURCE_ISSUES, ROSTER_SOURCE_URL } from "../../lib/whitelist-see
 import { Modal } from "../ui";
 import {
   clearConfirmationCode, getPendingConfirmation, issueConfirmationCode,
-  verifyConfirmationCode,
 } from "../../lib/verification";
 
 type DatabaseTab = "students" | "teachers" | "classes";
@@ -279,7 +278,9 @@ export default function RosterTable() {
                   <td className="student-name">
                     <span className="font-semibold">{s.name}</span>
                     {s.id === PRIMARY_ADMIN_ID && (
-                      <ShieldCheck className="ml-1.5 inline h-3.5 w-3.5 text-emerald-400" title="Primary Administrator" />
+                      <span className="ml-1.5 inline-flex" title="Primary Administrator" aria-label="Primary Administrator">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      </span>
                     )}
                     {state.councilHubMembers.includes(s.id) && s.id !== PRIMARY_ADMIN_ID && (
                       <span className="ml-1.5 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-indigo-400" title="Council Hub Member">
@@ -863,7 +864,10 @@ function AccountDialog({
                           <CheckCircle2 className="h-3 w-3" /> Verified
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-400">
+                        <span
+                          className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[8px] font-bold uppercase tracking-wider text-amber-400"
+                          title={pending ? `A confirmation code was issued ${new Date(pending.createdAt).toLocaleString()}` : "Send a 6-digit code, then verify this email."}
+                        >
                           <Clock className="h-3 w-3" /> Pending Verification · Code Required
                         </span>
                       )}

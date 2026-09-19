@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  AlertCircle,
   Building2,
   Calendar,
   CheckCircle2,
@@ -9,11 +8,8 @@ import {
   Cloud,
   CloudDownload,
   CloudUpload,
-  Database,
   DatabaseZap,
   Download,
-  FileText,
-  Home,
   KeyRound,
   Layers3,
   LoaderCircle,
@@ -36,8 +32,8 @@ import {
   PRIMARY_ADMIN_EMAIL,
 } from "../../lib/firebase-client";
 import { useHub } from "../../store/hub";
-import { downloadJson, publicRoster, PRIMARY_ADMIN_ID, houseFullName } from "../../lib/admin";
-import { GRADE_VALUES, HOUSE_VALUES, INSTITUTIONAL_EMAIL_DOMAIN } from "../../lib/ssot-auth";
+import { downloadJson, publicRoster, PRIMARY_ADMIN_ID } from "../../lib/admin";
+import { INSTITUTIONAL_EMAIL_DOMAIN } from "../../lib/ssot-auth";
 import { HOUSES } from "../../lib/seed";
 import { Crest, HouseMark, Modal } from "../ui";
 
