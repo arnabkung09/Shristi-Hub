@@ -190,8 +190,11 @@ button, a { touch-action: manipulation; }
 .admin-heading > svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--purple); margin-top: 8px; }
 .admin-heading h1 { font: 700 20px/1.25 var(--font-display); letter-spacing: -.45px; }
 .admin-description { font-size: 10px; line-height: 1.35; color: var(--muted); margin-top: 4px; }
-.admin-tabs { display: flex; align-items: center; gap: 1px; background: var(--surface-raised); padding: 4px; border-radius: 16px; overflow-x: auto; scrollbar-width: none; }
-.admin-tabs::-webkit-scrollbar { display: none; }
+.admin-tabs { display: flex; align-items: center; gap: 1px; background: var(--surface-raised); padding: 4px; border-radius: 16px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: rgba(120, 126, 140, 0.4) transparent; overscroll-behavior-x: contain; }
+.admin-tabs::-webkit-scrollbar { height: 8px; }
+.admin-tabs::-webkit-scrollbar-track { background: transparent; }
+.admin-tabs::-webkit-scrollbar-thumb { background: rgba(120, 126, 140, 0.35); border-radius: 99px; }
+.admin-tabs::-webkit-scrollbar-thumb:hover { background: rgba(120, 126, 140, 0.6); }
 .admin-tabs button { display: flex; align-items: center; justify-content: center; gap: 5px; flex: 1 0 auto; min-height: 31px; border-radius: 12px; padding: 6px 9px; color: var(--muted); white-space: nowrap; font-size: 10px; font-weight: 650; transition: color .2s, background .2s; }
 .admin-tabs button svg { width: 13px; height: 13px; flex-shrink: 0; }
 .admin-tabs button:hover { color: var(--text); }

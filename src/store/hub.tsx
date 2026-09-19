@@ -899,6 +899,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const cloudStateHashRef = useRef("");
   const applyingCloudRef = useRef(false);
   const cloudUnsubscribeRef = useRef<(() => void) | null>(null);
+  const cloudBootstrappedRef = useRef(false);
   const rosterHashRef = useRef("");
   const activityHashRef = useRef("");
   const googleConnectionRef = useRef<Promise<void> | null>(null);
@@ -1009,6 +1010,13 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           // hubState write, so an administrator publishes the merged (complete) state.
           if (student.role === "admin" && remote.councilHubMembers === undefined) {
             void writeCloudState(stateRef.current).catch((error) => announce(`The Council Hub member list could not be published: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+          }
+          // First time this session pulls the saved cloud document: surface it so the
+          // administrator can see that a freshly deployed version automatically adopted
+          // the stored Firestore state instead of the default seed data.
+          if (!cloudBootstrappedRef.current) {
+            cloudBootstrappedRef.current = true;
+            announce("Loaded your saved site data from Firestore. This version is now running on the stored cloud state.");
           }
         }
         cloudReadyRef.current = true;
@@ -1145,6 +1153,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     cloudUnsubscribeRef.current?.();
     cloudUnsubscribeRef.current = null;
     cloudReadyRef.current = false;
+    cloudBootstrappedRef.current = false;
     if (firebaseAuth.currentUser) await signOutFirebase();
     dispatch({ type: "LOGOUT" });
     setFirebaseStatus("signed-out");
@@ -1234,6 +1243,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       cloudUnsubscribeRef.current?.();
       cloudUnsubscribeRef.current = null;
       cloudReadyRef.current = false;
+      cloudBootstrappedRef.current = false;
       dispatch({ type: "LOGIN", userId: demo.id });
       setFirebaseStatus("signed-out");
       setFirebaseEmail(null);
