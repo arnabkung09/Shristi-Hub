@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useHub, fmtDate, isoDay, targetsUser } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
+import { RevealBlocks } from "./Effects";
 import { Badge, Btn, Card, HouseBadge, SectionTitle, StatCard } from "./ui";
 import { cn } from "../utils/cn";
 import type { House } from "../lib/types";
@@ -60,13 +61,14 @@ export default function Dashboard() {
     { label: "New Task", desc: "Assign council work", icon: <ClipboardList className="h-4.5 w-4.5" />, tab: "tasks?new=1", manageOnly: true },
     { label: "Record Transaction", desc: "Income or expense", icon: <Wallet className="h-4.5 w-4.5" />, tab: "finances?new=1", manageOnly: true },
     { label: "Browse Events", desc: `${upcomingEvents.length} upcoming`, icon: <CalendarDays className="h-4.5 w-4.5" />, tab: "events" },
-    { label: "Submit Suggestion", desc: "Anonymous option available", icon: <MessageSquareHeart className="h-4.5 w-4.5" />, tab: "voice" },
+    { label: "Submit Suggestion", desc: "Share feedback with council", icon: <MessageSquareHeart className="h-4.5 w-4.5" />, tab: "voice" },
     { label: "Vote Now", desc: `${activePolls.length} active polls`, icon: <Vote className="h-4.5 w-4.5" />, tab: "voice?polls=1" },
     { label: "Broadcast Hub", desc: "Ping all devices", icon: <Radio className="h-4.5 w-4.5" />, tab: "broadcast", manageOnly: true },
   ].filter((a) => !a.manageOnly || hasPermission(a.tab.split("?")[0]));
 
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       {/* Welcome banner */}
       <Card className="relative overflow-hidden p-6 sm:p-7">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.14),transparent_55%)]" />
@@ -220,6 +222,7 @@ export default function Dashboard() {
           </Card>
         )}
       </div>
+      </RevealBlocks>
     </div>
   );
 }

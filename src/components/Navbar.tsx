@@ -45,8 +45,14 @@ export function DemoStrip() {
       <span className="demo-tag">DEMO PLATFORM</span>
       <span className="demo-explainer">Explore the council workspace. Switch roles to preview permissions.</span>
       <div className="demo-roles" aria-label="Preview role">
-        {(["student", "council", "admin"] as Role[]).map((role) => (
-          <button key={role} aria-pressed={user?.role === role} onClick={() => switchDemoRole(role)}>{role}</button>
+        {(["student", "teacher", "grade", "council", "admin"] as Role[]).map((role) => (
+          <button
+            key={role}
+            aria-pressed={user?.role === role}
+            onClick={() => switchDemoRole(role)}
+          >
+            {role === "grade" ? "class" : role}
+          </button>
         ))}
       </div>
     </div>

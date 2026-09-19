@@ -7,6 +7,7 @@ import { chime, postBus } from "../lib/realtime";
 import { enableFirebasePush, firebaseAuth, getVapidKey, sendFirebaseNotification } from "../lib/firebase-client";
 import type { Audience, House } from "../lib/types";
 import { GRADES, HOUSES } from "../lib/seed";
+import { RevealBlocks } from "./Effects";
 
 const TEMPLATES = [
   { title: "Urgent Assembly Notice", body: "All students are requested to assemble at the Main Hall immediately. House captains, please take attendance.", urgent: true, action: "events?tab=notices", category: "notice", icon: ShieldAlert },
@@ -80,7 +81,7 @@ export default function AdminNotificationsHub() {
       setTimeout(() => setSent(false), 2500);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to send broadcast."); }
   };
-  return <>
+  return <RevealBlocks>
     <section className="broadcast-banner">
       <div><span className="broadcast-symbol"><Bell className="h-5 w-5" /></span><h2>Push Notifications & Broadcast Hub <span className="live-label">LIVE PREVIEW</span></h2><p>Compose and broadcast in-app alerts to students and council officers.</p></div>
       <div className="stream-controls"><div className="stream-control"><Radio className="!text-emerald-400" /><div><strong>LIVE PUSH STREAM</strong><span>{devices.length} {devices.length === 1 ? "Device" : "Devices"} Online</span></div><div className="h-7 border-l border-white/15" /><button className="btn btn-green" onClick={ping}><Send />{pinging ? "Ping sent" : "Ping All Devices"}</button></div><div className="stream-control"><Smartphone /><div><strong>THIS BROWSER</strong><span><i className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${permission === "granted" ? "bg-emerald-400" : "bg-rose-400"}`} />{permission === "granted" ? "Enabled" : permission === "denied" ? "Blocked" : permission === "unsupported" ? "In-app only" : "Not enabled"}</span></div><div className="h-7 border-l border-white/15" /><button className="btn btn-primary !bg-[#6b58ff]" disabled={permission === "granted" || enabling} onClick={() => void enablePush()}>{enabling ? "Requesting..." : permission === "granted" ? "Push Enabled" : "Enable Push"}</button></div></div>
@@ -110,5 +111,5 @@ export default function AdminNotificationsHub() {
     </div>
 
     <div className="mt-6 grid items-start gap-5 md:grid-cols-[1.7fr_1fr]"><section className="panel overflow-hidden"><div className="panel-caption"><h2 className="eyebrow flex items-center gap-2"><History className="h-3.5 w-3.5" />Broadcast History</h2><span className="small-note !text-[9px]">{state.broadcastHistory.length} records</span></div><div className="table-scroll"><table className="data-table !min-w-[540px]"><thead><tr><th>Notification</th><th>Audience</th><th>Sender / Sent</th></tr></thead><tbody>{state.broadcastHistory.map((record) => <tr key={record.id}><td><strong className="block max-w-[200px] truncate text-[10px]">{record.title}</strong><span className={`mt-1 inline-block text-[8px] ${record.urgent ? "text-rose-400" : "text-[var(--faint)]"}`}>{record.urgent ? "Urgent" : "Standard"}</span></td><td className="!text-[9px] text-[var(--muted)]">{record.audience.kind === "house" ? houseFullName(state.houses, record.audience.house) : audienceLabel(record.audience)}</td><td><span className="block text-[9px]">{record.senderName}</span><span className="mt-1 block text-[8px] text-[var(--faint)]">{relativeTime(record.timestamp)}</span></td></tr>)}</tbody></table></div></section><section className="panel panel-pad"><div className="panel-heading"><h3><Radio />Connected Devices</h3><span className="small-note">{devices.length} online</span></div>{devices.map((device) => <div key={device.id} className="integration-row"><span className="flex items-center gap-2">{device.kind === "mobile" ? <Smartphone className="h-4 w-4 text-[var(--purple)]" /> : <Monitor className="h-4 w-4 text-[var(--purple)]" />}<span><strong className="block text-[10px] text-[var(--text)]">{device.name}</strong><small className="text-[8px]">{houseFullName(state.houses, device.house as HouseKey)} / {device.kind}</small></span></span><span className="!text-[var(--green)] text-[9px]"><i className="status-dot animate-pulse-dot" />Live</span></div>)}</section></div>
-  </>;
+  </RevealBlocks>;
 }

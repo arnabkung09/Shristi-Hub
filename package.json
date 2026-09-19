@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test:council": "node scripts/run-council-tests.mjs",
     "test:sheets": "node scripts/run-sheets-tests.mjs",
-    "test": "npm run test:council && npm run test:sheets && npm run test:render",
+    "test:tasks": "node scripts/run-task-tests.mjs",
+    "test:polls": "node scripts/run-poll-tests.mjs",
+    "test": "npm run test:council && npm run test:sheets && npm run test:tasks && npm run test:polls && npm run test:render",
     "test:render": "node scripts/run-render-tests.mjs && node scripts/run-render-tests.mjs --sheets"
   },
   "dependencies": {

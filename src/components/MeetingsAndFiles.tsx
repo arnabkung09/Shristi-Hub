@@ -4,6 +4,7 @@ import {
   MapPin, Search, Users,
 } from "lucide-react";
 import { uid, useHub, fmtDate } from "../store/hub";
+import { RevealBlocks } from "./Effects";
 import { Avatar, Badge, Btn, Card, EmptyState, Field, Modal, Select, Tabs, inputCls } from "./ui";
 import { RESOURCES } from "../lib/seed";
 import { cn } from "../utils/cn";
@@ -132,6 +133,7 @@ export default function MeetingsAndFiles() {
 
   return (
     <div className="space-y-6">
+      <RevealBlocks>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           tabs={[
@@ -225,6 +227,7 @@ export default function MeetingsAndFiles() {
           </div>
         </div>
       </Modal>
+      </RevealBlocks>
     </div>
   );
 }

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users } from "lucide-react";
+import { Award, Bell, Building2, CheckSquare, CirclePlus, Database, DatabaseZap, FileText, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
-import { departmentFor, downloadJson, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, publicRoster, ratingStats, taskDepartment } from "../lib/admin";
-import { GRADE_VALUES, HOUSE_VALUES, INSTITUTIONAL_EMAIL_DOMAIN } from "../lib/ssot-auth";
+import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, ratingStats, taskDepartment } from "../lib/admin";
 import { renderRichText } from "../lib/content";
 
 import { Modal } from "./ui";
@@ -13,26 +12,28 @@ import SheetsConnection from "./admin/SheetsConnection";
 import BrandingPanel from "./admin/BrandingPanel";
 import FirebaseConnection from "./admin/FirebaseConnection";
 import AdminNotificationsHub from "./AdminNotificationsHub";
+import PollsAuditPanel from "./admin/PollsAuditPanel";
 
 export default function AdminPanel() {
   const { state, user, activeTab, setActiveTab } = useHub();
   const params = new URLSearchParams(activeTab.split("?")[1] ?? "");
   const requestedSection = params.get("section") ?? "roster";
-  const section = ["roster", "officers", "hub", "sheets", "departments", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
+  const section = ["roster", "officers", "hub", "sheets", "departments", "polls", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
   useEffect(() => {
     document.getElementById(`admin-tab-${section}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [section]);
   const officerCount = state.users.filter((u) => u.role !== "student" && (u.status === "active" || state.permissions[u.id])).length;
   const tabs = [
-    { id: "roster", label: `Students (${state.users.length})`, icon: Database },
+    { id: "roster", label: `Databases (${state.users.length})`, icon: Database },
     { id: "officers", label: `Council Officers (${officerCount})`, icon: Users },
     { id: "hub", label: `Council Hub (${state.councilHubMembers.length})`, icon: MessagesSquare },
     { id: "sheets", label: "Google Sheets", icon: Sheet },
     { id: "departments", label: `Departments (${state.departments.length})`, icon: Building2 },
+    { id: "polls", label: `Polls & Surveys (${state.polls.length})`, icon: Vote },
     { id: "branding", label: "Branding & Content", icon: Palette },
     { id: "images", label: "Active Images (Max 5)", icon: Layers3 },
     { id: "broadcast", label: "Push Notifications", icon: Bell },
-    { id: "sync", label: "Roster Sync", icon: Flame },
+    { id: "sync", label: "Firestore Sync", icon: DatabaseZap },
     { id: "feedback", label: `Site Feedback (${state.siteRatings.length})`, icon: Star },
     { id: "terms", label: "Terms & Credits", icon: FileText },
   ];
@@ -41,7 +42,7 @@ export default function AdminPanel() {
   return (
     <div>
       <div className="admin-intro">
-        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, control Council Hub access, connect the House Points, Calendar, and Monetary Fund spreadsheets, reset credentials, manage executive roles, and customise platform branding and content.</p></div>
+        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, control Council Hub access, synchronize all site and branding data to Firestore, connect spreadsheets, reset credentials, manage executive roles, and customise platform branding.</p></div>
         <nav className="admin-tabs" role="tablist" aria-label="Administration sections">
           {tabs.map((tab, i) => <button key={tab.id} id={`admin-tab-${tab.id}`} role="tab" aria-selected={section === tab.id} aria-controls="admin-content" tabIndex={section === tab.id ? 0 : -1} onClick={() => select(tab.id)} onKeyDown={(e) => {
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length]; select(next.id); requestAnimationFrame(() => document.getElementById(`admin-tab-${next.id}`)?.focus()); }
@@ -49,7 +50,7 @@ export default function AdminPanel() {
         </nav>
       </div>
       <div role="tabpanel" id="admin-content" aria-labelledby={`admin-tab-${section}`} className="page-motion" key={section}>
-        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "hub" ? <CouncilHubMembersPanel /> : section === "sheets" ? <SheetsConnection /> : section === "departments" ? <DepartmentsPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
+        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "hub" ? <CouncilHubMembersPanel /> : section === "sheets" ? <SheetsConnection /> : section === "departments" ? <DepartmentsPanel /> : section === "polls" ? <PollsAuditPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
       </div>
     </div>
   );
@@ -66,7 +67,7 @@ function OfficerPanel() {
     catch (e) { announce(e instanceof Error ? e.message : "Unable to update department.", "error"); }
   };
   return <>
-    <div className="officer-toolbar"><div className="compact-tabs"><button className={section === "officers" ? "active" : ""} onClick={() => setSection("officers")}><Shield />Council Officers & Permissions <span className="ml-1 text-[9px]">{officers.length}</span></button><button className={section === "delegation" ? "active" : ""} onClick={() => setSection("delegation")}><CheckSquare />Task Delegation & Verification</button></div><button className="btn btn-primary" onClick={() => setAction({ kind: "appoint" })}><UserPlus />Add Executive Council Member</button></div>
+    <div className="officer-toolbar"><div className="compact-tabs"><button className={section === "officers" ? "active" : ""} onClick={() => setSection("officers")}><Shield />Council Officers & Permissions <span className="ml-1 text-[9px]">{officers.length}</span></button><button className={section === "delegation" ? "active" : ""} onClick={() => setSection("delegation")}><CheckSquare />Task Delegation & Verification</button></div><button className="btn btn-primary" onClick={() => setAction({ kind: "appoint", source: "admin" })}><UserPlus />Add Executive Council Member</button></div>
     {section === "officers" ? <>
       <div className="officer-search"><div className="search-control"><Search /><input className="control !bg-[var(--surface)]" aria-label="Search council members" placeholder="Search council members, email or position..." value={query} onChange={(e) => setQuery(e.target.value)} /></div><p className="small-note text-[var(--faint)]">Showing <strong className="text-[var(--text)]">{officers.length}</strong> user accounts</p></div>
       <section className="panel overflow-hidden"><div className="panel-caption"><h2 className="eyebrow">Council Officers & System Clearances</h2><span className="eyebrow">Granular Access Controls</span></div><div className="table-scroll"><table className="data-table !min-w-[880px]"><thead><tr><th className="w-[27%]">Council Officer / User</th><th className="w-[30%]">Role & Department</th><th>Granular Feature Permissions</th><th className="actions-heading">Actions</th></tr></thead><tbody>{officers.map((officer) => <tr key={officer.id}>
@@ -107,27 +108,36 @@ function ActiveImages() {
 }
 
 function SyncPanel() {
-  const { state, announce } = useHub();
-  const [checkedAt, setCheckedAt] = useState("");
-  const [checks, setChecks] = useState<{ label: string; pass: boolean }[]>([]);
-  const runChecks = () => {
-    const next = [
-      { label: `Unique roster identities (${state.users.length} students)`, pass: new Set(state.users.map((u) => u.id)).size === state.users.length && new Set(state.users.map((u) => u.email.toLowerCase())).size === state.users.length },
-      { label: "All accounts use the institutional email domain", pass: state.users.every((u) => u.email.endsWith(INSTITUTIONAL_EMAIL_DOMAIN)) },
-      { label: "Only Grades 1 through 10 (teachers may have no class)", pass: state.users.every((u) => u.gradeLabel === null || (GRADE_VALUES as readonly string[]).includes(u.gradeLabel)) },
-      { label: "Only official houses (teachers may have none)", pass: state.users.every((u) => u.houseLabel === null || (HOUSE_VALUES as readonly string[]).includes(u.houseLabel)) },
-      { label: "Primary administrator is protected", pass: state.users.some((u) => u.id === PRIMARY_ADMIN_ID && u.role === "admin" && u.name === "Arnab Shrestha" && u.grade === 9 && u.house === "Red") },
-    ];
-    setChecks(next); setCheckedAt(new Date().toLocaleTimeString());
-    announce(next.every((c) => c.pass) ? "All local roster integrity checks passed." : "A roster integrity check needs attention.", next.every((c) => c.pass) ? "success" : "error");
-  };
-  return <div className="grid items-start gap-5 md:grid-cols-[1.25fr_1fr]">
-    <div className="space-y-5">
+  const { state } = useHub();
+  return (
+    <div className="grid items-start gap-5 lg:grid-cols-[1.5fr_1fr]">
       <FirebaseConnection />
-      <section className="panel panel-pad"><div className="panel-heading"><div><h2><Flame className="!text-orange-500" />Roster Integrity</h2><p>Inspect the local source roster and export a credential-free snapshot.</p></div></div><p className="inline-message flex gap-3"><CloudOff className="mt-1 h-5 w-5 shrink-0 text-amber-400" /><span><strong>Local data is still authoritative until sync is implemented</strong><br />Connecting verifies the Firebase project. It does not automatically upload private roster data.</span></p><div className="mt-5 flex flex-wrap gap-2"><button className="btn btn-primary" onClick={runChecks}><ShieldCheck />Run integrity check</button><button className="btn btn-secondary" onClick={() => downloadJson("shristi-roster-snapshot.json", { school: "Shristi Academy", exportedAt: new Date().toISOString(), source: "local-preview", total: state.users.length, students: publicRoster(state.users), departments: state.departments })}><Download />Export snapshot</button></div>{checks.length > 0 && <div className="mt-5">{checks.map((check) => <div key={check.label} className="integration-row"><span>{check.label}</span><strong className={check.pass ? "text-[var(--green)]" : "text-rose-400"}>{check.pass ? "Passed" : "Failed"}</strong></div>)}<p className="small-note mt-3">Last checked at {checkedAt}</p></div>}</section>
+      <section className="panel panel-pad">
+        <div className="panel-heading">
+          <h2><Database />Local Administration Audit</h2>
+        </div>
+        {!state.audit.length ? (
+          <div className="empty-content">
+            <ShieldCheck />
+            <strong>No administrative changes yet</strong>
+            <p>Roster edits, permissions, and branding updates appear here.</p>
+          </div>
+        ) : (
+          <div className="audit-list">
+            {state.audit.slice(0, 16).map((entry) => (
+              <div key={entry.id}>
+                <span className="capitalize">
+                  {entry.action}
+                  <small>{entry.actor}</small>
+                </span>
+                <small className="whitespace-nowrap">{relativeTime(entry.timestamp)}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
-    <section className="panel panel-pad"><div className="panel-heading"><h2><Database />Local Administration Audit</h2></div>{!state.audit.length ? <div className="empty-content"><ShieldCheck /><strong>No administrative changes yet</strong><p>Roster edits, permissions, and department changes appear here.</p></div> : <div className="audit-list">{state.audit.slice(0, 12).map((entry) => <div key={entry.id}><span className="capitalize">{entry.action}<small>{entry.actor}</small></span><small className="whitespace-nowrap">{relativeTime(entry.timestamp)}</small></div>)}</div>}</section>
-  </div>;
+  );
 }
 
 function FeedbackPanel() {

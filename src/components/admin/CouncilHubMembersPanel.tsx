@@ -16,6 +16,7 @@ const ROLE_LABEL: Record<Student["role"], string> = {
   council: "Council",
   teacher: "Teacher",
   student: "Student",
+  grade: "Class Account",
 };
 
 /**

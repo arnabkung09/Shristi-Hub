@@ -5,6 +5,7 @@ import { categoryToEventType } from "../lib/content";
 import { CALENDAR_TYPES } from "../lib/sheets/types";
 import { GRADES, HOUSES } from "../lib/seed";
 import { Btn, Modal } from "./ui";
+import { RevealBlocks } from "./Effects";
 import SheetSyncBar from "./SheetSyncBar";
 import type { Audience, EventCategory, NoticePriority, SchoolEvent } from "../lib/types";
 import type { CalendarEntry, CalendarEventType } from "../lib/sheets/types";
@@ -114,6 +115,7 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
 
   return (
     <div>
+      <RevealBlocks>
       <div className="directory-heading">
         <div><h1>Events & News <span className="outline-count">{state.events.length} scheduled</span></h1><p>Browse the school calendar, reserve your place at an event, and catch up on council news.</p></div>
         <div className="flex flex-wrap gap-2">
@@ -446,6 +448,7 @@ export default function EventsAndNews({ initialTab = "calendar" }: { initialTab?
       </Modal>
 
       {newsComposer && <NewsDialog onClose={() => setNewsComposer(false)} />}
+      </RevealBlocks>
     </div>
   );
 }
