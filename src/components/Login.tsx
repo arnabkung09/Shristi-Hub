@@ -38,6 +38,18 @@ export default function Login() {
     try {
       await signInGoogle();
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.startsWith("VERIFICATION_CODE_REQUIRED:")) {
+        const parts = msg.split(":");
+        setVerificationPending({
+          userId: parts[1],
+          aliasEmail: parts[2],
+          schoolEmail: parts[3],
+          code: parts[4],
+        });
+        announce(`Confirmation code sent to your official school account: ${parts[3]}.`);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Google sign-in failed.");
     } finally {
       setLoading(false);

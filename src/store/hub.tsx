@@ -833,6 +833,18 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       await signOutFirebase();
       throw new Error("This Google email is not linked to a student account. Ask an administrator to add it as a school or personal login email.");
     }
+
+    const isAlias =
+      student.email.toLowerCase() !== normalized &&
+      (student.aliases ?? []).some((a) => a.toLowerCase() === normalized);
+    const isVerified = !isAlias || (student.verifiedAliases ?? []).includes(normalized);
+
+    if (isAlias && !isVerified) {
+      await signOutFirebase();
+      const code = issueConfirmationCode(student.id, normalized, student.email);
+      throw new Error(`VERIFICATION_CODE_REQUIRED:${student.id}:${normalized}:${student.email}:${code}`);
+    }
+
     await provisionFirebaseProfile(student, stateRef.current.users);
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseStatus("connected");
