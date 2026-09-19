@@ -636,12 +636,29 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
     permissions: parsed.permissions ?? seed.permissions,
     activeImageIds: parsed.activeImageIds ?? seed.activeImageIds,
     audit: parsed.audit ?? [],
-    branding: parsed.branding ?? seed.branding,
-    legal: parsed.legal ?? seed.legal,
+    branding: parsed.branding
+      ? {
+          ...seed.branding,
+          ...parsed.branding,
+          logoUrl: parsed.branding.logoUrl || seed.branding.logoUrl,
+        }
+      : seed.branding,
+    legal: parsed.legal
+      ? {
+          terms: parsed.legal.terms || seed.legal.terms,
+          credits: parsed.legal.credits || seed.legal.credits,
+        }
+      : seed.legal,
     eventTypes: parsed.eventTypes?.length ? parsed.eventTypes : seed.eventTypes,
     houseCaptains: parsed.houseCaptains ?? seed.houseCaptains,
     houseMessages: parsed.houseMessages ?? seed.houseMessages,
-    houses: parsed.houses ?? seed.houses,
+    houses: parsed.houses
+      ? {
+          Blue: { ...seed.houses.Blue, ...parsed.houses.Blue, logoUrl: parsed.houses.Blue?.logoUrl || seed.houses.Blue.logoUrl },
+          Red: { ...seed.houses.Red, ...parsed.houses.Red, logoUrl: parsed.houses.Red?.logoUrl || seed.houses.Red.logoUrl },
+          Green: { ...seed.houses.Green, ...parsed.houses.Green, logoUrl: parsed.houses.Green?.logoUrl || seed.houses.Green.logoUrl },
+        }
+      : seed.houses,
     siteRatings: parsed.siteRatings ?? seed.siteRatings,
   };
 }
