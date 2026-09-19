@@ -143,12 +143,28 @@ export interface Suggestion {
   id: string;
   category: SuggestionCategory;
   text: string;
-  anonymous: boolean;
+  anonymous?: boolean;
   authorId?: string;
   authorLabel: string;
+  authorEmail?: string;
+  authorRole?: Role;
+  authorGrade?: number | null;
+  authorHouse?: House | null;
   status: SuggestionStatus;
   response?: string;
   responderName?: string;
+  timestamp: number;
+}
+
+export interface PollBallot {
+  userId: string;
+  userName: string;
+  userEmail?: string;
+  userRole?: Role;
+  userGrade?: number | null;
+  userHouse?: House | null;
+  optionIndex: number;
+  optionLabel?: string;
   timestamp: number;
 }
 
@@ -159,6 +175,7 @@ export interface Poll {
   options: string[];
   votes: number[];
   voters: string[];
+  ballots?: PollBallot[];
   expires: string;
   audience: Audience;
   creatorName: string;

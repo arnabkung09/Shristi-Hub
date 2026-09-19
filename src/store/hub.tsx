@@ -4,7 +4,7 @@ import {
 } from "react";
 import type {
   Audience, FinanceEntry, GalleryItem, HubState, Meeting, CouncilTask,
-  AppNotification, PointEntry, Poll, SchoolEvent, Student, Suggestion,
+  AppNotification, PointEntry, Poll, PollBallot, SchoolEvent, Student, Suggestion,
   Announcement, Role, House, BroadcastRecord, HouseMessage, CouncilChatMessage,
 } from "../lib/types";
 import { buildSeedState, HOUSES, HOUSE_LABELS } from "../lib/seed";
@@ -348,8 +348,30 @@ export function reducer(state: HubState, action: Action): HubState {
         ...state,
         tasks: state.tasks.filter((t) => t.id !== action.taskId),
       };
-    case "ADD_SUGGESTION":
-      return { ...state, suggestions: [action.suggestion, ...state.suggestions] };
+    case "ADD_SUGGESTION": {
+      const author = actor ?? state.users.find((u) => u.id === action.suggestion.authorId);
+      if (author?.role === "grade") return state;
+      const authorLabel = author
+        ? `${author.name}${author.role === "teacher" ? " · Staff / Teacher" : ` · Grade ${author.grade ?? "—"}`}${author.house ? ` · ${author.house} House` : ""}`
+        : action.suggestion.authorLabel;
+
+      return {
+        ...state,
+        suggestions: [
+          {
+            ...action.suggestion,
+            anonymous: false,
+            authorId: author?.id ?? action.suggestion.authorId,
+            authorLabel,
+            authorEmail: author?.email ?? action.suggestion.authorEmail,
+            authorRole: author?.role ?? action.suggestion.authorRole,
+            authorGrade: author?.grade ?? action.suggestion.authorGrade,
+            authorHouse: author?.house ?? action.suggestion.authorHouse,
+          },
+          ...state.suggestions,
+        ],
+      };
+    }
     case "REVIEW_SUGGESTION":
       return {
         ...state,
@@ -361,8 +383,29 @@ export function reducer(state: HubState, action: Action): HubState {
       return {
         ...state,
         polls: state.polls.map((p) => {
-          if (p.id !== action.pollId || p.voters.includes(action.userId) || p.expires < new Date().toISOString().slice(0, 10) || action.optionIndex < 0 || action.optionIndex >= p.options.length || actor?.id !== action.userId || !targetsUser(p.audience, actor)) return p;
-          return { ...p, votes: p.votes.map((v, i) => (i === action.optionIndex ? v + 1 : v)), voters: [...p.voters, action.userId] };
+          if (p.id !== action.pollId || p.voters.includes(action.userId) || p.expires < new Date().toISOString().slice(0, 10) || action.optionIndex < 0 || action.optionIndex >= p.options.length) return p;
+          const voter = state.users.find((u) => u.id === action.userId);
+          if (!voter || voter.role === "grade") return p;
+          if (actor && actor.id !== action.userId && actor.role !== "admin") return p;
+          if (!targetsUser(p.audience, voter)) return p;
+
+          const ballot: PollBallot = {
+            userId: voter.id,
+            userName: voter.name,
+            userEmail: voter.email,
+            userRole: voter.role,
+            userGrade: voter.grade,
+            userHouse: voter.house,
+            optionIndex: action.optionIndex,
+            optionLabel: p.options[action.optionIndex],
+            timestamp: Date.now(),
+          };
+          return {
+            ...p,
+            votes: p.votes.map((v, i) => (i === action.optionIndex ? v + 1 : v)),
+            voters: [...p.voters, action.userId],
+            ballots: [...(p.ballots ?? []), ballot],
+          };
         }),
       };
     case "ADD_POLL":
@@ -538,7 +581,11 @@ export function reducer(state: HubState, action: Action): HubState {
         permissions,
         houseCaptains: captains,
         events: state.events.map((e) => ({ ...e, attendees: e.attendees.filter((id) => id !== action.userId), attended: e.attended.filter((id) => id !== action.userId) })),
-        polls: state.polls.map((p) => ({ ...p, voters: p.voters.filter((id) => id !== action.userId) })),
+        polls: state.polls.map((p) => ({
+          ...p,
+          voters: p.voters.filter((id) => id !== action.userId),
+          ballots: p.ballots?.filter((b) => b.userId !== action.userId),
+        })),
       };
     }
     case "SET_BRANDING": {

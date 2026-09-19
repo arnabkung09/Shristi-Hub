@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, DatabaseZap, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users } from "lucide-react";
+import { Award, Bell, Building2, CheckSquare, CirclePlus, CloudOff, Database, DatabaseZap, Download, FileText, Flame, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Sheet, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
 import { departmentFor, downloadJson, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, publicRoster, ratingStats, taskDepartment } from "../lib/admin";
 import { GRADE_VALUES, HOUSE_VALUES, INSTITUTIONAL_EMAIL_DOMAIN } from "../lib/ssot-auth";
@@ -13,12 +13,13 @@ import SheetsConnection from "./admin/SheetsConnection";
 import BrandingPanel from "./admin/BrandingPanel";
 import FirebaseConnection from "./admin/FirebaseConnection";
 import AdminNotificationsHub from "./AdminNotificationsHub";
+import PollsAuditPanel from "./admin/PollsAuditPanel";
 
 export default function AdminPanel() {
   const { state, user, activeTab, setActiveTab } = useHub();
   const params = new URLSearchParams(activeTab.split("?")[1] ?? "");
   const requestedSection = params.get("section") ?? "roster";
-  const section = ["roster", "officers", "hub", "sheets", "departments", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
+  const section = ["roster", "officers", "hub", "sheets", "departments", "polls", "branding", "images", "broadcast", "sync", "feedback", "terms"].includes(requestedSection) ? requestedSection : "roster";
   useEffect(() => {
     document.getElementById(`admin-tab-${section}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [section]);
@@ -29,6 +30,7 @@ export default function AdminPanel() {
     { id: "hub", label: `Council Hub (${state.councilHubMembers.length})`, icon: MessagesSquare },
     { id: "sheets", label: "Google Sheets", icon: Sheet },
     { id: "departments", label: `Departments (${state.departments.length})`, icon: Building2 },
+    { id: "polls", label: `Polls & Surveys (${state.polls.length})`, icon: Vote },
     { id: "branding", label: "Branding & Content", icon: Palette },
     { id: "images", label: "Active Images (Max 5)", icon: Layers3 },
     { id: "broadcast", label: "Push Notifications", icon: Bell },
@@ -49,7 +51,7 @@ export default function AdminPanel() {
         </nav>
       </div>
       <div role="tabpanel" id="admin-content" aria-labelledby={`admin-tab-${section}`} className="page-motion" key={section}>
-        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "hub" ? <CouncilHubMembersPanel /> : section === "sheets" ? <SheetsConnection /> : section === "departments" ? <DepartmentsPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
+        {section === "roster" ? <RosterTable /> : section === "officers" ? <OfficerPanel /> : section === "hub" ? <CouncilHubMembersPanel /> : section === "sheets" ? <SheetsConnection /> : section === "departments" ? <DepartmentsPanel /> : section === "polls" ? <PollsAuditPanel /> : section === "branding" ? <BrandingPanel /> : section === "images" ? <ActiveImages /> : section === "broadcast" ? <AdminNotificationsHub /> : section === "sync" ? <SyncPanel /> : section === "feedback" ? <FeedbackPanel /> : <TermsContent />}
       </div>
     </div>
   );
