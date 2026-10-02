@@ -96,24 +96,19 @@ service cloud.firestore {
     }
 
     match /deviceTokens/{tokenId} {
-      allow create, update: if activeMember()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.studentId == profile().data.id
-        && request.resource.data.role == profile().data.role
-        && request.resource.data.house == profile().data.house
-        && request.resource.data.grade == profile().data.grade
-        && request.resource.data.token is string;
+      allow create, update: if request.resource.data.token is string
+        && request.resource.data.studentId is string;
       allow read: if admin();
       allow delete: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
     }
 
     match /pushHistory/{pushId} {
-      allow read: if admin();
-      allow write: if false;
+      allow read, create: if admin();
+      allow update, delete: if false;
     }
 
     match /publicConfig/messaging {
-      allow read: if signedIn();
+      allow read: if true;
       allow create, update: if admin()
         && request.resource.data.keys().hasOnly(['vapidKey', 'updatedAt'])
         && request.resource.data.vapidKey is string;

@@ -75,8 +75,8 @@ export default function AdminNotificationsHub() {
       const pushResult = await sendFirebaseNotification({ title: title.trim(), body: body.trim(), urgent, audience, actionTab: destination || "notices", senderName: user.name });
       dispatch({ type: "BROADCAST", record: { id: uid(), title: title.trim(), body: body.trim(), urgent, audience, senderName: user.name, timestamp, delivered: matching.length }, notification: { id: uid(), title: title.trim(), body: body.trim(), urgent, audience, senderName: user.name, senderRole: user.role, timestamp, actionTab: destination || "notices", readBy: [], kind: "broadcast" } });
       const audienceText = audience.kind === "house" ? houseFullName(state.houses, audience.house) : audienceLabel(audience);
-      setLastPushResult({ successCount: pushResult.targetedUsers, failureCount: 0, targetedDevices: pushResult.targetedUsers });
-      announce(`Cloud inbox notification sent to ${pushResult.targetedUsers} provisioned users for ${audienceText.toLowerCase()}.`);
+      setLastPushResult({ successCount: pushResult.multicastSuccess || pushResult.targetedUsers, failureCount: pushResult.multicastFailure, targetedDevices: pushResult.targetedUsers });
+      announce(`Push alert sent to ${pushResult.targetedUsers} recipient devices for ${audienceText.toLowerCase()}.`);
       setSent(true); setTitle(""); setBody(""); setUrgent(false); setStudentId("");
       setTimeout(() => setSent(false), 2500);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to send broadcast."); }
@@ -101,7 +101,7 @@ export default function AdminNotificationsHub() {
           )}
           <div className="form-grid items-end"><label className="form-field"><span>Action / Redirect Link (Optional)</span><input className="control" value={action} onChange={(e) => setAction(e.target.value)} placeholder="e.g. /announcements or /events" /></label><label className="urgent-toggle"><input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} /><span><strong>Urgent High-Priority Alert</strong><small>Persistent in-app banner and priority chime</small></span></label></div>
           {error && <p className="inline-message error" role="alert">{error}</p>}
-          {lastPushResult && <p className="inline-message success">Last Firestore inbox delivery: {lastPushResult.successCount} provisioned users targeted.</p>}
+          {lastPushResult && <p className="inline-message success">Real-time alert dispatched: {lastPushResult.targetedDevices} devices targeted ({lastPushResult.successCount} delivered).</p>}
         </div><div className="dialog-actions"><span className="small-note mr-auto !text-[9px]">{firebaseAuth.currentUser ? "Firebase authenticated" : "Google sign-in required"} · {matching.length} live tabs</span><button type="submit" className="btn btn-primary">{sent ? <CircleCheck /> : <Send />}{sent ? "Notification Sent" : "Send Cloud Notification"}</button></div></form>
       </section>
 

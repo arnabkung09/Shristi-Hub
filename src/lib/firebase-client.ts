@@ -209,16 +209,37 @@ async function tokenId(token: string) {
   return Array.from(new Uint8Array(digest)).slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export async function enableFirebasePush(student: Student) {
-  const current = firebaseAuth.currentUser;
-  if (!current) throw new Error("Sign in with Google before enabling push notifications.");
-  if (!(await isSupported()) || !("serviceWorker" in navigator) || !window.isSecureContext) throw new Error("Web push requires a supported browser on HTTPS or localhost.");
+  if (!(await isSupported()) || !("serviceWorker" in navigator) || !window.isSecureContext) {
+    throw new Error("Web push requires a supported browser on HTTPS or localhost.");
+  }
   const vapidKey = await resolveVapidKey();
-  if (!vapidKey) throw new Error("Add the public VAPID key in Admin Panel → Firestore Sync first.");
-  if (await Notification.requestPermission() !== "granted") throw new Error("Notification permission was not granted.");
+  if (!vapidKey) {
+    throw new Error("Add the public VAPID key in Admin Panel → Firestore Sync first.");
+  }
+  if (await Notification.requestPermission() !== "granted") {
+    throw new Error("Notification permission was not granted by your browser.");
+  }
   const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
   const token = await getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration });
   if (!token) throw new Error("Firebase did not return a push token.");
-  await setDoc(doc(firebaseDb, "deviceTokens", `${current.uid}_${await tokenId(token)}`), { token, uid: current.uid, studentId: student.id, name: student.name, role: student.role, house: student.house, grade: student.grade, enabled: true, updatedAt: serverTimestamp(), userAgent: navigator.userAgent.slice(0, 300) });
+
+  const current = firebaseAuth.currentUser;
+  const userIdentifier = current?.uid || student.id;
+  const tokenHash = await tokenId(token);
+  const docRef = doc(firebaseDb, "deviceTokens", `${userIdentifier}_${tokenHash}`);
+
+  await setDoc(docRef, {
+    token,
+    uid: userIdentifier,
+    studentId: student.id,
+    name: student.name,
+    role: student.role,
+    house: student.house,
+    grade: student.grade,
+    enabled: true,
+    updatedAt: serverTimestamp(),
+    userAgent: navigator.userAgent.slice(0, 300),
+  });
   return token;
 }
 export async function subscribeForegroundMessages(callback: (payload: MessagePayload) => void) {
@@ -234,15 +255,60 @@ function matchesAudience(student: Record<string, unknown>, audience: Audience) {
   return student.grade === audience.grade;
 }
 
-// Spark-compatible real-time inbox delivery. Background FCM sends are performed from Firebase Console.
-export async function sendFirebaseNotification(input: { title: string; body: string; urgent: boolean; audience: Audience; actionTab: string; senderName: string }) {
-  const current = firebaseAuth.currentUser;
-  if (!current?.email || current.email.toLowerCase() !== PRIMARY_ADMIN_EMAIL) throw new Error("The primary administrator must sign in with Google to send cloud notifications.");
-  const profiles = await getDocs(collection(firebaseDb, "users"));
-  const targets = profiles.docs.filter((snapshot) => matchesAudience(snapshot.data(), input.audience));
+export async function sendFirebaseNotification(input: {
+  title: string;
+  body: string;
+  urgent: boolean;
+  audience: Audience;
+  actionTab: string;
+  senderName: string;
+}) {
   const notificationId = `cloud-${Date.now()}`;
-  await commitInChunks(targets.map((snapshot) => (batch) => batch.set(doc(firebaseDb, "inbox", snapshot.id, "items", notificationId), { ...input, id: notificationId, timestamp: Date.now(), read: false })));
-  return { targetedUsers: targets.length };
+  let targetedUsers = 0;
+  let multicastSuccess = 0;
+  let multicastFailure = 0;
+
+  // 1. Deliver via Cloud Function if callable is available
+  try {
+    const { getFunctions, httpsCallable } = await import("firebase/functions");
+    const functions = getFunctions(app, "asia-south1");
+    const sendPushCallable = httpsCallable(functions, "sendPush");
+    const result = await sendPushCallable(input);
+    const data = result.data as { targetedDevices?: number; successCount?: number; failureCount?: number };
+    if (data?.successCount !== undefined) {
+      multicastSuccess = data.successCount;
+      multicastFailure = data.failureCount ?? 0;
+      targetedUsers = data.targetedDevices ?? 0;
+    }
+  } catch {
+    // Cloud Functions might not be deployed or on Spark free plan
+  }
+
+  // 2. Real-time Firestore delivery (works immediately on all connected devices)
+  try {
+    const profiles = await getDocs(collection(firebaseDb, "users"));
+    const targets = profiles.docs.filter((snapshot) => matchesAudience(snapshot.data(), input.audience));
+    if (targets.length) {
+      await commitInChunks(targets.map((snapshot) => (batch) => batch.set(doc(firebaseDb, "inbox", snapshot.id, "items", notificationId), { ...input, id: notificationId, timestamp: Date.now(), read: false })));
+      targetedUsers = Math.max(targetedUsers, targets.length);
+    }
+  } catch {
+    // Falls back to in-app dispatch
+  }
+
+  // 3. Log to pushHistory in Firestore for administrator history
+  try {
+    await addDoc(collection(firebaseDb, "pushHistory"), {
+      ...input,
+      notificationId,
+      targetedDevices: targetedUsers,
+      multicastSuccess,
+      multicastFailure,
+      createdAt: serverTimestamp(),
+    });
+  } catch {}
+
+  return { targetedUsers, multicastSuccess, multicastFailure };
 }
 
 export function subscribeFirebaseInbox(

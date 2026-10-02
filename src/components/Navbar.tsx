@@ -72,10 +72,10 @@ function NotificationBell() {
             </button>)}
           </div>
           <div className="border-t border-[var(--border)] p-3">
-            <button className="btn btn-primary w-full" disabled={enablingPush || !firebaseAuth.currentUser} onClick={() => void enablePush()}>
-              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : Notification.permission === "granted" ? "Refresh push registration" : "Enable real push notifications"}
+            <button className="btn btn-primary w-full" disabled={enablingPush} onClick={() => void enablePush()}>
+              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : Notification.permission === "granted" ? "Device registered for push" : "Enable push notifications"}
             </button>
-            {!firebaseAuth.currentUser && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Sign in with Google to enable push.</p>}
+            {Notification.permission !== "granted" && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Receive instant broadcasts and urgent school alerts on this device.</p>}
           </div>
         </motion.div>}
       </AnimatePresence>
