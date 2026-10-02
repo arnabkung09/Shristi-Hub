@@ -57,12 +57,10 @@ const TAB_KEY = "shristi-council-tab-v3";
  */
 export const DEVELOPMENT_BUILD = (() => {
   try {
-    // Vite substitutes `import.meta.env.DEV` with a literal when it bundles the app, so
-    // this collapses to a compile-time constant in the shipped code.
-    return import.meta.env.DEV === true;
+    // Keep AI Studio preview and production builds identical in UI and functionality
+    return true;
   } catch {
-    // Non-Vite bundles (the test harnesses) have no import.meta.env: treat as production.
-    return false;
+    return true;
   }
 })();
 
