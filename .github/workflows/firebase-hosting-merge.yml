@@ -24,7 +24,7 @@ jobs:
       - run: npm run build
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_SHRISTI_HUB || secrets.FIREBASE_SERVICE_ACCOUNT }}'
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SHRISTI_HUB || secrets.FIREBASE_SERVICE_ACCOUNT }}
           channelId: live
-          projectId: '${{ secrets.FIREBASE_PROJECT_ID || 'shristi-hub' }}'
+          projectId: shristi-hub
