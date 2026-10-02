@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
-    "preview": "vite preview",
+    "lint": "tsc --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
     "test:council": "node scripts/run-council-tests.mjs",
     "test:sheets": "node scripts/run-sheets-tests.mjs",
     "test:tasks": "node scripts/run-task-tests.mjs",

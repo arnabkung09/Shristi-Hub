@@ -9,6 +9,7 @@ import { enableFirebasePush, firebaseAuth } from "../lib/firebase-client";
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
   { id: "dashboard", label: "Dashboard", lines: ["Dashboard"] },
+  { id: "directory", label: "Directory", lines: ["Directory"] },
   { id: "events", label: "Events & News", lines: ["Events &", "News"] },
   { id: "voice", label: "Polls & Feedback", lines: ["Polls &", "Feedback"] },
   { id: "tasks", label: "Tasks", lines: ["Tasks"] },
@@ -17,7 +18,6 @@ const LINKS = [
   { id: "council-hub", label: "Council Hub", lines: ["Council", "Hub"] },
   { id: "meetings", label: "Meetings & Files", lines: ["Meetings", "& Files"] },
   { id: "finances", label: "Finance", lines: ["Finance"] },
-  { id: "directory", label: "Directory", lines: ["Directory"] },
   { id: "gallery", label: "Gallery", lines: ["Gallery"] },
   { id: "admin", label: "Admin Panel", lines: ["Admin", "Panel"] },
 ];

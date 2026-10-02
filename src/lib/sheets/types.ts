@@ -68,6 +68,7 @@ export interface HousePointRow {
   row: number;
   id: string;
   specific: string;
+  competition?: string;
   type: string;
   house: string;
   position: string;
@@ -107,6 +108,7 @@ export interface HouseResult {
   id: string;
   row: number;
   specific: string;
+  competition?: string;
   /** Individual / Team as written in the sheet, or null when the cell is blank. */
   type: "Individual" | "Team" | null;
   house: House;

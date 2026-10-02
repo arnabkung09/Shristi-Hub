@@ -1,5 +1,5 @@
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, CalendarDays, ClipboardList, Crown,
+  AlertTriangle, ArrowRight, ArrowUpRight, Award, CalendarDays, ClipboardList, Crown,
   Megaphone, Medal, MessageSquareHeart, PlusCircle, Radio, Trophy, Vote, Wallet,
 } from "lucide-react";
 import { useHub, fmtDate, isoDay, targetsUser } from "../store/hub";
@@ -56,6 +56,7 @@ export default function Dashboard() {
   const leader = standings[0];
 
   const quickActions: Array<{ label: string; desc: string; icon: React.ReactNode; tab: string; manageOnly?: boolean }> = [
+    { label: "Council Directory", desc: `${state.users.filter((u) => u.role !== "student").length} executive officers`, icon: <Award className="h-4.5 w-4.5" />, tab: "directory" },
     { label: "Award House Points", desc: "Log a win or deduction", icon: <Trophy className="h-4.5 w-4.5" />, tab: "houses?award=1", manageOnly: true },
     { label: "Create Announcement", desc: "Post to the noticeboard", icon: <Megaphone className="h-4.5 w-4.5" />, tab: "events?compose=notice", manageOnly: true },
     { label: "New Task", desc: "Assign council work", icon: <ClipboardList className="h-4.5 w-4.5" />, tab: "tasks?new=1", manageOnly: true },
@@ -191,7 +192,7 @@ export default function Dashboard() {
           </div>
           <div className="mt-5 flex items-center gap-2 rounded-xl bg-black/[0.03] px-3.5 py-2.5 text-xs text-slate-500 dark:bg-white/[0.04] dark:text-slate-400">
             <PlusCircle className="h-3.5 w-3.5 shrink-0 text-accent" />
-            Points update the moment council logs them — no refresh needed.
+            House points synchronize directly from the official Google Spreadsheet.
           </div>
         </Card>
 

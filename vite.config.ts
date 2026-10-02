@@ -19,11 +19,13 @@ export default defineConfig({
   // Bind to every interface and accept proxied host names so the app can be opened
   // from a container preview URL as well as from localhost.
   server: {
-    host: true,
+    host: "0.0.0.0",
+    port: 3000,
     allowedHosts: true,
   },
   preview: {
-    host: true,
+    host: "0.0.0.0",
+    port: 3000,
     allowedHosts: true,
   },
 });

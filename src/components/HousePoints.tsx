@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, Crown, Filter, Minus, Plus, ShieldCheck, Trophy, Users } from "lucide-react";
-import { useHub, relativeTime, uid } from "../store/hub";
+import { ArrowUpRight, Crown, ExternalLink, LayoutGrid, Minus, Plus, Search, ShieldCheck, Table, Trophy, Users } from "lucide-react";
+import { useHub, uid } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
 import { Badge, Btn, Card, Field, HouseMark, Modal, SectionTitle, Select, inputCls } from "./ui";
 import SheetSyncBar from "./SheetSyncBar";
 import { Reveal } from "./Effects";
-import { positionLabel } from "../lib/sheets/derive";
+import { deriveHousePoints, positionLabel } from "../lib/sheets/derive";
+import { FALLBACK_HOUSE_POINT_ROWS } from "../lib/sheets/client";
+import { parseHousePointRow, parseRows } from "../lib/sheets/parse";
 import { POINT_CATEGORIES, HOUSES } from "../lib/seed";
 import { cn } from "../utils/cn";
 import type { House } from "../lib/types";
@@ -19,7 +21,7 @@ const HOUSE_ACCENT: Record<House, string> = { Blue: "text-blue-500 dark:text-blu
 const HOUSE_BAR: Record<House, string> = { Blue: "bg-blue-500", Red: "bg-red-500", Green: "bg-green-500" };
 
 export default function HousePoints({ openAwardOnMount = false }: { openAwardOnMount?: boolean }) {
-  const { state, user, hasPermission, houseTotals, dispatch, pointsLedger, sheets } = useHub();
+  const { state, user, hasPermission, houseTotals, dispatch, sheets } = useHub();
   // House Points live in the council spreadsheet once it is connected: the hub reads the
   // ledger from there and awarding happens by adding a row in Google Sheets.
   const sheetPoints = sheets.isEnabled("housePoints") ? sheets.housePoints : null;
@@ -34,8 +36,9 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
   const [error, setError] = useState<string | null>(null);
 
   const [fHouse, setFHouse] = useState("All");
-  const [fCategory, setFCategory] = useState("All");
   const [fType, setFType] = useState("All");
+  const [fSearch, setFSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
   const sheetResults = sheetPoints?.results ?? null;
 
   const standings = useMemo(
@@ -44,19 +47,26 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
   );
   const totalPoints = standings.reduce((s, [, v]) => s + Math.max(0, v), 0) || 1;
 
-  const ledger = useMemo(() => {
-    return pointsLedger
-      .filter((e) => (fHouse === "All" ? true : e.house === fHouse))
-      .filter((e) => (fCategory === "All" ? true : e.category === fCategory))
-      .sort((a, b) => b.timestamp - a.timestamp);
-  }, [pointsLedger, fHouse, fCategory]);
+  // The spreadsheet is the single source of truth for House Points.
+  const fallbackResults = useMemo(
+    () => deriveHousePoints({ rows: parseRows(FALLBACK_HOUSE_POINT_ROWS, parseHousePointRow) }).results,
+    []
+  );
+  const activeResults = sheetResults && sheetResults.length ? sheetResults : fallbackResults;
 
-  // House Points rows are shown newest first, filtered by house and by Individual / Team.
-  const sheetLedger = useMemo(
-    () => (sheetResults ?? [])
+  // House Points rows are shown newest first, filtered by house, type and search.
+  const filteredResults = useMemo(
+    () => activeResults
       .filter((row) => (fHouse === "All" ? true : row.house === fHouse))
-      .filter((row) => (fType === "All" ? true : row.type === fType)),
-    [sheetResults, fHouse, fType]
+      .filter((row) => (fType === "All" ? true : row.type === fType))
+      .filter((row) => {
+        if (!fSearch.trim()) return true;
+        const q = fSearch.toLowerCase();
+        return (row.specific || "").toLowerCase().includes(q) ||
+          (row.competition || "").toLowerCase().includes(q) ||
+          houseFullName(state.houses, row.house).toLowerCase().includes(q);
+      }),
+    [activeResults, fHouse, fType, fSearch, state.houses]
   );
 
   const parsedAmount = parseInt(amount, 10);
@@ -98,7 +108,7 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
     <div className="space-y-6">
       <SectionTitle
         title="House Championship"
-        subtitle="Live standings across Sports, Academics, Cultural, Discipline and Service"
+        subtitle="Live standings synchronized directly from the official House Points Google Spreadsheet"
         action={canManage && (
           <Btn onClick={() => setAwardOpen(true)}>
             <Trophy className="h-4 w-4" /> Award / Deduct Points
@@ -148,43 +158,166 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
       {/* Ledger */}
       <Reveal delay={120}>
         <Card className="p-5 sm:p-6">
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">Points Audit Ledger</h3>
-              <p className="text-xs text-slate-400">
-                {sheetResults ? "Every result in the House Points spreadsheet — newest first" : "Every transaction, timestamped and attributed"}
-              </p>
+          <div className="mb-5 flex flex-col gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">Competition & Points Ledger</h3>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                    <Table className="h-3 w-3" /> Spreadsheet Format
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  {sheetResults
+                    ? "Official scoring format: Competition, Type, House, Position, Teams Won, Points"
+                    : "Every competition and transaction recorded in the house points log"}
+                </p>
+              </div>
+
+              {/* View switcher and filters */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center rounded-xl border border-black/[0.08] bg-black/[0.03] p-1 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("table")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all",
+                      viewMode === "table"
+                        ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                        : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    <Table className="h-3.5 w-3.5" /> Table
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("cards")}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all",
+                      viewMode === "cards"
+                        ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                        : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                    )}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" /> Feed
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search competition..."
+                    value={fSearch}
+                    onChange={(e) => setFSearch(e.target.value)}
+                    className="h-8 rounded-xl border border-black/[0.08] bg-transparent pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-accent focus:outline-none dark:border-white/[0.08] dark:text-slate-200"
+                  />
+                </div>
+
+                <Select value={fHouse} onChange={setFHouse} className="!w-auto !py-1.5 text-xs">
+                  <option value="All">All Houses</option>
+                  {HOUSES.map((h) => <option key={h} value={h}>{houseFullName(state.houses, h)}</option>)}
+                </Select>
+                <Select value={fType} onChange={setFType} className="!w-auto !py-1.5 text-xs">
+                  <option value="All">All Types</option>
+                  <option value="Individual">Individual</option>
+                  <option value="Team">Team</option>
+                </Select>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Filter className="h-4 w-4 text-slate-400" />
-              <Select value={fHouse} onChange={setFHouse} className="!w-auto !py-2 text-xs">
-                <option value="All">All</option>
-                {HOUSES.map((h) => <option key={h} value={h}>{houseFullName(state.houses, h)}</option>)}
-              </Select>
-              {sheetResults ? (
-                <Select value={fType} onChange={setFType} className="!w-auto !py-2 text-xs">
-                  <option>All</option>
-                  <option>Individual</option>
-                  <option>Team</option>
-                </Select>
-              ) : (
-                <Select value={fCategory} onChange={setFCategory} className="!w-auto !py-2 text-xs">
-                  <option>All</option>
-                  {POINT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                </Select>
-              )}
+
+            {/* Google Sheets Link strip */}
+            <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-3.5 py-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-slate-700 dark:text-slate-300">
+                  Google Sheet: <code className="rounded bg-black/[0.05] px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-600 dark:bg-white/[0.05] dark:text-emerald-400">1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U</code>
+                </span>
+              </div>
+              <a
+                href="https://docs.google.com/spreadsheets/d/1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U/edit"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 font-semibold text-emerald-600 hover:underline dark:text-emerald-400"
+              >
+                Open Google Spreadsheet <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+
+            {/* Scoring formula strip */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-indigo-500/20 bg-indigo-500/[0.05] px-3.5 py-2 text-xs">
+              <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                Official Scoring Formula:
+              </span>
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300">
+                <span><strong>Team:</strong> 1st = 6 pts · 2nd = 4 pts · 3rd = 2 pts</span>
+                <span className="hidden text-slate-400 sm:inline">|</span>
+                <span><strong>Individual:</strong> 1st = 3 pts · 2nd = 2 pts · 3rd = 1 pt</span>
+              </div>
             </div>
           </div>
 
-          <div className="divide-y divide-black/[0.05] dark:divide-white/[0.06]">
-            {sheetResults ? (
-              <>
-                {sheetLedger.length === 0 && (
-                  <p className="py-10 text-center text-sm text-slate-400">
-                    {sheetResults.length === 0 ? "No results yet — add a row to the House Points sheet." : "No entries match these filters."}
-                  </p>
-                )}
-                {sheetLedger.map((row) => (
+          {viewMode === "table" ? (
+            <div className="overflow-x-auto rounded-xl border border-black/[0.08] dark:border-white/[0.08]">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-black/[0.08] bg-black/[0.02] font-bold uppercase tracking-wider text-slate-500 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-slate-400">
+                  <tr>
+                    <th scope="col" className="px-4 py-3 sm:px-5">Competition</th>
+                    <th scope="col" className="px-4 py-3 sm:px-5">Type</th>
+                    <th scope="col" className="px-4 py-3 sm:px-5">House</th>
+                    <th scope="col" className="px-4 py-3 text-center sm:px-5">Position</th>
+                    <th scope="col" className="px-4 py-3 text-center sm:px-5">Teams Won</th>
+                    <th scope="col" className="px-4 py-3 text-right sm:px-5">Points</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.05] dark:divide-white/[0.06]">
+                  {filteredResults.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-sm text-slate-400">
+                        {activeResults.length === 0 ? "No results yet — add a row to the House Points sheet." : "No entries match these filters."}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredResults.map((row) => (
+                      <tr key={row.id} className="transition-colors hover:bg-black/[0.02] dark:hover:bg-white/[0.03]">
+                        <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white sm:px-5">
+                          <span className="block font-medium text-slate-900 dark:text-slate-100">{row.competition || row.specific}</span>
+                          <span className="text-[10px] text-slate-400">Row {row.row} · Google Sheets{row.fromTable && " · standard scoring table"}</span>
+                        </td>
+                        <td className="px-4 py-3.5 sm:px-5">
+                          <Badge tone={row.type === "Team" ? "indigo" : "emerald"}>{row.type ?? "Individual"}</Badge>
+                        </td>
+                        <td className="px-4 py-3.5 sm:px-5">
+                          <div className="flex items-center gap-2">
+                            <HouseMark house={row.house} className="h-5 w-5 text-xs" />
+                            <span className="font-semibold text-slate-800 dark:text-slate-200">
+                              {houseFullName(state.houses, row.house)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-center sm:px-5">
+                          <Badge tone="amber">{row.position ? `${positionLabel(row.position)} place` : "1st place"}</Badge>
+                        </td>
+                        <td className="px-4 py-3.5 text-center sm:px-5">
+                          <Badge tone="indigo"><Users className="h-3 w-3" />{row.teamsWon ? `${row.teamsWon} ${row.teamsWon === 1 ? "team won" : "teams won"}` : "1 team won"}</Badge>
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-display text-sm font-extrabold tabular-nums text-emerald-600 dark:text-emerald-300 sm:px-5">
+                          +{row.points}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="divide-y divide-black/[0.05] dark:divide-white/[0.06]">
+              {filteredResults.length === 0 ? (
+                <p className="py-10 text-center text-sm text-slate-400">
+                  {activeResults.length === 0 ? "No results yet — add a row to the House Points sheet." : "No entries match these filters."}
+                </p>
+              ) : (
+                filteredResults.map((row) => (
                   <div key={row.id} className="flex items-start gap-3.5 py-3.5">
                     <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
                       <ArrowUpRight className="h-4 w-4" />
@@ -196,7 +329,7 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
                         {row.type && <Badge tone="emerald">{row.type}</Badge>}
                         {row.position && <Badge tone="amber">{positionLabel(row.position)} place</Badge>}
                         {row.teamsWon && (
-                          <Badge tone="indigo"><Users className="h-3 w-3" />{row.teamsWon} {row.teamsWon === 1 ? "team" : "teams"} won</Badge>
+                          <Badge tone="indigo"><Users className="h-3 w-3" />{row.teamsWon} {row.teamsWon === 1 ? "team won" : "teams won"}</Badge>
                         )}
                       </div>
                       <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{row.specific}</p>
@@ -205,48 +338,10 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
                       </p>
                     </div>
                   </div>
-                ))}
-              </>
-            ) : (
-            <>
-            {ledger.length === 0 && <p className="py-10 text-center text-sm text-slate-400">No entries match these filters.</p>}
-            {ledger.map((e) => (
-              <div key={e.id} className="flex items-start gap-3.5 py-3.5">
-                <span className={cn(
-                  "mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl font-display text-xs font-extrabold",
-                  e.delta > 0 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300" : "bg-red-500/10 text-red-600 dark:text-red-300"
-                )}>
-                  {e.delta > 0 ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={cn("font-display text-sm font-extrabold tabular-nums", e.delta > 0 ? "text-emerald-600 dark:text-emerald-300" : "text-red-600 dark:text-red-300")}>
-                      {e.delta > 0 ? "+" : ""}{e.delta}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{houseFullName(state.houses, e.house)}</span>
-                    <Badge tone="slate">{e.category}</Badge>
-                    {e.position && <Badge tone="amber">{e.position} place</Badge>}
-                    {e.awardCategory && <Badge tone="emerald">{e.awardCategory}</Badge>}
-                    {e.units && e.units > 1 && (
-                      <Badge tone="indigo"><Users className="h-3 w-3" />{e.pointsEach} × {e.units}</Badge>
-                    )}
-                  </div>
-                  <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{e.reason}</p>
-                  {e.studentName && (
-                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      {e.studentName}{e.grade ? ` · ${e.grade}` : ""}{e.classLabel ? ` · ${e.classLabel}` : ""}
-                    </p>
-                  )}
-                  <p className="mt-1 text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                    {relativeTime(e.timestamp)} · by {e.officerName}
-                    {e.sheetId && <span className="ml-1.5 normal-case tracking-normal text-slate-400">· {e.sheetId}</span>}
-                  </p>
-                </div>
-              </div>
-            ))}
-            </>
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          )}
         </Card>
       </Reveal>
 

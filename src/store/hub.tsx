@@ -188,16 +188,11 @@ type Action =
 
 const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER"]);
 /**
- * Actions whose data now lives in a Google Sheet. The sheets are the single source of
- * truth for these three sections, so the hub refuses to write them locally and points
- * editors at the spreadsheet instead.
+ * Actions whose data lives in a Google Sheet. The spreadsheet is the single source of
+ * truth for House Points, while Calendar and Finances are managed directly within the hub.
  */
 const SHEET_OWNED_ACTIONS: Record<string, { section: SheetSection; label: string }> = {
   AWARD_POINTS: { section: "housePoints", label: "House points" },
-  ADD_EVENT: { section: "calendar", label: "Calendar events" },
-  UPDATE_EVENT: { section: "calendar", label: "Calendar events" },
-  DELETE_EVENT: { section: "calendar", label: "Calendar events" },
-  ADD_TRANSACTION: { section: "finances", label: "Financial transactions" },
 };
 const ACTION_FEATURES: Record<string, string> = {
   AWARD_POINTS: "houses", ADD_EVENT: "events", TOGGLE_ATTENDANCE: "events", ADD_ANNOUNCEMENT: "events",
@@ -831,6 +826,8 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
   return {
     ...seed,
     ...parsed,
+    // The spreadsheet is the single source of truth for house points; purge any stale legacy competitions
+    pointsLedger: seed.pointsLedger,
     councilHubMembers: parsed.councilHubMembers ?? seed.councilHubMembers,
     councilMessages: parsed.councilMessages ?? seed.councilMessages,
     departments: parsed.departments?.length ? parsed.departments : seed.departments,
@@ -1325,9 +1322,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     state.pointsLedger.forEach((e) => { totals[e.house] += e.delta; });
     return totals;
   }, [sheets.housePoints, state.pointsLedger]);
-  // House Points is a simple result sheet (no dates or students), so when it is
-  // spreadsheet-backed the House Tracker renders `sheets.housePoints.results` and the
-  // local ledger stays out of the way.
+  // House Points is spreadsheet-owned (the single source of truth); Calendar and
+  // Finances are managed directly within the hub.
   const pointsLedger = sheets.housePoints ? [] : state.pointsLedger;
   const calendarEvents = sheets.calendar ? sheets.calendar.events : state.events;
   const financeEntries = sheets.finances ? sheets.finances.entries : state.finances;

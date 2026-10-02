@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from "react";
 import { observeFirebaseAuth, readCloudSheetsConfig, subscribeCloudSheetsConfig, writeCloudSheetsConfig } from "../firebase-client";
-import { describeError, fetchSection } from "./client";
+import { FALLBACK_HOUSE_POINT_ROWS, describeError, fetchSection } from "./client";
 import {
   CONFIG_SOURCE_LABELS, normaliseConfig, pollMs, resolveConfig, resolveConfigSource,
   saveCachedConfig, sectionEnabled, sheetsExplicitlyDisabled,
@@ -88,7 +88,9 @@ export function SheetsProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<SheetsConfig | null>(() => resolveConfig());
   const [source, setSource] = useState<SheetsConfigSource>(() => resolveConfigSource());
   const [runtime, setRuntime] = useState<Record<SheetSection, SectionRuntime>>(makeRuntime);
-  const [housePoints, setHousePoints] = useState<HousePointsData | null>(null);
+  const [housePoints, setHousePoints] = useState<HousePointsData | null>(() =>
+    deriveHousePoints({ rows: parseRows(FALLBACK_HOUSE_POINT_ROWS, parseHousePointRow) })
+  );
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [finances, setFinances] = useState<FinanceData | null>(null);
   const configRef = useRef(config);

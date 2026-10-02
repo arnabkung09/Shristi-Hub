@@ -108,12 +108,14 @@ const pick = (row: Record<string, unknown>, ...keys: string[]): unknown => {
  * recent result, which is how the ledger lists them.
  */
 export function parseHousePointRow(row: Record<string, unknown>, index = 0): HousePointRow {
-  const teamsWon = integer(pick(row, "teamsWon", "Teams Won", "teams"));
+  const teamsWon = integer(pick(row, "teamsWon", "Teams Won", "teams", "Teams won"));
   const points = num(pick(row, "points", "Points"));
+  const competition = text(pick(row, "competition", "Competition", "specific", "Specific"));
   return {
     row: index + 2,                       // sheet row (header is row 1)
     id: text(pick(row, "id")) || `hp-${index + 2}`,
-    specific: text(pick(row, "specific", "Specific")),
+    specific: competition,
+    competition,
     type: text(pick(row, "type", "Type")),
     house: text(pick(row, "house", "House")),
     position: text(pick(row, "position", "Position")),

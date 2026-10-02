@@ -22,9 +22,21 @@ import type { HouseMap, SheetSection } from "./types";
 export const BUILT_IN_SHEETS_API_URL =
   "https://script.google.com/macros/s/AKfycbxfxpiahF3PGrm4BTpZzKI13jQPsmu4ViDiK39bxxP_zWrrPEPewJYgpjZJ8PM-whD-/exec";
 
+export const DEFAULT_HOUSE_POINTS_SPREADSHEET_ID = "1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U";
+
+export function extractSpreadsheetId(value: string): string | null {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) return match[1];
+  if (/^[a-zA-Z0-9_-]{20,60}$/.test(trimmed) && !trimmed.startsWith("http")) return trimmed;
+  return null;
+}
+
 export interface SheetsConfig {
-  /** Public Apps Script web app URL ending in `/exec`. */
+  /** Public Apps Script web app URL ending in `/exec` or Google Sheets URL. */
   apiUrl: string;
+  /** Google Spreadsheet ID if connecting directly to a Google Sheet. */
+  spreadsheetId?: string;
   /** Optional shared read token checked by Apps Script (obfuscation, not a secret). */
   token?: string;
   /** Sheet house name → hub house (`Dhaulagiri` → `Blue`). */
@@ -56,15 +68,21 @@ function envValue(key: string): string {
 
 export function isValidApiUrl(value: string): boolean {
   const url = value.trim();
+  if (extractSpreadsheetId(url)) return true;
   if (!/^https:\/\//i.test(url)) return false;
   return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec/.test(url)
+    || /^https:\/\/docs\.google\.com\/spreadsheets\/d\/[A-Za-z0-9_-]+/.test(url)
     || /^https:\/\/script\.googleusercontent\.com\//.test(url)
     || /^https:\/\/[a-z0-9.-]+\/[^\s]*$/i.test(url);
 }
 
-/** Accepts an Apps Script URL with or without its trailing query string. */
+/** Accepts an Apps Script URL or Google Spreadsheet URL with or without its trailing query string. */
 export function normaliseApiUrl(value: string): string {
-  return value.trim().replace(/[?#].*$/, "");
+  const trimmed = value.trim();
+  if (extractSpreadsheetId(trimmed) && !trimmed.startsWith("http")) {
+    return trimmed;
+  }
+  return trimmed.replace(/[?#].*$/, "");
 }
 
 export function normaliseHouseMapInput(raw: unknown): HouseMap | undefined {
@@ -82,6 +100,7 @@ export function normaliseConfig(input: Partial<SheetsConfig> | null | undefined)
   if (!input?.apiUrl) return null;
   const apiUrl = normaliseApiUrl(String(input.apiUrl));
   if (!isValidApiUrl(apiUrl)) return null;
+  const spreadsheetId = input.spreadsheetId || extractSpreadsheetId(apiUrl) || undefined;
   const poll = Number(input.pollSeconds);
   const sections = input.sections && typeof input.sections === "object"
     ? SHEET_SECTIONS.reduce<Partial<Record<SheetSection, boolean>>>((acc, section) => {
@@ -92,6 +111,7 @@ export function normaliseConfig(input: Partial<SheetsConfig> | null | undefined)
     : undefined;
   return {
     apiUrl,
+    spreadsheetId,
     token: input.token?.trim() || undefined,
     houseMap: normaliseHouseMapInput(input.houseMap),
     sections: sections && Object.keys(sections).length ? sections : undefined,
@@ -110,7 +130,10 @@ function parseConfig(raw: string | null): SheetsConfig | null {
 
 /** The deployed council endpoint, as a ready-to-use configuration. */
 export function builtInConfig(): SheetsConfig | null {
-  return normaliseConfig({ apiUrl: BUILT_IN_SHEETS_API_URL });
+  return normaliseConfig({
+    apiUrl: BUILT_IN_SHEETS_API_URL,
+    spreadsheetId: DEFAULT_HOUSE_POINTS_SPREADSHEET_ID,
+  });
 }
 
 /** Build-time configuration: `VITE_COUNCIL_SHEETS_API` / `VITE_COUNCIL_SHEETS_TOKEN`. */

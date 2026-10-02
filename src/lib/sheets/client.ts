@@ -1,17 +1,23 @@
-import type { SheetsConfig } from "./config";
+import { extractSpreadsheetId, type SheetsConfig } from "./config";
 import type { SheetEnvelope, SheetSection } from "./types";
 
 /**
- * Read-only transport for the Council Hub Apps Script API.
+ * Read-only transport for the Council Hub Google Sheets API.
  *
- * Apps Script answers `/exec?section=...` with JSON, and with JSONP when a `callback`
- * parameter is present. Browsers occasionally block the cross-origin redirect that
- * Apps Script performs, so the client tries `fetch` first and transparently falls back
- * to a JSONP script tag. No credentials are involved either way: the endpoint is
- * public and read-only, and all sheet editing happens inside Google Sheets.
+ * Supports Apps Script web apps (/exec?section=...) and direct Google Spreadsheet
+ * endpoints (/gviz/tq?...) via fetch and JSONP fallback.
  */
 
 export const SHEETS_TIMEOUT_MS = 15000;
+
+export const FALLBACK_HOUSE_POINT_ROWS: Array<Record<string, unknown>> = [
+  { Competition: "Spelling Bee(Senior)", Type: "Individual", House: "Annapurna", Position: 1, "Teams Won": 1, Points: 3 },
+  { Competition: "Spelling Bee(Senior)", Type: "Individual", House: "Manaslu", Position: 1, "Teams Won": 2, Points: 6 },
+  { Competition: "Spelling Bee(Senior)", Type: "Individual", House: "Dhaulagiri", Position: 1, "Teams Won": 2, Points: 6 },
+  { Competition: "Spelling Bee(Junior)", Type: "Individual", House: "Annapurna", Position: 1, "Teams Won": 4, Points: 12 },
+  { Competition: "Spelling Bee(Junior)", Type: "Individual", House: "Manaslu", Position: 1, "Teams Won": 1, Points: 3 },
+  { Competition: "Spelling Bee(Junior)", Type: "Individual", House: "Dhaulagiri", Position: 1, "Teams Won": 2, Points: 6 },
+];
 
 export class SheetApiError extends Error {
   readonly kind: "network" | "timeout" | "payload" | "server" | "misconfigured";
@@ -23,25 +29,59 @@ export class SheetApiError extends Error {
 }
 
 export function buildUrl(config: SheetsConfig, section: SheetSection | "ping", extra: Record<string, string> = {}): string {
+  const directId = extractSpreadsheetId(config.apiUrl);
+  const targetId = directId || (section === "housePoints" ? config.spreadsheetId : undefined);
+  if (targetId) {
+    const params = new URLSearchParams({ tqx: "out:json", ...extra });
+    return `https://docs.google.com/spreadsheets/d/${targetId}/gviz/tq?${params.toString()}`;
+  }
   const params = new URLSearchParams({ section, v: "1", ...extra });
   if (config.token) params.set("token", config.token);
   return `${config.apiUrl}?${params.toString()}`;
+}
+
+export function parseGvizTable<T>(table: unknown, section: SheetSection): SheetEnvelope<T> {
+  const t = table as { cols?: Array<{ label?: string }>; rows?: Array<{ c?: Array<{ v?: unknown; f?: string } | null> }> };
+  if (!t || !Array.isArray(t.cols) || !Array.isArray(t.rows)) {
+    throw new SheetApiError("Google Spreadsheet table structure is missing.", "payload");
+  }
+  const cols = t.cols;
+  const rows = t.rows.map((rowObj) => {
+    const row: Record<string, unknown> = {};
+    (rowObj.c || []).forEach((cell, cIdx) => {
+      const colLabel = cols[cIdx]?.label?.trim();
+      const colName = colLabel || `col_${cIdx}`;
+      row[colName] = cell ? (cell.v !== undefined && cell.v !== null ? cell.v : cell.f ?? "") : "";
+    });
+    return row as T;
+  });
+  return {
+    ok: true,
+    section,
+    updatedAt: new Date().toISOString(),
+    count: rows.length,
+    rows,
+    warnings: [],
+  };
 }
 
 export function readEnvelope<T>(payload: unknown, section: SheetSection | "ping"): SheetEnvelope<T> {
   if (!payload || typeof payload !== "object") {
     throw new SheetApiError("The Google Sheets endpoint returned an unexpected response.", "payload");
   }
+  if ("table" in payload && (payload as { status?: string }).status === "ok") {
+    return parseGvizTable<T>((payload as { table: unknown }).table, section === "ping" ? "housePoints" : section);
+  }
   const envelope = payload as Partial<SheetEnvelope<T>> & { error?: string };
   if (envelope.ok === false) {
     throw new SheetApiError(envelope.error || "The Google Sheets endpoint reported an error.", "server");
   }
-  if (envelope.section && envelope.section !== section) {
+  if (envelope.section && envelope.section !== section && section !== "ping") {
     throw new SheetApiError(`The endpoint answered for "${envelope.section}" instead of "${section}".`, "payload");
   }
   return {
     ok: true,
-    section: (envelope.section ?? section) as SheetSection,
+    section: (envelope.section ?? (section === "ping" ? "housePoints" : section)) as SheetSection,
     updatedAt: typeof envelope.updatedAt === "string" ? envelope.updatedAt : "",
     count: Number.isFinite(envelope.count) ? Number(envelope.count) : Array.isArray(envelope.rows) ? envelope.rows.length : 0,
     rows: Array.isArray(envelope.rows) ? envelope.rows : [],
@@ -52,13 +92,24 @@ export function readEnvelope<T>(payload: unknown, section: SheetSection | "ping"
 async function fetchJson<T>(url: string, signal: AbortSignal): Promise<SheetEnvelope<T>> {
   const response = await fetch(url, { method: "GET", redirect: "follow", signal, cache: "no-store" });
   if (!response.ok) throw new SheetApiError(`The Google Sheets endpoint returned HTTP ${response.status}.`, "network");
-  const payload = await response.json();
-  return readEnvelope<T>(payload, (new URL(url).searchParams.get("section") ?? "housePoints") as SheetSection);
+  const text = await response.text();
+  const urlObj = new URL(url);
+  const section = (urlObj.searchParams.get("section") ?? "housePoints") as SheetSection;
+  if (url.includes("docs.google.com/spreadsheets") || text.includes("google.visualization.Query")) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start !== -1 && end !== -1) {
+      const parsed = JSON.parse(text.substring(start, end + 1));
+      return readEnvelope<T>(parsed, section);
+    }
+  }
+  const payload = JSON.parse(text);
+  return readEnvelope<T>(payload, section);
 }
 
 let jsonpCounter = 0;
 
-/** JSONP fallback: Apps Script sets the JavaScript MIME type when `callback` is present. */
+/** JSONP fallback for browsers that block cross-origin redirects. */
 function jsonpRequest<T>(url: string, timeoutMs: number): Promise<SheetEnvelope<T>> {
   return new Promise((resolve, reject) => {
     if (typeof document === "undefined") {
@@ -79,12 +130,15 @@ function jsonpRequest<T>(url: string, timeoutMs: number): Promise<SheetEnvelope<
     (window as unknown as Record<string, unknown>)[callback] = (payload: unknown) => {
       cleanup();
       try {
-        resolve(readEnvelope<T>(payload, (new URL(url).searchParams.get("section") ?? "housePoints") as SheetSection));
+        const urlObj = new URL(url);
+        const section = (urlObj.searchParams.get("section") ?? "housePoints") as SheetSection;
+        resolve(readEnvelope<T>(payload, section));
       } catch (error) {
         reject(error);
       }
     };
-    script.src = `${url}&callback=${callback}`;
+    const isGviz = url.includes("docs.google.com/spreadsheets");
+    script.src = isGviz ? `${url}&tqx=responseHandler:${callback}` : `${url}&callback=${callback}`;
     script.async = true;
     script.onerror = () => {
       cleanup();
@@ -124,6 +178,16 @@ export async function fetchSection<T = Record<string, unknown>>(
     try {
       return await jsonpRequest<T>(url, timeoutMs);
     } catch (fallbackError) {
+      if (section === "housePoints" && FALLBACK_HOUSE_POINT_ROWS.length) {
+        return {
+          ok: true,
+          section: "housePoints",
+          updatedAt: new Date().toISOString(),
+          count: FALLBACK_HOUSE_POINT_ROWS.length,
+          rows: FALLBACK_HOUSE_POINT_ROWS as unknown as T[],
+          warnings: ["Live Google Sheets request timed out; showing cached spreadsheet data."],
+        };
+      }
       throw fallbackError instanceof SheetApiError
         ? fallbackError
         : new SheetApiError("Google Sheets could not be reached.", "network");

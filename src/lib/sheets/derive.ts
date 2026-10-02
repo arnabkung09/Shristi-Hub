@@ -131,10 +131,12 @@ export function deriveHousePoints({ rows, houseMap }: HousePointsInput): HousePo
       return;
     }
 
+    const itemLabel = text(row.competition || row.specific) || "House points";
     results.push({
       id: row.id,
       row: row.row,
-      specific: text(row.specific) || "House points",
+      specific: itemLabel,
+      competition: itemLabel,
       type: awardType(row.type),
       house,
       position: positionNumber(row.position),

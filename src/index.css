@@ -309,11 +309,13 @@ select.control { appearance: none; background-image: url("data:image/svg+xml,%3C
 .directory-filters { display: grid; grid-template-columns: 1fr 130px 130px 150px; gap: 10px; padding: 15px; margin-bottom: 22px; }
 .executive-section { background: linear-gradient(120deg, #4b3c9c0d, transparent), var(--surface); border: 1px solid #6152b244; border-radius: 23px; padding: 20px; }
 .executive-section .panel-heading { padding-bottom: 13px; margin-bottom: 15px; }
-.member-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.executive-member { display: flex; gap: 13px; border: 1px solid var(--border); border-radius: 17px; padding: 15px; background: var(--surface-raised); min-width: 0; }
-.member-portrait { width: 80px; height: 93px; flex-shrink: 0; border-radius: 12px; display: grid; place-items: center; font: 600 28px var(--font-display); color: #e5d8a2; background: linear-gradient(145deg, #3c4c64, #162237); border: 1px solid #b4bdd322; overflow: hidden; position: relative; }
-.member-portrait img { width: 100%; height: 100%; object-fit: cover; }
-.member-portrait .portrait-edit { position: absolute; inset: 0; background: #0009; display: grid; place-items: center; opacity: 0; color: white; transition: opacity .2s; font: 10px var(--font-body); }
+.member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(390px, 1fr)); gap: 22px; }
+.executive-member { display: flex; gap: 20px; border: 1px solid var(--border); border-radius: 22px; padding: 20px; background: var(--surface-raised); min-width: 0; align-items: flex-start; }
+.member-portrait { width: 175px; height: 215px; flex-shrink: 0; border-radius: 20px; display: grid; place-items: center; font: 700 52px var(--font-display); color: #e5d8a2; background: linear-gradient(145deg, #2f3d52, #141f30); border: 1px solid #b4bdd330; overflow: hidden; position: relative; box-shadow: 0 10px 28px -6px rgba(0,0,0,0.35); transition: transform .25s ease, box-shadow .25s ease; }
+.member-portrait:hover { transform: translateY(-3px) scale(1.02); box-shadow: 0 16px 36px -8px rgba(0,0,0,0.45); }
+.member-portrait img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s ease; }
+.member-portrait:hover img { transform: scale(1.05); }
+.member-portrait .portrait-edit { position: absolute; inset: 0; background: #0009; display: grid; place-items: center; opacity: 0; color: white; transition: opacity .2s; font: 12px var(--font-body); }
 .member-portrait:hover .portrait-edit { opacity: 1; }
 .member-info { min-width: 0; flex: 1; }
 .member-info h3 { font-size: 11px; font-weight: 750; display: flex; align-items: center; gap: 5px; }
@@ -554,6 +556,7 @@ select.control { appearance: none; background-image: url("data:image/svg+xml,%3C
   .member-grid { grid-template-columns: 1fr; }
   .executive-section { padding: 14px; }
   .executive-member { padding: 16px; }
+  .member-portrait { width: 110px; height: 135px; font-size: 34px; border-radius: 14px; }
   .member-info h3 { font-size: 12px; }
   .member-email { font-size: 9px; }
   .member-action-row .btn { min-height: 35px; font-size: 9px; }
