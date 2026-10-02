@@ -12,7 +12,7 @@ import {
   publicRoster, downloadJson,
 } from "../../lib/admin";
 import { assertInstitutionalEmail } from "../../lib/ssot-auth";
-import { ROSTER_SOURCE_ISSUES, ROSTER_SOURCE_URL } from "../../lib/whitelist-seed";
+import { ROSTER_SOURCE_ISSUES } from "../../lib/whitelist-seed";
 import { Modal } from "../ui";
 
 type DatabaseTab = "students" | "teachers" | "classes";
@@ -437,9 +437,6 @@ export default function RosterTable() {
           Official Roster Snapshot · {studentCount} Students · {teacherCount} Teachers · {classCount} Classes
         </span>
         <span className="flex gap-3">
-          <a className="text-action !text-[9px]" href={ROSTER_SOURCE_URL} target="_blank" rel="noreferrer">
-            Open source sheet
-          </a>
           <button
             className="text-action !text-[9px]"
             onClick={() =>

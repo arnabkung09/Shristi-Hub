@@ -1,11 +1,11 @@
-import { extractSpreadsheetId, type SheetsConfig } from "./config";
+import { BUILT_IN_SHEETS_API_URL, DEFAULT_HOUSE_POINTS_SPREADSHEET_ID, extractSpreadsheetId, type SheetsConfig } from "./config";
 import type { SheetEnvelope, SheetSection } from "./types";
 
 /**
  * Read-only transport for the Council Hub Google Sheets API.
  *
- * Supports Apps Script web apps (/exec?section=...) and direct Google Spreadsheet
- * endpoints (/gviz/tq?...) via fetch and JSONP fallback.
+ * Always synchronizes exclusively with spreadsheet 1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U.
+ * All other syncs (calendar, finances, external rosters) are removed.
  */
 
 export const SHEETS_TIMEOUT_MS = 15000;
@@ -29,11 +29,12 @@ export class SheetApiError extends Error {
 }
 
 export function buildUrl(config: SheetsConfig, section: SheetSection | "ping", extra: Record<string, string> = {}): string {
+  // Direct Google Sheets URLs and the built-in endpoint always sync to only 1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U
   const directId = extractSpreadsheetId(config.apiUrl);
-  const targetId = directId || (section === "housePoints" ? config.spreadsheetId : undefined);
-  if (targetId) {
+  const isDefaultOrSheet = Boolean(directId) || config.apiUrl === BUILT_IN_SHEETS_API_URL;
+  if (isDefaultOrSheet && (section === "housePoints" || section === "ping" || directId)) {
     const params = new URLSearchParams({ tqx: "out:json", ...extra });
-    return `https://docs.google.com/spreadsheets/d/${targetId}/gviz/tq?${params.toString()}`;
+    return `https://docs.google.com/spreadsheets/d/${DEFAULT_HOUSE_POINTS_SPREADSHEET_ID}/gviz/tq?${params.toString()}`;
   }
   const params = new URLSearchParams({ section, v: "1", ...extra });
   if (config.token) params.set("token", config.token);

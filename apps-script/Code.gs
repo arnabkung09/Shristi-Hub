@@ -36,8 +36,8 @@
 /** Optional shared read token. Leave '' to keep the endpoint open (read-only data). */
 var SHARED_TOKEN = '';
 
-/** Leave blank to use the spreadsheet this script is bound to, or the one setup() created. */
-var SPREADSHEET_ID = '';
+/** The sole authorized council spreadsheet. */
+var SPREADSHEET_ID = '1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U';
 
 /** Name of the spreadsheet setup() creates when the script is not bound to one. */
 var SPREADSHEET_NAME = 'Shristi Council Hub Data';
