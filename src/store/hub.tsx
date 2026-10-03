@@ -27,6 +27,8 @@ import type { SheetSection } from "../lib/sheets/types";
 import {
   firebaseAuth,
   PRIMARY_ADMIN_EMAIL,
+  PRIMARY_ADMIN_EMAILS,
+  isPrimaryAdmin,
   cloudStateFingerprint,
   createFirebasePassword,
   observeFirebaseAuth,
@@ -992,9 +994,16 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     };
   }, []);
 
-  const resolveGoogleStudent = (email: string) => stateRef.current.users.find(
-    (student) => student.email.toLowerCase() === email || student.aliases?.some((alias) => alias.toLowerCase() === email)
-  );
+  const resolveGoogleStudent = (email: string) => {
+    const direct = stateRef.current.users.find(
+      (student) => student.email.toLowerCase() === email || student.aliases?.some((alias) => alias.toLowerCase() === email)
+    );
+    if (direct) return direct;
+    if (isPrimaryAdmin(email)) {
+      return stateRef.current.users.find((u) => u.id === PRIMARY_ADMIN_ID || u.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase());
+    }
+    return undefined;
+  };
 
   const connectAuthenticatedUser = async (googleEmail: string) => {
     const normalized = googleEmail.toLowerCase();
@@ -1198,7 +1207,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     announce(
       rosterPublished
         ? "All site data including branding, houses, and roster records were uploaded to Firestore."
-        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore. Roster identities stay under the primary administrator (${PRIMARY_ADMIN_EMAIL}) — sign in with that account to publish new sign-in emails.`,
+        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore. Roster identities stay under the primary administrator (${PRIMARY_ADMIN_EMAILS.join(" or ")}) — sign in with that account to publish new sign-in emails.`,
       rosterPublished ? "success" : "error",
     );
   };

@@ -162,7 +162,8 @@ export const SHRISTI_WHITELIST: WhitelistedStudent[] = parsedRows;
 
 export const SHRISTI_USER_ROSTER: User[] = SHRISTI_WHITELIST.map((student) => ({
   ...student,
-  aliases: [],
+  aliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
+  verifiedAliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
   passwordHash: student.role === "admin" ? "admin-password-hash" : "seeded-password-hash",
 }));
 

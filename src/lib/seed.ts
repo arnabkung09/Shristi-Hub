@@ -89,8 +89,8 @@ function buildStudents(): Student[] {
     department: user.role === "admin" ? "General" : user.councilTitle?.includes("Captain") ? "Sports & Recreation" : user.councilTitle?.includes("Editorial") ? "Media & Communications" : user.councilTitle?.includes("Cultural") ? "Events & Activities" : "General",
     createdAt: user.createdAt,
     isStaff: false,
-    aliases: [],
-    verifiedAliases: [],
+    aliases: user.aliases ?? [],
+    verifiedAliases: user.verifiedAliases ?? [],
   }));
 
   const teachers: Student[] = [

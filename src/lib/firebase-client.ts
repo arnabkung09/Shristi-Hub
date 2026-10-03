@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { browserLocalPersistence, EmailAuthProvider, getAuth, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from "firebase/messaging";
 import type { AppNotification, Audience, HubChatMessage, HubRoom, HubState, Role, Student } from "./types";
 import { COUNCIL_HUB_ROOM, COUNCIL_MESSAGE_HISTORY_LIMIT, normalizeCouncilMessage } from "./council";
@@ -19,24 +19,39 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firebaseDb = getFirestore(app);
 const VAPID_STORAGE_KEY = "shristi-fcm-vapid-public-key-v1";
+export const PRIMARY_ADMIN_EMAILS = [
+  "72019arnab@shristiacademy.edu.np",
+  "arnabkung@gmail.com",
+];
 export const PRIMARY_ADMIN_EMAIL = "72019arnab@shristiacademy.edu.np";
+export const isPrimaryAdmin = (email?: string | null) =>
+  Boolean(email && PRIMARY_ADMIN_EMAILS.some((adm) => adm.toLowerCase() === email.trim().toLowerCase()));
 
 export const getVapidKey = () => localStorage.getItem(VAPID_STORAGE_KEY) ?? "";
 export async function saveVapidKey(value: string) {
   const key = value.trim();
   if (key && key.length < 40) throw new Error("The Firebase Web Push public VAPID key appears incomplete.");
-  if (!firebaseAuth.currentUser) throw new Error("Sign in with the primary admin Google account before saving the shared VAPID key.");
   if (key) localStorage.setItem(VAPID_STORAGE_KEY, key); else localStorage.removeItem(VAPID_STORAGE_KEY);
-  await setDoc(doc(firebaseDb, "publicConfig", "messaging"), { vapidKey: key, updatedAt: serverTimestamp() });
+  if (firebaseAuth.currentUser) {
+    try {
+      await setDoc(doc(firebaseDb, "publicConfig", "messaging"), { vapidKey: key, updatedAt: serverTimestamp() });
+    } catch (err) {
+      console.warn("Could not save VAPID key to Firestore (stored locally instead):", err);
+    }
+  }
 }
 
 async function resolveVapidKey() {
   const local = getVapidKey();
   if (local) return local;
-  const snapshot = await getDoc(doc(firebaseDb, "publicConfig", "messaging"));
-  const shared = snapshot.exists() ? String(snapshot.data().vapidKey || "") : "";
-  if (shared) localStorage.setItem(VAPID_STORAGE_KEY, shared);
-  return shared;
+  try {
+    const snapshot = await getDoc(doc(firebaseDb, "publicConfig", "messaging"));
+    const shared = snapshot.exists() ? String(snapshot.data().vapidKey || "") : "";
+    if (shared) localStorage.setItem(VAPID_STORAGE_KEY, shared);
+    return shared;
+  } catch {
+    return "";
+  }
 }
 
 export async function signInWithGoogle() {
@@ -103,7 +118,9 @@ async function commitInChunks(operations: Array<(batch: ReturnType<typeof writeB
 
 export async function syncCloudRoster(students: Student[]) {
   const current = firebaseAuth.currentUser;
-  if (!current?.email || current.email.toLowerCase() !== PRIMARY_ADMIN_EMAIL) throw new Error("The primary administrator must sign in with Google to synchronize the roster.");
+  if (!current?.email || !isPrimaryAdmin(current.email)) {
+    throw new Error(`The primary administrator (${PRIMARY_ADMIN_EMAIL} or ${PRIMARY_ADMIN_EMAILS[1]}) must sign in with Google to synchronize the roster.`);
+  }
   const records = students.map(cloudStudent);
   const validStudentIds = new Set(records.map((student) => student.id));
   const validEmails = new Set(records.flatMap((student) => student.emails));
@@ -124,10 +141,22 @@ export async function syncCloudRoster(students: Student[]) {
 export async function provisionFirebaseProfile(_student: Student, roster: Student[]) {
   const current = firebaseAuth.currentUser;
   if (!current?.email) throw new Error("Sign in with Google before provisioning a Firebase profile.");
-  if (current.email.toLowerCase() === PRIMARY_ADMIN_EMAIL) await syncCloudRoster(roster);
-  const emailIndex = await getDoc(doc(firebaseDb, "emailIndex", emailDocId(current.email)));
-  if (!emailIndex.exists()) throw new Error("This Google email is not linked to the Firestore roster. Ask the primary administrator to sign in once and synchronize the roster.");
-  const rosterDoc = await getDoc(doc(firebaseDb, "roster", String(emailIndex.data().studentId)));
+  if (isPrimaryAdmin(current.email)) {
+    try {
+      await syncCloudRoster(roster);
+    } catch (e) {
+      console.warn("Roster sync during provisioning:", e);
+    }
+  }
+  let emailIndex = await getDoc(doc(firebaseDb, "emailIndex", emailDocId(current.email))).catch(() => null);
+  if (!emailIndex?.exists() && isPrimaryAdmin(current.email)) {
+    try {
+      await syncCloudRoster(roster);
+      emailIndex = await getDoc(doc(firebaseDb, "emailIndex", emailDocId(current.email))).catch(() => null);
+    } catch {}
+  }
+  if (!emailIndex?.exists()) throw new Error("This Google email is not linked to the Firestore roster. Ask the primary administrator to sign in once and synchronize the roster.");
+  const rosterDoc = await getDoc(doc(firebaseDb, "roster", String(emailIndex.data()?.studentId)));
   if (!rosterDoc.exists()) throw new Error("The linked roster record is missing in Firestore.");
   const profile = rosterDoc.data();
   const profileRef = doc(firebaseDb, "users", current.uid);
@@ -209,37 +238,78 @@ async function tokenId(token: string) {
   return Array.from(new Uint8Array(digest)).slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 export async function enableFirebasePush(student: Student) {
-  if (!(await isSupported()) || !("serviceWorker" in navigator) || !window.isSecureContext) {
-    throw new Error("Web push requires a supported browser on HTTPS or localhost.");
+  if (typeof window === "undefined" || !("serviceWorker" in navigator) || !window.isSecureContext) {
+    throw new Error("Web push requires a modern browser running on HTTPS or localhost.");
+  }
+  if (typeof Notification === "undefined") {
+    throw new Error("Push notifications are not supported in this browser environment.");
+  }
+  const messagingSupported = await isSupported().catch(() => false);
+  if (!messagingSupported) {
+    throw new Error("Firebase Cloud Messaging is not supported by your current browser context.");
   }
   const vapidKey = await resolveVapidKey();
   if (!vapidKey) {
     throw new Error("Add the public VAPID key in Admin Panel → Firestore Sync first.");
   }
-  if (await Notification.requestPermission() !== "granted") {
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
     throw new Error("Notification permission was not granted by your browser.");
   }
-  const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
-  const token = await getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: registration });
-  if (!token) throw new Error("Firebase did not return a push token.");
+
+  let registration: ServiceWorkerRegistration;
+  try {
+    registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
+    await navigator.serviceWorker.ready;
+  } catch (swErr) {
+    console.warn("Service worker registration warning:", swErr);
+    try {
+      registration = await navigator.serviceWorker.ready;
+    } catch {
+      throw new Error("Service worker could not be registered. Ensure service workers are enabled in your browser.");
+    }
+  }
+
+  const messaging = getMessaging(app);
+  let token = "";
+  try {
+    token = await getToken(messaging, {
+      vapidKey,
+      serviceWorkerRegistration: registration,
+    });
+  } catch (tokenErr) {
+    console.warn("FCM getToken failed with registration, trying default registration:", tokenErr);
+    try {
+      token = await getToken(messaging, { vapidKey });
+    } catch (fallbackErr) {
+      const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      throw new Error(`Push token request failed: ${msg}. Check your VAPID key in Firebase Console.`);
+    }
+  }
+
+  if (!token) throw new Error("Firebase did not return a valid push token.");
 
   const current = firebaseAuth.currentUser;
   const userIdentifier = current?.uid || student.id;
   const tokenHash = await tokenId(token);
   const docRef = doc(firebaseDb, "deviceTokens", `${userIdentifier}_${tokenHash}`);
 
-  await setDoc(docRef, {
-    token,
-    uid: userIdentifier,
-    studentId: student.id,
-    name: student.name,
-    role: student.role,
-    house: student.house,
-    grade: student.grade,
-    enabled: true,
-    updatedAt: serverTimestamp(),
-    userAgent: navigator.userAgent.slice(0, 300),
-  });
+  try {
+    await setDoc(docRef, {
+      token,
+      uid: userIdentifier,
+      studentId: student.id,
+      name: student.name,
+      role: student.role,
+      house: student.house,
+      grade: student.grade,
+      enabled: true,
+      updatedAt: serverTimestamp(),
+      userAgent: navigator.userAgent.slice(0, 300),
+    });
+  } catch (dbErr) {
+    console.warn("Could not save device token to Firestore (token active locally):", dbErr);
+  }
   return token;
 }
 export async function subscribeForegroundMessages(callback: (payload: MessagePayload) => void) {

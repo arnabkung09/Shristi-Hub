@@ -30,6 +30,8 @@ import {
   saveVapidKey,
   testFirebaseConnection,
   PRIMARY_ADMIN_EMAIL,
+  PRIMARY_ADMIN_EMAILS,
+  isPrimaryAdmin,
 } from "../../lib/firebase-client";
 import { useHub } from "../../store/hub";
 import { downloadJson, publicRoster, PRIMARY_ADMIN_ID } from "../../lib/admin";
@@ -176,8 +178,7 @@ export default function FirebaseConnection() {
     );
   };
 
-  const isPrimaryAdminGoogle =
-    firebaseEmail?.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase();
+  const isPrimaryAdminGoogle = isPrimaryAdmin(firebaseEmail);
 
   return (
     <div className="space-y-6">
@@ -263,7 +264,7 @@ export default function FirebaseConnection() {
           )}
           {firebaseAuth.currentUser && !isPrimaryAdminGoogle && (
             <span className="small-note text-amber-500">
-              Note: Full cloud synchronization requires the primary administrator Google account ({PRIMARY_ADMIN_EMAIL}).
+              Note: Full roster synchronization requires a primary administrator Google account ({PRIMARY_ADMIN_EMAILS.join(" or ")}).
             </span>
           )}
         </div>
@@ -455,7 +456,7 @@ export default function FirebaseConnection() {
         <div className="mt-5 flex flex-wrap gap-2">
           <button
             className="btn btn-primary"
-            disabled={firebaseStatus !== "connected" || syncing !== null}
+            disabled={(!firebaseAuth.currentUser && firebaseStatus !== "connected") || syncing !== null}
             onClick={() => setConfirmSave(true)}
           >
             {syncing === "upload" ? (
@@ -467,7 +468,7 @@ export default function FirebaseConnection() {
           </button>
           <button
             className="btn btn-secondary"
-            disabled={firebaseStatus !== "connected" || syncing !== null}
+            disabled={(!firebaseAuth.currentUser && firebaseStatus !== "connected") || syncing !== null}
             onClick={() => setConfirmLoad(true)}
           >
             {syncing === "download" ? (
@@ -479,10 +480,23 @@ export default function FirebaseConnection() {
           </button>
         </div>
 
-        {firebaseStatus !== "connected" && (
-          <p className="mt-3 text-[10px] text-amber-400">
-            Sign in with the primary administrator Google account ({PRIMARY_ADMIN_EMAIL}) to synchronize site data with Firestore.
-          </p>
+        {!firebaseAuth.currentUser && firebaseStatus !== "connected" && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              className="btn btn-primary !py-1 !text-xs"
+              onClick={() => {
+                void signInGoogle().catch((e) =>
+                  announce(e instanceof Error ? e.message : "Google sign-in failed.", "error")
+                );
+              }}
+            >
+              <LogIn className="h-3.5 w-3.5" />
+              Sign in with Google to enable sync
+            </button>
+            <p className="text-[10px] text-amber-400">
+              Sign in with the administrator Google account ({PRIMARY_ADMIN_EMAILS.join(" or ")}) to synchronize site data with Firestore.
+            </p>
+          </div>
         )}
       </section>
 

@@ -4,7 +4,7 @@ import { Bell, CheckCheck, CircleCheck, LogOut, Menu, Moon, Shield, Sun, UserRou
 import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
-import { enableFirebasePush, firebaseAuth } from "../lib/firebase-client";
+import { enableFirebasePush } from "../lib/firebase-client";
 
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
@@ -73,9 +73,9 @@ function NotificationBell() {
           </div>
           <div className="border-t border-[var(--border)] p-3">
             <button className="btn btn-primary w-full" disabled={enablingPush} onClick={() => void enablePush()}>
-              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : Notification.permission === "granted" ? "Device registered for push" : "Enable push notifications"}
+              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") ? "Device registered for push" : "Enable push notifications"}
             </button>
-            {Notification.permission !== "granted" && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Receive instant broadcasts and urgent school alerts on this device.</p>}
+            {(typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Receive instant broadcasts and urgent school alerts on this device.</p>}
           </div>
         </motion.div>}
       </AnimatePresence>
