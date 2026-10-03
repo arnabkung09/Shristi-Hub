@@ -345,24 +345,26 @@ export async function enableFirebasePush(student: Student) {
 export interface NotificationPreferences {
   osNotifications: boolean;
   inAppNotifications: boolean;
+  mobileHaptics?: boolean;
 }
 
 const NOTIFICATION_PREFS_KEY = "shristi_notification_preferences";
 
 export function getNotificationPreferences(): NotificationPreferences {
   if (typeof window === "undefined") {
-    return { osNotifications: true, inAppNotifications: true };
+    return { osNotifications: true, inAppNotifications: true, mobileHaptics: true };
   }
   try {
     const raw = localStorage.getItem(NOTIFICATION_PREFS_KEY);
-    if (!raw) return { osNotifications: true, inAppNotifications: true };
+    if (!raw) return { osNotifications: true, inAppNotifications: true, mobileHaptics: true };
     const parsed = JSON.parse(raw);
     return {
       osNotifications: parsed.osNotifications !== false,
       inAppNotifications: parsed.inAppNotifications !== false,
+      mobileHaptics: parsed.mobileHaptics !== false,
     };
   } catch {
-    return { osNotifications: true, inAppNotifications: true };
+    return { osNotifications: true, inAppNotifications: true, mobileHaptics: true };
   }
 }
 
@@ -372,6 +374,65 @@ export function saveNotificationPreferences(prefs: NotificationPreferences): voi
     localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(prefs));
     window.dispatchEvent(new CustomEvent("shristi-notification-prefs-changed", { detail: prefs }));
   } catch {}
+}
+
+export interface MobileDeviceInfo {
+  isMobile: boolean;
+  isAndroid: boolean;
+  isIOS: boolean;
+  isStandalone: boolean;
+  supportsPush: boolean;
+  supportsVibration: boolean;
+  deviceLabel: string;
+}
+
+export function getMobileDeviceInfo(): MobileDeviceInfo {
+  if (typeof window === "undefined") {
+    return {
+      isMobile: false,
+      isAndroid: false,
+      isIOS: false,
+      isStandalone: false,
+      supportsPush: false,
+      supportsVibration: false,
+      deviceLabel: "Unknown System",
+    };
+  }
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isMobile = isIOS || isAndroid;
+  const isStandalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+  const supportsPush = "Notification" in window && "serviceWorker" in navigator;
+  const supportsVibration = typeof navigator !== "undefined" && "vibrate" in navigator;
+
+  let deviceLabel = "Desktop OS";
+  if (isAndroid) deviceLabel = isStandalone ? "Android PWA (Installed)" : "Android Mobile Device";
+  else if (isIOS) deviceLabel = isStandalone ? "Apple iOS PWA (Home Screen)" : "Apple iOS Safari Device";
+  else if (isStandalone) deviceLabel = "Desktop PWA (Installed)";
+
+  return {
+    isMobile,
+    isAndroid,
+    isIOS,
+    isStandalone,
+    supportsPush,
+    supportsVibration,
+    deviceLabel,
+  };
+}
+
+export function triggerMobileHapticTest(pattern?: number[]): boolean {
+  if (typeof window !== "undefined" && "vibrate" in navigator) {
+    try {
+      return navigator.vibrate(pattern || [150, 80, 150]);
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
@@ -389,7 +450,8 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /**
  * Triggers a real OS-level Web Push / Desktop Notification.
  * Calls service worker registration showNotification or new Notification(...)
- * so desktop alerts fire even when the browser tab is focused.
+ * so alerts fire even when the browser tab is focused, and triggers mobile
+ * haptic vibration on Android/iOS devices.
  */
 export async function triggerOSNotification(input: {
   title: string;
@@ -422,18 +484,26 @@ export async function triggerOSNotification(input: {
 
   const title = input.title || "Shristi Student Council";
   const body = input.body || "New council notification";
-  const icon = input.icon || "/favicon.ico";
+  const icon = input.icon || "/pwa-192x192.png";
   const tag = input.tag || `shristi-${Date.now()}`;
   const actionTab = input.actionTab || "dashboard";
   const urgent = Boolean(input.urgent);
 
-  const options: NotificationOptions & { renotify?: boolean; requireInteraction?: boolean } = {
+  // 1. Mobile Haptic Vibration feedback (Android & iOS WebKit)
+  if (prefs.mobileHaptics !== false && typeof navigator !== "undefined" && "vibrate" in navigator) {
+    try {
+      navigator.vibrate(urgent ? [200, 100, 200, 100, 200] : [200, 100, 200]);
+    } catch {}
+  }
+
+  const options: NotificationOptions & { renotify?: boolean; requireInteraction?: boolean; vibrate?: number[] } = {
     body,
     icon,
-    badge: icon,
+    badge: "/pwa-192x192.png",
     tag,
     renotify: urgent,
     requireInteraction: urgent,
+    vibrate: urgent ? [200, 100, 200, 100, 200] : [200, 100, 200],
     data: { actionTab, url: `${window.location.origin}/#${actionTab}` },
   };
 
@@ -455,7 +525,7 @@ export async function triggerOSNotification(input: {
   // Fast-path OS notification trigger without blocking or lagging:
   // First, if service worker controller exists, try non-blocking showNotification with a strict 60ms timeout
   let delivered = false;
-  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
+  if ("serviceWorker" in navigator) {
     try {
       const reg = await Promise.race([
         navigator.serviceWorker.getRegistration(),

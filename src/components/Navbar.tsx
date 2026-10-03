@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCheck, CircleCheck, LogOut, Menu, Moon, Shield, Sun, UserRound } from "lucide-react";
+import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, Moon, Shield, Smartphone, Sun, UserRound } from "lucide-react";
 import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
 import { enableFirebasePush } from "../lib/firebase-client";
 import NotificationSettings from "./NotificationSettings";
+import { usePWAInstall } from "../hooks/usePWAInstall";
 
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
@@ -99,6 +100,16 @@ function NotificationBell() {
             <button className="btn btn-primary w-full" disabled={enablingPush} onClick={() => void enablePush()}>
               <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") ? "Device registered for push" : "Enable push notifications"}
             </button>
+            <button
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-black/5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-black/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new CustomEvent("shristi-open-notification-settings"));
+              }}
+            >
+              <Smartphone className="h-3 w-3 text-indigo-400" />
+              Mobile & OS Notification Settings
+            </button>
             {(typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Receive instant broadcasts and urgent school alerts on this device.</p>}
           </div>
         </motion.div>}
@@ -109,10 +120,21 @@ function NotificationBell() {
 
 function UserMenu() {
   const { state, user, setActiveTab, signOutSession, firebaseEmail } = useHub();
+  const { isInstallable, isInstalled: pwaInstalled, isIOS: pwaIOS, install: triggerPWAInstall } = usePWAInstall();
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
   const [profileTab, setProfileTab] = useState<"profile" | "notifications">("profile");
   const ref = useDismiss(open, () => setOpen(false));
+
+  useEffect(() => {
+    const handleOpenNotifSettings = () => {
+      setProfileTab("notifications");
+      setProfile(true);
+    };
+    window.addEventListener("shristi-open-notification-settings", handleOpenNotifSettings);
+    return () => window.removeEventListener("shristi-open-notification-settings", handleOpenNotifSettings);
+  }, []);
+
   if (!user) return null;
   return (
     <div className="relative" ref={ref}>
@@ -123,7 +145,24 @@ function UserMenu() {
       {open && <div className="nav-popover !w-[280px] page-motion">
         <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
-        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Notification settings</button>
+        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Mobile & OS notifications</button>
+        {!pwaInstalled && (isInstallable || pwaIOS) && (
+          <button
+            className="notice-item !items-center !text-[11px] text-indigo-400 font-medium"
+            onClick={() => {
+              setOpen(false);
+              if (isInstallable) {
+                void triggerPWAInstall();
+              } else {
+                setProfileTab("notifications");
+                setProfile(true);
+              }
+            }}
+          >
+            {isInstallable ? <Download className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+            {isInstallable ? "Install Mobile App" : "Add to iPhone/iPad Home Screen"}
+          </button>
+        )}
         {user.role === "admin" && <button className="notice-item !items-center !text-[11px]" onClick={() => { setActiveTab("admin"); setOpen(false); }}><Shield className="h-3.5 w-3.5 text-[var(--purple)]" />Council administration</button>}
         <button className="notice-item !items-center !text-[11px] text-rose-500" onClick={() => void signOutSession()}><LogOut className="h-3.5 w-3.5" />Sign out{firebaseEmail ? " of Google" : ""}</button>
       </div>}
@@ -132,7 +171,7 @@ function UserMenu() {
         onClose={() => setProfile(false)}
         title={profileTab === "profile" ? "My student profile" : "Notification Settings"}
         icon={profileTab === "profile" ? <UserRound /> : <Bell />}
-        subtitle={profileTab === "profile" ? "Your identity in the Shristi Academy council workspace." : "Configure OS desktop push notifications and in-app alert preferences."}
+        subtitle={profileTab === "profile" ? "Your identity in the Shristi Academy council workspace." : "Configure Mobile (Android/iOS) and OS desktop push notifications, haptic vibration, and alert preferences."}
         wide
       >
         <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-black/5 p-1 dark:bg-white/5">

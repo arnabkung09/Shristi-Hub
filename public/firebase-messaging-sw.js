@@ -33,11 +33,15 @@ try {
 
         const options = {
           body,
-          icon: "/favicon.ico",
-          badge: "/favicon.ico",
+          icon: "/pwa-192x192.png",
+          badge: "/pwa-192x192.png",
           tag,
           renotify: urgent,
           requireInteraction: urgent,
+          vibrate: urgent ? [200, 100, 200, 100, 200] : [200, 100, 200],
+          actions: [
+            { action: "open", title: "Open Council Hub" }
+          ],
           data: {
             actionTab,
             url: `${self.location.origin}/#${actionTab}`,
@@ -72,11 +76,15 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body,
-    icon: "/favicon.ico",
-    badge: "/favicon.ico",
+    icon: "/pwa-192x192.png",
+    badge: "/pwa-192x192.png",
     tag: customData.notificationId || data.tag || "shristi-os-push",
     renotify: urgent,
     requireInteraction: urgent,
+    vibrate: urgent ? [200, 100, 200, 100, 200] : [200, 100, 200],
+    actions: [
+      { action: "open", title: "Open Council Hub" }
+    ],
     data: {
       actionTab,
       url: `${self.location.origin}/#${actionTab}`,
