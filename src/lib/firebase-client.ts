@@ -312,9 +312,162 @@ export async function enableFirebasePush(student: Student) {
   }
   return token;
 }
-export async function subscribeForegroundMessages(callback: (payload: MessagePayload) => void) {
-  if (!(await isSupported())) return () => undefined;
-  return onMessage(getMessaging(app), callback);
+
+export interface NotificationPreferences {
+  osNotifications: boolean;
+  inAppNotifications: boolean;
+}
+
+const NOTIFICATION_PREFS_KEY = "shristi_notification_preferences";
+
+export function getNotificationPreferences(): NotificationPreferences {
+  if (typeof window === "undefined") {
+    return { osNotifications: true, inAppNotifications: true };
+  }
+  try {
+    const raw = localStorage.getItem(NOTIFICATION_PREFS_KEY);
+    if (!raw) return { osNotifications: true, inAppNotifications: true };
+    const parsed = JSON.parse(raw);
+    return {
+      osNotifications: parsed.osNotifications !== false,
+      inAppNotifications: parsed.inAppNotifications !== false,
+    };
+  } catch {
+    return { osNotifications: true, inAppNotifications: true };
+  }
+}
+
+export function saveNotificationPreferences(prefs: NotificationPreferences): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(prefs));
+    window.dispatchEvent(new CustomEvent("shristi-notification-prefs-changed", { detail: prefs }));
+  } catch {}
+}
+
+export async function requestNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return "unsupported";
+  }
+  try {
+    return await Notification.requestPermission();
+  } catch (err) {
+    console.warn("Notification request permission warning:", err);
+    return Notification.permission;
+  }
+}
+
+/**
+ * Triggers a real OS-level Web Push / Desktop Notification.
+ * Calls service worker registration showNotification or new Notification(...)
+ * so desktop alerts fire even when the browser tab is focused.
+ */
+export async function triggerOSNotification(input: {
+  title: string;
+  body?: string;
+  icon?: string;
+  tag?: string;
+  actionTab?: string;
+  urgent?: boolean;
+}): Promise<void> {
+  if (typeof window === "undefined" || !("Notification" in window)) {
+    return;
+  }
+
+  // Respect user preference toggle for OS notifications
+  const prefs = getNotificationPreferences();
+  if (!prefs.osNotifications) {
+    return;
+  }
+
+  // Request permission if not determined yet
+  if (Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch {}
+  }
+
+  if (Notification.permission !== "granted") {
+    return;
+  }
+
+  const title = input.title || "Shristi Student Council";
+  const body = input.body || "New council notification";
+  const icon = input.icon || "/favicon.ico";
+  const tag = input.tag || `shristi-${Date.now()}`;
+  const actionTab = input.actionTab || "dashboard";
+  const urgent = Boolean(input.urgent);
+
+  const options: NotificationOptions & { renotify?: boolean; requireInteraction?: boolean } = {
+    body,
+    icon,
+    badge: icon,
+    tag,
+    renotify: urgent,
+    requireInteraction: urgent,
+    data: { actionTab, url: `${window.location.origin}/#${actionTab}` },
+  };
+
+  // 1. Prefer Service Worker registration showNotification for genuine OS-level push presentation
+  if ("serviceWorker" in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && typeof reg.showNotification === "function") {
+        await reg.showNotification(title, options);
+        return;
+      }
+    } catch (swErr) {
+      console.warn("Service worker showNotification fallback:", swErr);
+    }
+  }
+
+  // 2. Fallback to native window Notification constructor
+  try {
+    const desktopNotification = new Notification(title, options);
+    desktopNotification.onclick = () => {
+      window.focus();
+      if (actionTab && window.location.hash.slice(1) !== actionTab) {
+        window.location.hash = `#${actionTab}`;
+      }
+      desktopNotification.close();
+    };
+  } catch (err) {
+    console.warn("Desktop notification trigger failed:", err);
+  }
+}
+
+export async function subscribeForegroundMessages(callback?: (payload: MessagePayload) => void) {
+  if (typeof window === "undefined") return () => undefined;
+
+  // Request permission via Notification.requestPermission()
+  if ("Notification" in window && Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch {}
+  }
+
+  const supported = await isSupported().catch(() => false);
+  if (!supported) return () => undefined;
+
+  const messaging = getMessaging(app);
+  return onMessage(messaging, async (payload) => {
+    // Explicitly trigger a native OS notification so desktop alerts fire even when the tab is focused
+    const title = payload.notification?.title || payload.data?.title || "Shristi Student Council";
+    const body = payload.notification?.body || payload.data?.body || "You have a new update.";
+    const actionTab = payload.data?.actionTab || "dashboard";
+    const urgent = payload.data?.urgent === "true";
+    const tag = payload.data?.notificationId || `os-alert-${Date.now()}`;
+
+    await triggerOSNotification({
+      title,
+      body,
+      tag,
+      actionTab,
+      urgent,
+    });
+
+    callback?.(payload);
+  });
 }
 
 function matchesAudience(student: Record<string, unknown>, audience: Audience) {

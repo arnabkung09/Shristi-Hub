@@ -5,6 +5,7 @@ import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
 import { enableFirebasePush } from "../lib/firebase-client";
+import NotificationSettings from "./NotificationSettings";
 
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
@@ -87,6 +88,7 @@ function UserMenu() {
   const { state, user, setActiveTab, signOutSession, firebaseEmail } = useHub();
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<"profile" | "notifications">("profile");
   const ref = useDismiss(open, () => setOpen(false));
   if (!user) return null;
   return (
@@ -97,15 +99,57 @@ function UserMenu() {
       </button>
       {open && <div className="nav-popover !w-[280px] page-motion">
         <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
-        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
+        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
+        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Notification settings</button>
         {user.role === "admin" && <button className="notice-item !items-center !text-[11px]" onClick={() => { setActiveTab("admin"); setOpen(false); }}><Shield className="h-3.5 w-3.5 text-[var(--purple)]" />Council administration</button>}
         <button className="notice-item !items-center !text-[11px] text-rose-500" onClick={() => void signOutSession()}><LogOut className="h-3.5 w-3.5" />Sign out{firebaseEmail ? " of Google" : ""}</button>
       </div>}
-      <Modal open={profile} onClose={() => setProfile(false)} title="My student profile" icon={<UserRound />} subtitle="Your identity in the Shristi Academy council workspace.">
-        <div className="form-stack">
-          {[["Full name", user.name], ["Institutional email", user.email], ["Account ID", user.id.toUpperCase()], ["Class", user.gradeLabel ?? "Staff"], ["House", user.house ? houseFullName(state.houses, user.house) : "No House"], ["Council office", user.councilTitle ?? "—"], ["Account status", user.status]].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
+      <Modal
+        open={profile}
+        onClose={() => setProfile(false)}
+        title={profileTab === "profile" ? "My student profile" : "Notification Settings"}
+        icon={profileTab === "profile" ? <UserRound /> : <Bell />}
+        subtitle={profileTab === "profile" ? "Your identity in the Shristi Academy council workspace." : "Configure OS desktop push notifications and in-app alert preferences."}
+        wide
+      >
+        <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-black/5 p-1 dark:bg-white/5">
+          <button
+            type="button"
+            onClick={() => setProfileTab("profile")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
+              profileTab === "profile"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <UserRound className="h-3.5 w-3.5" />
+            Profile Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setProfileTab("notifications")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
+              profileTab === "notifications"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <Bell className="h-3.5 w-3.5" />
+            Notification Settings
+          </button>
         </div>
-        <div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setProfile(false)}>Close profile</button></div>
+
+        {profileTab === "profile" ? (
+          <div className="form-stack">
+            {[["Full name", user.name], ["Institutional email", user.email], ["Account ID", user.id.toUpperCase()], ["Class", user.gradeLabel ?? "Staff"], ["House", user.house ? houseFullName(state.houses, user.house) : "No House"], ["Council office", user.councilTitle ?? "—"], ["Account status", user.status]].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
+          </div>
+        ) : (
+          <NotificationSettings onClose={() => setProfile(false)} />
+        )}
+
+        <div className="dialog-actions mt-5">
+          <button className="btn btn-secondary" onClick={() => setProfile(false)}>Close</button>
+        </div>
       </Modal>
     </div>
   );

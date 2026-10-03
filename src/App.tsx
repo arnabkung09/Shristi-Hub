@@ -23,6 +23,7 @@ import AdminPanel, { TermsContent } from "./components/AdminPanel";
 import HomePortal from "./components/HomePortal";
 import { MouseGlow } from "./components/Effects";
 import { Modal } from "./components/ui";
+import { getNotificationPreferences, triggerOSNotification } from "./lib/firebase-client";
 
 interface Toast {
   id: string;
@@ -48,16 +49,27 @@ function Toasts() {
     fresh.forEach((n) => seen.current.add(n.id));
     const newest = fresh[0];
     chime(newest.urgent);
-    if (document.hidden && "Notification" in window && Notification.permission === "granted") {
-      try {
-        const desktop = new Notification(newest.title, { body: newest.body, tag: newest.id });
-        desktop.onclick = () => { window.focus(); if (newest.actionTab) setActiveTab(newest.actionTab); desktop.close(); };
-      } catch { /* In-app alerts remain available when a browser blocks desktop notifications. */ }
+
+    const prefs = getNotificationPreferences();
+
+    // 1. Trigger real OS-level Web Push / Desktop Notification if enabled
+    if (prefs.osNotifications) {
+      void triggerOSNotification({
+        title: newest.title,
+        body: newest.body,
+        tag: newest.id,
+        actionTab: newest.actionTab,
+        urgent: newest.urgent,
+      });
     }
-    const toast: Toast = { id: newest.id, title: newest.title, body: newest.body, urgent: newest.urgent, actionTab: newest.actionTab };
-    setToasts((t) => [toast, ...t].slice(0, 3));
-    if (!newest.urgent) {
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== newest.id)), 6000);
+
+    // 2. Trigger in-app toast if enabled
+    if (prefs.inAppNotifications) {
+      const toast: Toast = { id: newest.id, title: newest.title, body: newest.body, urgent: newest.urgent, actionTab: newest.actionTab };
+      setToasts((t) => [toast, ...t].slice(0, 3));
+      if (!newest.urgent) {
+        setTimeout(() => setToasts((t) => t.filter((x) => x.id !== newest.id)), 6000);
+      }
     }
   }, [state.notifications, user]);
 

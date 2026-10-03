@@ -1,4 +1,4 @@
-/* Background FCM handler & Web Push Service Worker for Shristi Hub */
+/* Background FCM handler & OS-level Web Push Service Worker for Shristi Hub */
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -8,7 +8,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Try initializing Firebase Messaging Compat safely
+// Initialize Firebase Messaging Compat in background Service Worker
 try {
   importScripts("https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js");
   importScripts("https://www.gstatic.com/firebasejs/12.19.0/firebase-messaging-compat.js");
@@ -26,22 +26,33 @@ try {
       const messaging = firebase.messaging();
       messaging.onBackgroundMessage((payload) => {
         const title = payload.notification?.title || payload.data?.title || "Shristi Student Council";
+        const body = payload.notification?.body || payload.data?.body || "You have a new update.";
+        const tag = payload.data?.notificationId || "shristi-bg-notification";
+        const urgent = payload.data?.urgent === "true";
+        const actionTab = payload.data?.actionTab || "dashboard";
+
         const options = {
-          body: payload.notification?.body || payload.data?.body || "You have a new update.",
+          body,
           icon: "/favicon.ico",
-          tag: payload.data?.notificationId || "shristi-update",
-          renotify: payload.data?.urgent === "true",
-          data: { actionTab: payload.data?.actionTab || "dashboard" },
+          badge: "/favicon.ico",
+          tag,
+          renotify: urgent,
+          requireInteraction: urgent,
+          data: {
+            actionTab,
+            url: `${self.location.origin}/#${actionTab}`,
+          },
         };
+
         return self.registration.showNotification(title, options);
       });
     }
   }
 } catch (error) {
-  console.warn("FCM background script setup warning:", error);
+  console.warn("FCM background initialization warning:", error);
 }
 
-// Fallback native push event listener (ensures background delivery works seamlessly)
+// Background Push event listener (native Web Push fallback)
 self.addEventListener("push", (event) => {
   let data = {};
   if (event.data) {
@@ -51,26 +62,52 @@ self.addEventListener("push", (event) => {
       data = { body: event.data.text() };
     }
   }
-  const title = data.notification?.title || data.title || "Shristi Student Council";
+
+  const notification = data.notification || {};
+  const customData = data.data || {};
+  const title = notification.title || customData.title || data.title || "Shristi Student Council";
+  const body = notification.body || customData.body || data.body || "New council notification received.";
+  const actionTab = customData.actionTab || data.actionTab || "dashboard";
+  const urgent = customData.urgent === "true" || data.urgent === true;
+
   const options = {
-    body: data.notification?.body || data.body || "New council notification received.",
+    body,
     icon: "/favicon.ico",
-    tag: data.tag || data.data?.notificationId || "shristi-push",
-    renotify: data.urgent === true || data.data?.urgent === "true",
-    data: data.data || { actionTab: data.actionTab || "dashboard" },
+    badge: "/favicon.ico",
+    tag: customData.notificationId || data.tag || "shristi-os-push",
+    renotify: urgent,
+    requireInteraction: urgent,
+    data: {
+      actionTab,
+      url: `${self.location.origin}/#${actionTab}`,
+    },
   };
+
   event.waitUntil(self.registration.showNotification(title, options));
 });
 
+// Notification click handler: focus open app window or launch target URL
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const route = event.notification.data?.actionTab || "dashboard";
-  const target = `${self.location.origin}/#${route}`;
+
+  const actionTab = event.notification.data?.actionTab || "dashboard";
+  const targetUrl = event.notification.data?.url || `${self.location.origin}/#${actionTab}`;
+
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
-      const existing = windows.find((client) => client.url.startsWith(self.location.origin));
-      if (existing) return existing.navigate(target).then(() => existing.focus());
-      return clients.openWindow(target);
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      // If a window is already open, navigate it to target and focus
+      for (const client of clientList) {
+        if (client.url.startsWith(self.location.origin) && "focus" in client) {
+          if ("navigate" in client) {
+            return client.navigate(targetUrl).then((focusedClient) => focusedClient?.focus?.() || client.focus());
+          }
+          return client.focus();
+        }
+      }
+      // If no window is open, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
     })
   );
 });
