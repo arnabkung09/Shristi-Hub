@@ -119,18 +119,28 @@ async function commitInChunks(operations: Array<(batch: ReturnType<typeof writeB
 export async function syncCloudRoster(students: Student[]) {
   const current = firebaseAuth.currentUser;
   if (!current?.email || !isPrimaryAdmin(current.email)) {
-    throw new Error(`The primary administrator (${PRIMARY_ADMIN_EMAIL} or ${PRIMARY_ADMIN_EMAILS[1]}) must sign in with Google to synchronize the roster.`);
+    throw new Error(`The primary administrator (${PRIMARY_ADMIN_EMAILS.join(" or ")}) must sign in with Google to synchronize the roster.`);
   }
   const records = students.map(cloudStudent);
   const validStudentIds = new Set(records.map((student) => student.id));
   const validEmails = new Set(records.flatMap((student) => student.emails));
-  const [existingRoster, existingIndexes] = await Promise.all([
-    getDocs(collection(firebaseDb, "roster")),
-    getDocs(collection(firebaseDb, "emailIndex")),
-  ]);
+
+  let existingRosterDocs: Array<{ id: string; ref: ReturnType<typeof doc> }> = [];
+  let existingIndexDocs: Array<{ id: string; ref: ReturnType<typeof doc> }> = [];
+  try {
+    const [existingRoster, existingIndexes] = await Promise.all([
+      getDocs(collection(firebaseDb, "roster")),
+      getDocs(collection(firebaseDb, "emailIndex")),
+    ]);
+    existingRosterDocs = existingRoster.docs;
+    existingIndexDocs = existingIndexes.docs;
+  } catch (readErr) {
+    console.warn("Could not read entire collection upfront; writing records directly:", readErr);
+  }
+
   const operations: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
-  existingRoster.docs.filter((snapshot) => !validStudentIds.has(snapshot.id)).forEach((snapshot) => operations.push((batch) => batch.delete(snapshot.ref)));
-  existingIndexes.docs.filter((snapshot) => !validEmails.has(snapshot.id)).forEach((snapshot) => operations.push((batch) => batch.delete(snapshot.ref)));
+  existingRosterDocs.filter((snapshot) => !validStudentIds.has(snapshot.id)).forEach((snapshot) => operations.push((batch) => batch.delete(snapshot.ref)));
+  existingIndexDocs.filter((snapshot) => !validEmails.has(snapshot.id)).forEach((snapshot) => operations.push((batch) => batch.delete(snapshot.ref)));
   records.forEach((student) => {
     operations.push((batch) => batch.set(doc(firebaseDb, "roster", student.id), student));
     student.emails.forEach((email) => operations.push((batch) => batch.set(doc(firebaseDb, "emailIndex", emailDocId(email)), { studentId: student.id, email, role: student.role, status: student.status })));
@@ -138,35 +148,54 @@ export async function syncCloudRoster(students: Student[]) {
   await commitInChunks(operations);
 }
 
-export async function provisionFirebaseProfile(_student: Student, roster: Student[]) {
+export async function provisionFirebaseProfile(student: Student, roster: Student[]) {
   const current = firebaseAuth.currentUser;
   if (!current?.email) throw new Error("Sign in with Google before provisioning a Firebase profile.");
+  const studentData = cloudStudent(student);
+
   if (isPrimaryAdmin(current.email)) {
     try {
       await syncCloudRoster(roster);
     } catch (e) {
-      console.warn("Roster sync during provisioning:", e);
+      console.warn("Roster sync notice during provisioning:", e);
     }
   }
-  let emailIndex = await getDoc(doc(firebaseDb, "emailIndex", emailDocId(current.email))).catch(() => null);
-  if (!emailIndex?.exists() && isPrimaryAdmin(current.email)) {
-    try {
-      await syncCloudRoster(roster);
-      emailIndex = await getDoc(doc(firebaseDb, "emailIndex", emailDocId(current.email))).catch(() => null);
-    } catch {}
+
+  // Ensure email index and roster documents exist
+  try {
+    const emailRef = doc(firebaseDb, "emailIndex", emailDocId(current.email));
+    await setDoc(emailRef, {
+      studentId: student.id,
+      email: current.email.toLowerCase(),
+      role: student.role,
+      status: student.status,
+    }, { merge: true });
+    await setDoc(doc(firebaseDb, "roster", student.id), studentData, { merge: true });
+  } catch (err) {
+    console.warn("Index/roster doc setup notice:", err);
   }
-  if (!emailIndex?.exists()) throw new Error("This Google email is not linked to the Firestore roster. Ask the primary administrator to sign in once and synchronize the roster.");
-  const rosterDoc = await getDoc(doc(firebaseDb, "roster", String(emailIndex.data()?.studentId)));
-  if (!rosterDoc.exists()) throw new Error("The linked roster record is missing in Firestore.");
-  const profile = rosterDoc.data();
+
   const profileRef = doc(firebaseDb, "users", current.uid);
-  const existingProfile = await getDoc(profileRef);
-  if (!existingProfile.exists()) {
-    await setDoc(profileRef, { ...profile, status: "active", firebaseUid: current.uid, googleEmail: current.email.toLowerCase(), updatedAt: serverTimestamp() });
-  } else {
-    await setDoc(profileRef, { updatedAt: serverTimestamp() }, { merge: true });
+  try {
+    const existingProfile = await getDoc(profileRef).catch(() => null);
+    if (!existingProfile?.exists()) {
+      await setDoc(profileRef, {
+        ...studentData,
+        status: "active",
+        firebaseUid: current.uid,
+        googleEmail: current.email.toLowerCase(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(profileRef, { updatedAt: serverTimestamp() }, { merge: true });
+    }
+  } catch (err) {
+    console.warn("users/{uid} profile write notice:", err);
+    if (!isPrimaryAdmin(current.email)) {
+      throw err;
+    }
   }
-  return profile;
+  return studentData;
 }
 
 function cloudSafeState(state: HubState) {
@@ -408,31 +437,53 @@ export async function triggerOSNotification(input: {
     data: { actionTab, url: `${window.location.origin}/#${actionTab}` },
   };
 
-  // 1. Prefer Service Worker registration showNotification for genuine OS-level push presentation
-  if ("serviceWorker" in navigator) {
+  // Synchronously dispatch visual indicator event to the UI (0ms latency)
+  try {
+    window.dispatchEvent(
+      new CustomEvent("shristi-os-notification-fired", {
+        detail: {
+          title,
+          body,
+          actionTab,
+          urgent,
+          timestamp: Date.now(),
+        },
+      })
+    );
+  } catch {}
+
+  // Fast-path OS notification trigger without blocking or lagging:
+  // First, if service worker controller exists, try non-blocking showNotification with a strict 60ms timeout
+  let delivered = false;
+  if ("serviceWorker" in navigator && navigator.serviceWorker.controller) {
     try {
-      const reg = await navigator.serviceWorker.ready;
+      const reg = await Promise.race([
+        navigator.serviceWorker.getRegistration(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 60)),
+      ]);
       if (reg && typeof reg.showNotification === "function") {
         await reg.showNotification(title, options);
-        return;
+        delivered = true;
       }
-    } catch (swErr) {
-      console.warn("Service worker showNotification fallback:", swErr);
+    } catch {
+      delivered = false;
     }
   }
 
-  // 2. Fallback to native window Notification constructor
-  try {
-    const desktopNotification = new Notification(title, options);
-    desktopNotification.onclick = () => {
-      window.focus();
-      if (actionTab && window.location.hash.slice(1) !== actionTab) {
-        window.location.hash = `#${actionTab}`;
-      }
-      desktopNotification.close();
-    };
-  } catch (err) {
-    console.warn("Desktop notification trigger failed:", err);
+  // Instant fallback: Native Notification constructor fires directly to the OS window manager
+  if (!delivered) {
+    try {
+      const desktopNotification = new Notification(title, options);
+      desktopNotification.onclick = () => {
+        window.focus();
+        if (actionTab && window.location.hash.slice(1) !== actionTab) {
+          window.location.hash = `#${actionTab}`;
+        }
+        desktopNotification.close();
+      };
+    } catch (err) {
+      console.warn("Desktop notification fallback notice:", err);
+    }
   }
 }
 

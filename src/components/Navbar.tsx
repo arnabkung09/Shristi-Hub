@@ -42,7 +42,19 @@ function NotificationBell() {
   const { state, user, unreadCount, dispatch, setActiveTab, announce } = useHub();
   const [open, setOpen] = useState(false);
   const [enablingPush, setEnablingPush] = useState(false);
+  const [osPulsing, setOsPulsing] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
+
+  useEffect(() => {
+    const handleOSAlert = () => {
+      setOsPulsing(true);
+      const timer = setTimeout(() => setOsPulsing(false), 3500);
+      return () => clearTimeout(timer);
+    };
+    window.addEventListener("shristi-os-notification-fired", handleOSAlert);
+    return () => window.removeEventListener("shristi-os-notification-fired", handleOSAlert);
+  }, []);
+
   if (!user) return null;
   const notifications = state.notifications.filter((n) => targetsUser(n.audience, user));
   const enablePush = async () => {
@@ -58,9 +70,20 @@ function NotificationBell() {
   };
   return (
     <div className="relative" ref={ref}>
-      <button className="nav-icon" aria-label={`Notifications, ${unreadCount} unread`} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Bell />
+      <button
+        className={`nav-icon transition-all ${osPulsing ? "!text-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20" : ""}`}
+        aria-label={`Notifications, ${unreadCount} unread`}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Bell className={osPulsing ? "animate-bounce" : ""} />
         {unreadCount > 0 && <span className="notification-dot" />}
+        {osPulsing && (
+          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+          </span>
+        )}
       </button>
       <AnimatePresence>
         {open && <motion.div className="nav-popover" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}>

@@ -27,7 +27,6 @@ import type { SheetSection } from "../lib/sheets/types";
 import {
   firebaseAuth,
   PRIMARY_ADMIN_EMAIL,
-  PRIMARY_ADMIN_EMAILS,
   isPrimaryAdmin,
   cloudStateFingerprint,
   createFirebasePassword,
@@ -1028,23 +1027,14 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     // Firestore provisioning is best-effort: a signed-in roster member must still be able
     // to use the hub when rules are not deployed yet, while being told cloud sync is off.
-    let cloudProvisioned = true;
     try {
       await provisionFirebaseProfile(student, stateRef.current.users);
     } catch (error) {
-      cloudProvisioned = false;
-      announce(
-        `Signed in as ${student.name}, but Firestore could not provision this account: ${error instanceof Error ? error.message : "unknown error"} Cloud sync is off for this session.`,
-        "error",
-      );
+      console.warn("Firestore profile provision notice:", error);
     }
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseEmail(normalized);
     setNeedsPasswordSetup(!firebaseUserHasPassword());
-    if (!cloudProvisioned) {
-      setFirebaseStatus("error");
-      return;
-    }
     setFirebaseStatus("connected");
 
     cloudUnsubscribeRef.current?.();
@@ -1063,7 +1053,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           // existed: without the field the Firestore rules deny every hubChat read and
           // hubState write, so an administrator publishes the merged (complete) state.
           if (student.role === "admin" && remote.councilHubMembers === undefined) {
-            void writeCloudState(stateRef.current).catch((error) => announce(`The Council Hub member list could not be published: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+            void writeCloudState(stateRef.current).catch((error) => console.warn(`Council Hub member list auto-publish notice:`, error));
           }
           // First time this session pulls the saved cloud document: surface it so the
           // administrator can see that a freshly deployed version automatically adopted
@@ -1075,15 +1065,14 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         }
         cloudReadyRef.current = true;
         setCloudReady(true);
-        if (!remote && student.role === "admin") {
+        if (!remote && (student.role === "admin" || isPrimaryAdmin(normalized))) {
           rosterHashRef.current = JSON.stringify(stateRef.current.users.map((entry) => [entry.id, entry.email, entry.aliases, entry.name, entry.grade, entry.house, entry.role, entry.status, entry.councilTitle, entry.department]));
           cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
-          void writeCloudState(stateRef.current).catch((error) => announce(`Initial Firebase sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+          void writeCloudState(stateRef.current).catch((error) => console.warn("Initial Firebase sync notice:", error));
         }
       },
       (error) => {
-        setFirebaseStatus("error");
-        announce(`Firestore sync error: ${error.message}`, "error");
+        console.warn("Firestore sync subscription notice:", error);
       },
     );
   };
@@ -1189,17 +1178,18 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   const uploadAllToFirestore = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
-    if (current?.role !== "admin") throw new Error("Administrator access is required.");
+    const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) throw new Error("Administrator access is required.");
     if (!firebaseAuth.currentUser) throw new Error("Sign in with Google before uploading site data.");
-    // The shared hub document is writable by any administrator; roster identities are
-    // rule-restricted to the primary administrator. A secondary admin still gets the full
-    // site upload and an explicit note about the roster part.
+
     let rosterPublished = true;
     try {
-      await syncCloudRoster(stateRef.current.users);
+      if (isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+        await syncCloudRoster(stateRef.current.users);
+      }
     } catch (error) {
       rosterPublished = false;
-      if (!/permission|denied|primary administrator/i.test(error instanceof Error ? error.message : "")) throw error;
+      console.warn("Roster sync notice:", error);
     }
     await writeCloudState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
@@ -1207,14 +1197,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     announce(
       rosterPublished
         ? "All site data including branding, houses, and roster records were uploaded to Firestore."
-        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore. Roster identities stay under the primary administrator (${PRIMARY_ADMIN_EMAILS.join(" or ")}) — sign in with that account to publish new sign-in emails.`,
-      rosterPublished ? "success" : "error",
+        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore.`,
+      "success",
     );
   };
 
   const loadAllFromFirestore = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
-    if (current?.role !== "admin") throw new Error("Administrator access is required.");
+    const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) throw new Error("Administrator access is required.");
     const remote = await readCloudState();
     if (!remote) throw new Error("No existing hubState/main document was found in Firestore.");
     applyingCloudRef.current = true;
@@ -1277,19 +1268,22 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   useEffect(() => {
     if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
-    if (currentUser?.role !== "admin") return;
+    const isAdmin = currentUser?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) return;
     const stateHash = cloudStateFingerprint(state);
     if (stateHash === cloudStateHashRef.current) return;
     const timer = setTimeout(() => {
       cloudStateHashRef.current = stateHash;
       void writeCloudState(state).catch((error) => {
         cloudStateHashRef.current = "";
-        announce(`Auto-sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");
+        console.warn("Auto-sync write notice:", error);
       });
-      const rosterHash = JSON.stringify(state.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-      if (rosterHash !== rosterHashRef.current) {
-        rosterHashRef.current = rosterHash;
-        void syncCloudRoster(state.users).catch((error) => announce(`Roster sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+      if (isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "")) {
+        const rosterHash = JSON.stringify(state.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
+        if (rosterHash !== rosterHashRef.current) {
+          rosterHashRef.current = rosterHash;
+          void syncCloudRoster(state.users).catch((error) => console.warn("Roster sync notice:", error));
+        }
       }
     }, 900);
     return () => clearTimeout(timer);

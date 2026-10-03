@@ -39,6 +39,7 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
   const [registering, setRegistering] = useState(false);
   const [testingOS, setTestingOS] = useState(false);
   const [testingInApp, setTestingInApp] = useState(false);
+  const [lastTestResult, setLastTestResult] = useState<{ type: "os" | "in-app"; time: string; latencyMs: number } | null>(null);
 
   // Check service worker state
   useEffect(() => {
@@ -108,6 +109,7 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
 
   const handleTestOSNotification = async () => {
     setTestingOS(true);
+    const start = performance.now();
     try {
       if (permission !== "granted") {
         const res = await requestNotificationPermission();
@@ -126,16 +128,24 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
         urgent: true,
       });
 
+      const elapsed = Math.round(performance.now() - start);
+      setLastTestResult({
+        type: "os",
+        time: new Date().toLocaleTimeString(),
+        latencyMs: Math.max(1, elapsed),
+      });
+
       announce("Test desktop alert dispatched to your operating system.");
     } catch (err) {
       announce(err instanceof Error ? err.message : "Failed to trigger desktop notification.", "error");
     } finally {
-      setTimeout(() => setTestingOS(false), 800);
+      setTimeout(() => setTestingOS(false), 400);
     }
   };
 
   const handleTestInAppToast = () => {
     setTestingInApp(true);
+    const start = performance.now();
     if (!prefs.inAppNotifications) {
       announce("In-app notifications are currently toggled off below.", "error");
       setTestingInApp(false);
@@ -152,8 +162,15 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
       actionTab: "dashboard",
     });
 
+    const elapsed = Math.round(performance.now() - start);
+    setLastTestResult({
+      type: "in-app",
+      time: new Date().toLocaleTimeString(),
+      latencyMs: Math.max(1, elapsed),
+    });
+
     announce("In-app notification toast triggered.");
-    setTimeout(() => setTestingInApp(false), 800);
+    setTimeout(() => setTestingInApp(false), 400);
   };
 
   const getPermissionBadge = () => {
@@ -400,6 +417,23 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
             {testingInApp ? "Showing..." : "Test In-App Toast"}
           </button>
         </div>
+
+        {lastTestResult && (
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <span>
+                {lastTestResult.type === "os" ? "OS desktop notification dispatched" : "In-app toast alert triggered"} at {lastTestResult.time}
+              </span>
+            </div>
+            <span className="font-mono text-[10px] font-semibold text-emerald-500">
+              Latency: {lastTestResult.latencyMs}ms
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
