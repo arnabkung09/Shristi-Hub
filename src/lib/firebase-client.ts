@@ -1,7 +1,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { browserLocalPersistence, EmailAuthProvider, getAuth, GoogleAuthProvider, linkWithCredential, onAuthStateChanged, setPersistence, signInWithEmailAndPassword, signInWithPopup, signOut, type User as FirebaseUser } from "firebase/auth";
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
-import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from "firebase/messaging";
+
 import type { AppNotification, Audience, HubChatMessage, HubRoom, HubState, Role, Student } from "./types";
 import { COUNCIL_HUB_ROOM, COUNCIL_MESSAGE_HISTORY_LIMIT, normalizeCouncilMessage } from "./council";
 import type { SheetsConfig } from "./sheets/config";
@@ -18,7 +18,7 @@ export const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firebaseDb = getFirestore(app);
-const VAPID_STORAGE_KEY = "shristi-fcm-vapid-public-key-v1";
+
 export const PRIMARY_ADMIN_EMAILS = [
   "72019arnab@shristiacademy.edu.np",
   "arnabkung@gmail.com",
@@ -27,36 +27,6 @@ export const PRIMARY_ADMIN_EMAIL = "72019arnab@shristiacademy.edu.np";
 export const isPrimaryAdmin = (email?: string | null) =>
   Boolean(email && PRIMARY_ADMIN_EMAILS.some((adm) => adm.toLowerCase() === email.trim().toLowerCase()));
 
-export const DEFAULT_VAPID_PUBLIC_KEY =
-  "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXY5cevKi84";
-
-export const getVapidKey = () => localStorage.getItem(VAPID_STORAGE_KEY) ?? DEFAULT_VAPID_PUBLIC_KEY;
-export async function saveVapidKey(value: string) {
-  const key = value.trim();
-  if (key && key.length < 40) throw new Error("The Firebase Web Push public VAPID key appears incomplete.");
-  if (key) localStorage.setItem(VAPID_STORAGE_KEY, key); else localStorage.removeItem(VAPID_STORAGE_KEY);
-  if (firebaseAuth.currentUser) {
-    try {
-      await setDoc(doc(firebaseDb, "publicConfig", "messaging"), { vapidKey: key, updatedAt: serverTimestamp() });
-    } catch (err) {
-      console.warn("Could not save VAPID key to Firestore (stored locally instead):", err);
-    }
-  }
-}
-
-async function resolveVapidKey() {
-  const local = localStorage.getItem(VAPID_STORAGE_KEY);
-  if (local) return local;
-  try {
-    const snapshot = await getDoc(doc(firebaseDb, "publicConfig", "messaging"));
-    const shared = snapshot.exists() ? String(snapshot.data().vapidKey || "") : "";
-    if (shared) {
-      localStorage.setItem(VAPID_STORAGE_KEY, shared);
-      return shared;
-    }
-  } catch {}
-  return DEFAULT_VAPID_PUBLIC_KEY;
-}
 
 export async function signInWithGoogle() {
   await setPersistence(firebaseAuth, browserLocalPersistence);
@@ -286,61 +256,17 @@ export async function enableFirebasePush(student: Student) {
   const currentPrefs = getNotificationPreferences();
   saveNotificationPreferences({ ...currentPrefs, osNotifications: true });
 
-  const registration = await registerAppServiceWorker();
-  const fcmSupported = await isSupported().catch(() => false);
-  const vapidKey = await resolveVapidKey();
-
-  let token = "";
-  if (fcmSupported && registration) {
-    try {
-      const messaging = getMessaging(app);
-      if (vapidKey) {
-        token = await getToken(messaging, {
-          vapidKey,
-          serviceWorkerRegistration: registration,
-        }).catch(() => "");
-      } else {
-        token = await getToken(messaging, {
-          serviceWorkerRegistration: registration,
-        }).catch(() => "");
-      }
-    } catch (tokenErr) {
-      console.warn("FCM registration note (device registered with service worker OS push):", tokenErr);
-    }
-  }
+  await registerAppServiceWorker();
   
   // Call the custom web push subscription logic
   const devId = (typeof localStorage !== "undefined" ? localStorage.getItem("shristi_registered_device_id_v5") || sessionStorage.getItem("shristi_device_session_id_v4") : null) || `dev-${Date.now()}`;
   try {
-    await enableWebPush(student, devId);
+    const sub = await enableWebPush(student, devId);
+    return sub ? "web-push-enabled" : "";
   } catch (err) {
     console.warn("Custom Web Push registration failed:", err);
+    throw err;
   }
-
-  const userIdentifier = firebaseAuth.currentUser?.uid || student.id;
-  const effectiveToken = token || `sw-push-${student.id}-${Date.now()}`;
-  const tokenHash = await tokenId(effectiveToken);
-  const docRef = doc(firebaseDb, "deviceTokens", `${userIdentifier}_${tokenHash}`);
-
-  try {
-    await setDoc(docRef, {
-      token: effectiveToken,
-      uid: userIdentifier,
-      studentId: student.id,
-      email: (student.email || firebaseAuth.currentUser?.email || "").toLowerCase(),
-      name: student.name,
-      role: student.role,
-      house: student.house,
-      grade: student.grade,
-      enabled: true,
-      updatedAt: serverTimestamp(),
-      userAgent: navigator.userAgent.slice(0, 300),
-      deviceId: devId,
-    });
-  } catch (dbErr) {
-    console.warn("Could not save device token to Firestore (token active locally):", dbErr);
-  }
-  return effectiveToken;
 }
 
 export function urlBase64ToUint8Array(base64String: string) {
@@ -365,10 +291,8 @@ export async function enableWebPush(student: Student, deviceId: string) {
 
   const reg = await navigator.serviceWorker.ready;
   
-  // Get public key
-  const res = await fetch('/api/push/public-key');
-  if (!res.ok) throw new Error('Failed to get VAPID public key');
-  const { publicKey } = await res.json();
+  const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  if (!publicKey) throw new Error('VAPID public key is missing from environment variables');
 
   const applicationServerKey = urlBase64ToUint8Array(publicKey);
   
@@ -378,12 +302,15 @@ export async function enableWebPush(student: Student, deviceId: string) {
   });
 
   // Save subscription
-  await fetch('/api/push/subscribe', {
+  await fetch('/api/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       deviceId,
       userId: student.id,
+      role: student.role,
+      house: student.house,
+      grade: student.grade,
       subscription
     })
   });
@@ -702,7 +629,7 @@ export async function triggerOSNotification(input: {
   };
 }
 
-export async function subscribeForegroundMessages(callback?: (payload: MessagePayload) => void) {
+export async function subscribeForegroundMessages(callback?: (payload: any) => void) {
   if (typeof window === "undefined") return () => undefined;
 
   // Request permission via Notification.requestPermission()
@@ -712,28 +639,36 @@ export async function subscribeForegroundMessages(callback?: (payload: MessagePa
     } catch {}
   }
 
-  const supported = await isSupported().catch(() => false);
-  if (!supported) return () => undefined;
+  const handleMessage = async (event: MessageEvent) => {
+    if (event.data && event.data.type === 'PUSH_RECEIVED') {
+      const payload = event.data.payload;
+      const title = payload.title || "Shristi Student Council";
+      const body = payload.body || "You have a new update.";
+      const actionTab = payload.actionTab || "dashboard";
+      const urgent = payload.urgent === true || payload.urgent === "true";
+      const tag = payload.notificationId || `os-alert-${Date.now()}`;
 
-  const messaging = getMessaging(app);
-  return onMessage(messaging, async (payload) => {
-    // Explicitly trigger a native OS notification so desktop alerts fire even when the tab is focused
-    const title = payload.notification?.title || payload.data?.title || "Shristi Student Council";
-    const body = payload.notification?.body || payload.data?.body || "You have a new update.";
-    const actionTab = payload.data?.actionTab || "dashboard";
-    const urgent = payload.data?.urgent === "true";
-    const tag = payload.data?.notificationId || `os-alert-${Date.now()}`;
+      await triggerOSNotification({
+        title,
+        body,
+        tag,
+        actionTab,
+        urgent,
+      });
 
-    await triggerOSNotification({
-      title,
-      body,
-      tag,
-      actionTab,
-      urgent,
-    });
+      callback?.(payload);
+    }
+  };
 
-    callback?.(payload);
-  });
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', handleMessage);
+  }
+
+  return () => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.removeEventListener('message', handleMessage);
+    }
+  };
 }
 
 function matchesAudience(student: Record<string, unknown>, audience: Audience) {
@@ -796,33 +731,28 @@ export async function sendFirebaseNotification(input: {
     console.warn("Could not query deviceTokens directly:", tokenErr);
   }
 
-  // 2. Deliver via secure FCM backend endpoint using admin.messaging() HTTP v1
-  if (matchingTokens.length > 0) {
-    try {
-      const res = await fetch("/api/fcm/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tokens: matchingTokens,
-          notification: {
-            title: input.title,
-            body: input.body,
-          },
-          data: {
-            urgent: String(input.urgent),
-            actionTab: input.actionTab,
-          }
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        multicastSuccess = data.successCount || 0;
-        multicastFailure = data.failureCount || 0;
-        targetedUsers = Math.max(targetedUsers, matchingTokens.length);
-      }
-    } catch (err) {
-      console.warn("FCM backend endpoint delivery failed", err);
+  // 2. Deliver via Vercel Serverless Endpoint using web-push
+  try {
+    const res = await fetch("/api/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body,
+        urgent: input.urgent,
+        actionTab: input.actionTab,
+        audience: input.audience,
+        targetDeviceId: input.targetDeviceId
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      multicastSuccess = data.successCount || 0;
+      multicastFailure = data.failureCount || 0;
+      targetedUsers = Math.max(targetedUsers, data.successCount + data.failureCount);
     }
+  } catch (err) {
+    console.warn("Vercel backend endpoint delivery failed", err);
   }
 
   // 3. Real-time Firestore Broadcast Delivery (instantly received by ALL connected devices and all signed-in accounts)

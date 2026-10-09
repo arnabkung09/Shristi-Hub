@@ -26,8 +26,6 @@ import {
 import {
   firebaseAuth,
   firebaseConfig,
-  getVapidKey,
-  saveVapidKey,
   testFirebaseConnection,
   PRIMARY_ADMIN_EMAIL,
   PRIMARY_ADMIN_EMAILS,
@@ -51,7 +49,6 @@ export default function FirebaseConnection() {
     setActiveTab,
   } = useHub();
 
-  const [vapid, setVapid] = useState(getVapidKey());
   const [status, setStatus] = useState<"testing" | "connected" | "secured" | "error">("testing");
   const [message, setMessage] = useState("Testing the configured Firebase project...");
   const [syncing, setSyncing] = useState<"upload" | "download" | null>(null);
@@ -76,19 +73,6 @@ export default function FirebaseConnection() {
   useEffect(() => {
     void test();
   }, []);
-
-  const savePushKey = async () => {
-    try {
-      await saveVapidKey(vapid);
-      announce(
-        vapid.trim()
-          ? "Firebase Web Push VAPID key saved to shared Firestore configuration."
-          : "Web Push VAPID key removed."
-      );
-    } catch (error) {
-      announce(error instanceof Error ? error.message : "Unable to save VAPID key.", "error");
-    }
-  };
 
   const upload = async () => {
     setSyncing("upload");
@@ -552,40 +536,7 @@ export default function FirebaseConnection() {
         )}
       </section>
 
-      {/* Web Push VAPID Key Configuration */}
-      <section className="panel panel-pad">
-        <div className="panel-heading">
-          <div>
-            <h2>
-              <KeyRound className="!text-[var(--purple)]" />
-              Web Push VAPID Public Key
-            </h2>
-            <p>
-              Public key generated in Firebase Console → Project Settings → Cloud Messaging → Web Push certificates.
-            </p>
-          </div>
-        </div>
 
-        <div className="mt-2 flex gap-2">
-          <input
-            className="control flex-1 font-mono text-xs"
-            type="password"
-            autoComplete="off"
-            value={vapid}
-            onChange={(event) => setVapid(event.target.value)}
-            placeholder="B... public VAPID key"
-          />
-          <button className="btn btn-primary" onClick={() => void savePushKey()}>
-            <Save />
-            Save key
-          </button>
-        </div>
-
-        <p className="inline-message mt-4 flex gap-2">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-          <span>The web configuration and VAPID key are public client identifiers. Never paste a private service-account key into this app.</span>
-        </p>
-      </section>
 
       {/* Confirmation Modal for Restore */}
       <Modal

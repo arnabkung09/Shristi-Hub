@@ -6,13 +6,6 @@ self.addEventListener('push', function(event) {
       let body = 'New Notification';
       let url = '/';
       
-      // Handle Firebase Cloud Messaging payload structure
-      if (payload.notification) {
-        title = payload.notification.title || title;
-        body = payload.notification.body || body;
-      }
-      
-      // Handle custom payload structure (or merged)
       title = payload.title || title;
       body = payload.body || body;
       url = payload.url || (payload.data && payload.data.url) || url;
@@ -27,7 +20,17 @@ self.addEventListener('push', function(event) {
         data: { url: url },
         vibrate: payload.urgent ? [200, 100, 200, 100, 200, 100, 400] : undefined
       };
-      event.waitUntil(self.registration.showNotification(title, options));
+      
+      event.waitUntil(
+        Promise.all([
+          self.registration.showNotification(title, options),
+          clients.matchAll({ type: 'window' }).then((windowClients) => {
+            windowClients.forEach((client) => {
+              client.postMessage({ type: 'PUSH_RECEIVED', payload });
+            });
+          })
+        ])
+      );
     } catch (e) {
       console.error('Error parsing push data', e);
     }
