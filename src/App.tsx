@@ -23,6 +23,8 @@ import AdminPanel, { TermsContent } from "./components/AdminPanel";
 import HomePortal from "./components/HomePortal";
 import { MouseGlow } from "./components/Effects";
 import { Modal } from "./components/ui";
+import OSNotificationBeacon from "./components/OSNotificationBeacon";
+import { getNotificationPreferences, triggerOSNotification } from "./lib/firebase-client";
 
 interface Toast {
   id: string;
@@ -46,19 +48,31 @@ function Toasts() {
     state.notifications.forEach((n) => seen.current.add(n.id));
     if (fresh.length === 0) return;
     fresh.forEach((n) => seen.current.add(n.id));
-    const newest = fresh[0];
-    chime(newest.urgent);
-    if (document.hidden && "Notification" in window && Notification.permission === "granted") {
-      try {
-        const desktop = new Notification(newest.title, { body: newest.body, tag: newest.id });
-        desktop.onclick = () => { window.focus(); if (newest.actionTab) setActiveTab(newest.actionTab); desktop.close(); };
-      } catch { /* In-app alerts remain available when a browser blocks desktop notifications. */ }
-    }
-    const toast: Toast = { id: newest.id, title: newest.title, body: newest.body, urgent: newest.urgent, actionTab: newest.actionTab };
-    setToasts((t) => [toast, ...t].slice(0, 3));
-    if (!newest.urgent) {
-      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== newest.id)), 6000);
-    }
+    const prefs = getNotificationPreferences();
+
+    fresh.slice(0, 3).forEach((newest) => {
+      chime(newest.urgent);
+
+      // 1. Trigger real OS-level Web Push / Desktop Notification if enabled
+      if (prefs.osNotifications) {
+        void triggerOSNotification({
+          title: newest.title,
+          body: newest.body,
+          tag: newest.id,
+          actionTab: newest.actionTab,
+          urgent: newest.urgent,
+        });
+      }
+
+      // 2. Trigger in-app toast if enabled
+      if (prefs.inAppNotifications) {
+        const toast: Toast = { id: newest.id, title: newest.title, body: newest.body, urgent: newest.urgent, actionTab: newest.actionTab };
+        setToasts((t) => [toast, ...t.filter((x) => x.id !== newest.id)].slice(0, 3));
+        if (!newest.urgent) {
+          setTimeout(() => setToasts((t) => t.filter((x) => x.id !== newest.id)), 6000);
+        }
+      }
+    });
   }, [state.notifications, user]);
 
   return (
@@ -159,6 +173,7 @@ function Shell() {
       </main>
       <footer className="site-footer"><div className="site-container footer-inner"><p>Active Session: <span className="text-[var(--faint)]">{user.id}</span> <span className="mx-1 text-[var(--border)]">|</span> Affiliation: {user.email}</p><div className="footer-links"><button onClick={() => setLegal("terms")}>Terms & Conditions</button><span className="text-[var(--faint)]">/</span><button onClick={() => setLegal("credits")}>Credits Page</button></div><p>{footerNote}</p></div></footer>
       <Modal open={!!legal} onClose={() => setLegal(null)} title={legal === "credits" ? "Credits Page" : "Terms & Conditions"} wide><TermsContent creditsOnly={legal === "credits"} /><div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setLegal(null)}>Close View</button></div></Modal>
+      <OSNotificationBeacon />
       <Toasts />
     </div>
   );

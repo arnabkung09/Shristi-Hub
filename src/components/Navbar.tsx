@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCheck, CircleCheck, LogOut, Menu, Moon, Shield, Sun, UserRound } from "lucide-react";
+import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, Moon, Shield, Smartphone, Sun, UserRound } from "lucide-react";
 import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
-import { enableFirebasePush, firebaseAuth } from "../lib/firebase-client";
+import { enableFirebasePush } from "../lib/firebase-client";
+import NotificationSettings from "./NotificationSettings";
+import { usePWAInstall } from "../hooks/usePWAInstall";
 
 const LINKS = [
   { id: "home", label: "Home Portal", lines: ["Home", "Portal"] },
@@ -41,7 +43,19 @@ function NotificationBell() {
   const { state, user, unreadCount, dispatch, setActiveTab, announce } = useHub();
   const [open, setOpen] = useState(false);
   const [enablingPush, setEnablingPush] = useState(false);
+  const [osPulsing, setOsPulsing] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
+
+  useEffect(() => {
+    const handleOSAlert = () => {
+      setOsPulsing(true);
+      const timer = setTimeout(() => setOsPulsing(false), 3500);
+      return () => clearTimeout(timer);
+    };
+    window.addEventListener("shristi-os-notification-fired", handleOSAlert);
+    return () => window.removeEventListener("shristi-os-notification-fired", handleOSAlert);
+  }, []);
+
   if (!user) return null;
   const notifications = state.notifications.filter((n) => targetsUser(n.audience, user));
   const enablePush = async () => {
@@ -57,9 +71,20 @@ function NotificationBell() {
   };
   return (
     <div className="relative" ref={ref}>
-      <button className="nav-icon" aria-label={`Notifications, ${unreadCount} unread`} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Bell />
+      <button
+        className={`nav-icon transition-all ${osPulsing ? "!text-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20" : ""}`}
+        aria-label={`Notifications, ${unreadCount} unread`}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Bell className={osPulsing ? "animate-bounce" : ""} />
         {unreadCount > 0 && <span className="notification-dot" />}
+        {osPulsing && (
+          <span className="absolute -top-1 -right-1 flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+          </span>
+        )}
       </button>
       <AnimatePresence>
         {open && <motion.div className="nav-popover" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}>
@@ -72,10 +97,20 @@ function NotificationBell() {
             </button>)}
           </div>
           <div className="border-t border-[var(--border)] p-3">
-            <button className="btn btn-primary w-full" disabled={enablingPush || !firebaseAuth.currentUser} onClick={() => void enablePush()}>
-              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : Notification.permission === "granted" ? "Refresh push registration" : "Enable real push notifications"}
+            <button className="btn btn-primary w-full" disabled={enablingPush} onClick={() => void enablePush()}>
+              <Bell className="h-3.5 w-3.5" />{enablingPush ? "Registering device..." : (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") ? "Device registered for push" : "Enable push notifications"}
             </button>
-            {!firebaseAuth.currentUser && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Sign in with Google to enable push.</p>}
+            <button
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-black/5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-black/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new CustomEvent("shristi-open-notification-settings"));
+              }}
+            >
+              <Smartphone className="h-3 w-3 text-indigo-400" />
+              Mobile & OS Notification Settings
+            </button>
+            {(typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") && <p className="mt-2 text-center text-[9px] text-[var(--faint)]">Receive instant broadcasts and urgent school alerts on this device.</p>}
           </div>
         </motion.div>}
       </AnimatePresence>
@@ -85,9 +120,21 @@ function NotificationBell() {
 
 function UserMenu() {
   const { state, user, setActiveTab, signOutSession, firebaseEmail } = useHub();
+  const { isInstallable, isInstalled: pwaInstalled, isIOS: pwaIOS, install: triggerPWAInstall } = usePWAInstall();
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<"profile" | "notifications">("profile");
   const ref = useDismiss(open, () => setOpen(false));
+
+  useEffect(() => {
+    const handleOpenNotifSettings = () => {
+      setProfileTab("notifications");
+      setProfile(true);
+    };
+    window.addEventListener("shristi-open-notification-settings", handleOpenNotifSettings);
+    return () => window.removeEventListener("shristi-open-notification-settings", handleOpenNotifSettings);
+  }, []);
+
   if (!user) return null;
   return (
     <div className="relative" ref={ref}>
@@ -97,15 +144,74 @@ function UserMenu() {
       </button>
       {open && <div className="nav-popover !w-[280px] page-motion">
         <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
-        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
+        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
+        <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Mobile & OS notifications</button>
+        {!pwaInstalled && (isInstallable || pwaIOS) && (
+          <button
+            className="notice-item !items-center !text-[11px] text-indigo-400 font-medium"
+            onClick={() => {
+              setOpen(false);
+              if (isInstallable) {
+                void triggerPWAInstall();
+              } else {
+                setProfileTab("notifications");
+                setProfile(true);
+              }
+            }}
+          >
+            {isInstallable ? <Download className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+            {isInstallable ? "Install Mobile App" : "Add to iPhone/iPad Home Screen"}
+          </button>
+        )}
         {user.role === "admin" && <button className="notice-item !items-center !text-[11px]" onClick={() => { setActiveTab("admin"); setOpen(false); }}><Shield className="h-3.5 w-3.5 text-[var(--purple)]" />Council administration</button>}
         <button className="notice-item !items-center !text-[11px] text-rose-500" onClick={() => void signOutSession()}><LogOut className="h-3.5 w-3.5" />Sign out{firebaseEmail ? " of Google" : ""}</button>
       </div>}
-      <Modal open={profile} onClose={() => setProfile(false)} title="My student profile" icon={<UserRound />} subtitle="Your identity in the Shristi Academy council workspace.">
-        <div className="form-stack">
-          {[["Full name", user.name], ["Institutional email", user.email], ["Account ID", user.id.toUpperCase()], ["Class", user.gradeLabel ?? "Staff"], ["House", user.house ? houseFullName(state.houses, user.house) : "No House"], ["Council office", user.councilTitle ?? "—"], ["Account status", user.status]].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
+      <Modal
+        open={profile}
+        onClose={() => setProfile(false)}
+        title={profileTab === "profile" ? "My student profile" : "Notification Settings"}
+        icon={profileTab === "profile" ? <UserRound /> : <Bell />}
+        subtitle={profileTab === "profile" ? "Your identity in the Shristi Academy council workspace." : "Configure Mobile (Android/iOS) and OS desktop push notifications, haptic vibration, and alert preferences."}
+        wide
+      >
+        <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-black/5 p-1 dark:bg-white/5">
+          <button
+            type="button"
+            onClick={() => setProfileTab("profile")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
+              profileTab === "profile"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <UserRound className="h-3.5 w-3.5" />
+            Profile Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setProfileTab("notifications")}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
+              profileTab === "notifications"
+                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+            }`}
+          >
+            <Bell className="h-3.5 w-3.5" />
+            Notification Settings
+          </button>
         </div>
-        <div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setProfile(false)}>Close profile</button></div>
+
+        {profileTab === "profile" ? (
+          <div className="form-stack">
+            {[["Full name", user.name], ["Institutional email", user.email], ["Account ID", user.id.toUpperCase()], ["Class", user.gradeLabel ?? "Staff"], ["House", user.house ? houseFullName(state.houses, user.house) : "No House"], ["Council office", user.councilTitle ?? "—"], ["Account status", user.status]].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
+          </div>
+        ) : (
+          <NotificationSettings onClose={() => setProfile(false)} />
+        )}
+
+        <div className="dialog-actions mt-5">
+          <button className="btn btn-secondary" onClick={() => setProfile(false)}>Close</button>
+        </div>
       </Modal>
     </div>
   );

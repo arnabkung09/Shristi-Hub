@@ -1,7 +1,6 @@
 import type { CanonicalGrade, CanonicalHouse, User, WhitelistedStudent } from "./ssot-auth";
 import { assertExactWhitelistCount } from "./ssot-auth";
 
-export const ROSTER_SOURCE_URL = "https://docs.google.com/spreadsheets/d/1RsaXTwK6Q9vrDVNVBErHS3li_Z8TdwwNUOtXOI7U-Mo/edit?gid=0#gid=0";
 const CREATED_AT = "2026-01-01T00:00:00.000Z";
 
 // Snapshot of the school-provided sheet. Format: Name | House | Grade | School email.
@@ -163,7 +162,8 @@ export const SHRISTI_WHITELIST: WhitelistedStudent[] = parsedRows;
 
 export const SHRISTI_USER_ROSTER: User[] = SHRISTI_WHITELIST.map((student) => ({
   ...student,
-  aliases: [],
+  aliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
+  verifiedAliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
   passwordHash: student.role === "admin" ? "admin-password-hash" : "seeded-password-hash",
 }));
 

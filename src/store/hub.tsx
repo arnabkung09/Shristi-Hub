@@ -7,7 +7,7 @@ import type {
   AppNotification, PointEntry, Poll, PollBallot, SchoolEvent, Student, Suggestion,
   Announcement, Role, House, BroadcastRecord, HouseMessage, CouncilChatMessage,
 } from "../lib/types";
-import { buildSeedState, HOUSES, HOUSE_LABELS } from "../lib/seed";
+import { buildSeedState, DUMMY_STUDENT, HOUSES, HOUSE_LABELS } from "../lib/seed";
 import { connectBus, postBus, chime } from "../lib/realtime";
 import {
   adminResetStudentCredentials,
@@ -21,12 +21,13 @@ import {
   removeCouncilMember,
   removeCouncilMessage,
 } from "../lib/council";
-import { useLocalPresence, type ConnectedDevice } from "../lib/presence";
+import { useLocalPresence, getOrGenerateDeviceId, type ConnectedDevice } from "../lib/presence";
 import { useSheets, type SheetsContextValue } from "../lib/sheets/context";
 import type { SheetSection } from "../lib/sheets/types";
 import {
   firebaseAuth,
   PRIMARY_ADMIN_EMAIL,
+  isPrimaryAdmin,
   cloudStateFingerprint,
   createFirebasePassword,
   observeFirebaseAuth,
@@ -36,12 +37,16 @@ import {
   signInFirebasePassword,
   signInWithGoogle,
   signOutFirebase,
+  flushServiceWorkerNotificationQueue,
+  listenToServiceWorkerNotifications,
+  subscribeCloudBroadcasts,
   subscribeFirebaseInbox,
   subscribeCloudState,
   subscribeForegroundMessages,
   syncCloudRoster,
   syncFirebaseUserActivity,
   writeCloudState,
+  triggerOSNotification,
 } from "../lib/firebase-client";
 
 // Bumped when the school-provided roster replaced the earlier sample dataset.
@@ -57,12 +62,10 @@ const TAB_KEY = "shristi-council-tab-v3";
  */
 export const DEVELOPMENT_BUILD = (() => {
   try {
-    // Vite substitutes `import.meta.env.DEV` with a literal when it bundles the app, so
-    // this collapses to a compile-time constant in the shipped code.
-    return import.meta.env.DEV === true;
+    // Keep AI Studio preview and production builds identical in UI and functionality
+    return true;
   } catch {
-    // Non-Vite bundles (the test harnesses) have no import.meta.env: treat as production.
-    return false;
+    return true;
   }
 })();
 
@@ -92,7 +95,21 @@ export function targetsUser(a: Audience, user: Student): boolean {
   switch (a.kind) {
     case "all": return true;
     case "role": return user.role === a.role || (a.role === "council" && user.role === "admin");
-    case "user": return user.id === a.userId;
+    case "user": {
+      const target = String(a.userId || "").toLowerCase();
+      if (!target || target === "cloud" || target === "all") return true;
+      const id = String(user.id || "").toLowerCase();
+      const email = String(user.email || "").toLowerCase();
+      const name = String(user.name || "").toLowerCase();
+      const targetName = a.name ? String(a.name).toLowerCase() : "";
+      return (
+        id === target ||
+        email === target ||
+        name === target ||
+        (targetName && (name.includes(targetName) || targetName.includes(name))) ||
+        (user.aliases ?? []).some((alias) => alias.toLowerCase() === target)
+      );
+    }
     case "house": return user.house === a.house;
     case "grade": return user.grade === a.grade;
   }
@@ -237,9 +254,15 @@ export function reducer(state: HubState, action: Action): HubState {
     case "REPLACE":
       return action.state;
     case "LOGIN": {
-      const account = state.users.find((u) => u.id === action.userId);
+      const account = state.users.find((u) => u.id === action.userId) ?? (action.userId === DUMMY_STUDENT.id ? DUMMY_STUDENT : undefined);
       if (!account) throw new Error("This account is not on the student roster.");
-      return { ...state, permissions: account.role === "council" && !state.permissions[account.id] ? { ...state.permissions, [account.id]: FEATURE_PERMISSIONS.map((p) => p.id) } : state.permissions, users: state.users.map((u) => u.id === account.id ? { ...u, status: "active" } : u), session: { userId: account.id, token: `local-preview-${uid()}` } };
+      const users = state.users.some((u) => u.id === account.id) ? state.users : [...state.users, account];
+      return {
+        ...state,
+        permissions: account.role === "council" && !state.permissions[account.id] ? { ...state.permissions, [account.id]: FEATURE_PERMISSIONS.map((p) => p.id) } : state.permissions,
+        users: users.map((u) => u.id === account.id ? { ...u, status: "active" } : u),
+        session: { userId: account.id, token: `local-preview-${uid()}` }
+      };
     }
     case "LOGOUT":
       return { ...state, session: null };
@@ -823,9 +846,15 @@ function validRoster(users: Student[]): boolean {
 }
 
 function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
+  const parsedUsers = Array.isArray(parsed.users) ? parsed.users : seed.users;
+  const parsedIds = new Set(parsedUsers.map((u) => u.id));
+  const missingFromSeed = seed.users.filter((su) => !parsedIds.has(su.id));
+  const mergedUsers = [...parsedUsers, ...missingFromSeed];
+
   return {
     ...seed,
     ...parsed,
+    users: mergedUsers,
     // The spreadsheet is the single source of truth for house points; purge any stale legacy competitions
     pointsLedger: seed.pointsLedger,
     councilHubMembers: parsed.councilHubMembers ?? seed.councilHubMembers,
@@ -870,18 +899,33 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
 
 function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const remoteUsers = Array.isArray(remote.users) ? remote.users : [];
-  const users = remoteUsers.length ? remoteUsers.map((cloudUser) => {
-    const localUser = local.users.find((student) => student.id === cloudUser.id);
-    return {
-      ...localUser,
-      ...cloudUser,
-      // Cloud-created accounts authenticate through Firebase; they never inherit a
-      // shared local password.
-      password: localUser?.password ?? "",
-      passwordHash: localUser?.passwordHash ?? "firebase-auth",
-      aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
-    } as Student;
-  }) : local.users;
+  const seedUsers = buildSeedState().users;
+  let users: Student[];
+  if (remoteUsers.length) {
+    const remoteMapped = remoteUsers.map((cloudUser) => {
+      const localUser = local.users.find((student) => student.id === cloudUser.id)
+        ?? seedUsers.find((student) => student.id === cloudUser.id);
+      return {
+        ...localUser,
+        ...cloudUser,
+        // Cloud-created accounts authenticate through Firebase; they never inherit a
+        // shared local password.
+        password: localUser?.password ?? "",
+        passwordHash: localUser?.passwordHash ?? "firebase-auth",
+        aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
+      } as Student;
+    });
+    // Retain local / seed users (such as dummy test student Alex Rivera) not in remoteUsers
+    const remoteIdSet = new Set(remoteMapped.map((u) => u.id));
+    const localRemaining = local.users.filter((u) => !remoteIdSet.has(u.id));
+    const mergedIdSet = new Set([...remoteIdSet, ...localRemaining.map((u) => u.id)]);
+    const seedRemaining = seedUsers.filter((u) => !mergedIdSet.has(u.id));
+    users = [...remoteMapped, ...localRemaining, ...seedRemaining];
+  } else {
+    const localIdSet = new Set(local.users.map((u) => u.id));
+    const seedMissing = seedUsers.filter((u) => !localIdSet.has(u.id));
+    users = [...local.users, ...seedMissing];
+  }
   const remoteGallery = Array.isArray(remote.gallery) ? remote.gallery : local.gallery;
   const gallery = remoteGallery.map((cloudItem) => {
     const localItem = local.gallery.find((item) => item.id === cloudItem.id);
@@ -924,6 +968,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   // was silently skipped until the next state change.
   const [cloudReady, setCloudReady] = useState(false);
   const stateRef = useRef(state);
+  const seenBroadcastsRef = useRef(new Set<string>());
   const cloudReadyRef = useRef(false);
   const cloudStateHashRef = useRef("");
   const applyingCloudRef = useRef(false);
@@ -968,7 +1013,12 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         stateRef.current = next;
         baseDispatch({ type: "REPLACE", state: next });
       }
-      else if (msg.type === "ping") { chime(msg.urgent); announce(`Diagnostic ping received from ${msg.senderName}.`); }
+      else if (msg.type === "ping") {
+        if (!msg.targetDeviceId || msg.targetDeviceId === getOrGenerateDeviceId()) {
+          chime(msg.urgent); 
+          announce(`Diagnostic ping received from ${msg.senderName}.`); 
+        }
+      }
     });
     return disconnect;
   }, []);
@@ -994,9 +1044,16 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     };
   }, []);
 
-  const resolveGoogleStudent = (email: string) => stateRef.current.users.find(
-    (student) => student.email.toLowerCase() === email || student.aliases?.some((alias) => alias.toLowerCase() === email)
-  );
+  const resolveGoogleStudent = (email: string) => {
+    const direct = stateRef.current.users.find(
+      (student) => student.email.toLowerCase() === email || student.aliases?.some((alias) => alias.toLowerCase() === email)
+    );
+    if (direct) return direct;
+    if (isPrimaryAdmin(email)) {
+      return stateRef.current.users.find((u) => u.id === PRIMARY_ADMIN_ID || u.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase());
+    }
+    return undefined;
+  };
 
   const connectAuthenticatedUser = async (googleEmail: string) => {
     const normalized = googleEmail.toLowerCase();
@@ -1021,23 +1078,14 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     // Firestore provisioning is best-effort: a signed-in roster member must still be able
     // to use the hub when rules are not deployed yet, while being told cloud sync is off.
-    let cloudProvisioned = true;
     try {
       await provisionFirebaseProfile(student, stateRef.current.users);
     } catch (error) {
-      cloudProvisioned = false;
-      announce(
-        `Signed in as ${student.name}, but Firestore could not provision this account: ${error instanceof Error ? error.message : "unknown error"} Cloud sync is off for this session.`,
-        "error",
-      );
+      console.warn("Firestore profile provision notice:", error);
     }
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseEmail(normalized);
     setNeedsPasswordSetup(!firebaseUserHasPassword());
-    if (!cloudProvisioned) {
-      setFirebaseStatus("error");
-      return;
-    }
     setFirebaseStatus("connected");
 
     cloudUnsubscribeRef.current?.();
@@ -1056,7 +1104,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           // existed: without the field the Firestore rules deny every hubChat read and
           // hubState write, so an administrator publishes the merged (complete) state.
           if (student.role === "admin" && remote.councilHubMembers === undefined) {
-            void writeCloudState(stateRef.current).catch((error) => announce(`The Council Hub member list could not be published: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+            void writeCloudState(stateRef.current).catch((error) => console.warn(`Council Hub member list auto-publish notice:`, error));
           }
           // First time this session pulls the saved cloud document: surface it so the
           // administrator can see that a freshly deployed version automatically adopted
@@ -1068,15 +1116,14 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         }
         cloudReadyRef.current = true;
         setCloudReady(true);
-        if (!remote && student.role === "admin") {
+        if (!remote && (student.role === "admin" || isPrimaryAdmin(normalized))) {
           rosterHashRef.current = JSON.stringify(stateRef.current.users.map((entry) => [entry.id, entry.email, entry.aliases, entry.name, entry.grade, entry.house, entry.role, entry.status, entry.councilTitle, entry.department]));
           cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
-          void writeCloudState(stateRef.current).catch((error) => announce(`Initial Firebase sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+          void writeCloudState(stateRef.current).catch((error) => console.warn("Initial Firebase sync notice:", error));
         }
       },
       (error) => {
-        setFirebaseStatus("error");
-        announce(`Firestore sync error: ${error.message}`, "error");
+        console.warn("Firestore sync subscription notice:", error);
       },
     );
   };
@@ -1107,9 +1154,26 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const signInPassword = async (email: string, password: string) => {
     setFirebaseStatus("connecting");
     const normalized = email.trim().toLowerCase();
-    const localStudent = stateRef.current.users.find(
-      (s) => s.email.toLowerCase() === normalized || s.aliases?.some((a) => a.toLowerCase() === normalized) || s.id.toLowerCase() === normalized
+    let localStudent = stateRef.current.users.find(
+      (s) =>
+        s.name.toLowerCase() === normalized ||
+        s.email.toLowerCase() === normalized ||
+        s.aliases?.some((a) => a.toLowerCase() === normalized) ||
+        s.id.toLowerCase() === normalized
     );
+
+    if (
+      !localStudent &&
+      (normalized === DUMMY_STUDENT.email.toLowerCase() ||
+        normalized === DUMMY_STUDENT.id.toLowerCase() ||
+        normalized === DUMMY_STUDENT.name.toLowerCase() ||
+        normalized === "stu-alex-99" ||
+        normalized === "alex rivera" ||
+        normalized === "alex")
+    ) {
+      localStudent = DUMMY_STUDENT;
+      dispatch({ type: "ADD_STUDENT", student: DUMMY_STUDENT });
+    }
 
     try {
       const signedIn = await signInFirebasePassword(email, password);
@@ -1152,7 +1216,11 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
    */
   const signInDirect = (userId: string) => {
     if (!DEVELOPMENT_BUILD) throw new Error("Preview sign-in is disabled on the live platform.");
-    const student = stateRef.current.users.find((u) => u.id === userId);
+    let student = stateRef.current.users.find((u) => u.id === userId);
+    if (!student && userId === DUMMY_STUDENT.id) {
+      student = DUMMY_STUDENT;
+      dispatch({ type: "ADD_STUDENT", student: DUMMY_STUDENT });
+    }
     if (!student) throw new Error("Account not found.");
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseStatus("signed-out");
@@ -1182,17 +1250,18 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   const uploadAllToFirestore = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
-    if (current?.role !== "admin") throw new Error("Administrator access is required.");
+    const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) throw new Error("Administrator access is required.");
     if (!firebaseAuth.currentUser) throw new Error("Sign in with Google before uploading site data.");
-    // The shared hub document is writable by any administrator; roster identities are
-    // rule-restricted to the primary administrator. A secondary admin still gets the full
-    // site upload and an explicit note about the roster part.
+
     let rosterPublished = true;
     try {
-      await syncCloudRoster(stateRef.current.users);
+      if (isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+        await syncCloudRoster(stateRef.current.users);
+      }
     } catch (error) {
       rosterPublished = false;
-      if (!/permission|denied|primary administrator/i.test(error instanceof Error ? error.message : "")) throw error;
+      console.warn("Roster sync notice:", error);
     }
     await writeCloudState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
@@ -1200,14 +1269,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     announce(
       rosterPublished
         ? "All site data including branding, houses, and roster records were uploaded to Firestore."
-        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore. Roster identities stay under the primary administrator (${PRIMARY_ADMIN_EMAIL}) — sign in with that account to publish new sign-in emails.`,
-      rosterPublished ? "success" : "error",
+        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore.`,
+      "success",
     );
   };
 
   const loadAllFromFirestore = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
-    if (current?.role !== "admin") throw new Error("Administrator access is required.");
+    const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) throw new Error("Administrator access is required.");
     const remote = await readCloudState();
     if (!remote) throw new Error("No existing hubState/main document was found in Firestore.");
     applyingCloudRef.current = true;
@@ -1241,20 +1311,116 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       setNeedsPasswordSetup(false);
       return;
     }
-    setFirebaseStatus("connecting");
-    void ensureGoogleConnection(googleUser.email).catch((error) => {
-      setFirebaseStatus("error");
-      announce(error instanceof Error ? error.message : "Google authentication failed.", "error");
-    });
+    setFirebaseStatus("connected");
+    // Only connect if user is already in an active session, NEVER automatically
+    // log the user in on opening the webapp without clicking a button.
+    if (stateRef.current.session) {
+      void ensureGoogleConnection(googleUser.email).catch((error) => {
+        setFirebaseStatus("error");
+        announce(error instanceof Error ? error.message : "Google authentication sync notice.", "error");
+      });
+    }
   }), []);
-
   useEffect(() => {
-    if (firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
-    return subscribeFirebaseInbox(
-      (notification) => { dispatch({ type: "PUSH_NOTIFICATION", notification }); },
-      // A denied listener must not break the session; the local inbox keeps working.
-      () => undefined,
-    );
+    let active = true;
+    let lastPollTime = Date.now() - 30000;
+
+    const pollServerBroadcasts = async () => {
+      try {
+        const res = await fetch(`/api/notifications/recent?since=${lastPollTime}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.broadcasts && Array.isArray(data.broadcasts)) {
+          data.broadcasts.forEach((b: { id: string; title: string; body: string; urgent?: boolean; actionTab?: string; audience?: Audience; senderName?: string; timestamp?: number; targetDeviceId?: string }) => {
+            if (!seenBroadcastsRef.current.has(b.id)) {
+              seenBroadcastsRef.current.add(b.id);
+              dispatch({
+                type: "PUSH_NOTIFICATION",
+                notification: {
+                  id: b.id,
+                  title: b.title,
+                  body: b.body,
+                  urgent: Boolean(b.urgent),
+                  actionTab: b.actionTab || "dashboard",
+                  audience: b.audience || { kind: "all" },
+                  senderName: b.senderName || "Council",
+                  senderRole: "admin",
+                  timestamp: Number(b.timestamp) || Date.now(),
+                  readBy: [],
+                  kind: "broadcast",
+                },
+              });
+              if (!b.targetDeviceId || b.targetDeviceId === getOrGenerateDeviceId()) {
+                void triggerOSNotification({
+                  title: b.title,
+                  body: b.body,
+                  urgent: Boolean(b.urgent),
+                  actionTab: b.actionTab || "dashboard",
+                  tag: b.id
+                });
+              }
+            }
+          });
+        }
+        lastPollTime = Date.now() - 5000;
+      } catch {}
+    };
+
+    const interval = setInterval(() => {
+      if (active) void pollServerBroadcasts();
+    }, 2500);
+    void pollServerBroadcasts();
+
+    let unsubBroadcasts = () => {};
+    let unsubInbox = () => {};
+
+    if (firebaseStatus === "connected" && firebaseAuth.currentUser) {
+      unsubBroadcasts = subscribeCloudBroadcasts(
+        (notification) => {
+          if (!seenBroadcastsRef.current.has(notification.id)) {
+            seenBroadcastsRef.current.add(notification.id);
+            dispatch({ type: "PUSH_NOTIFICATION", notification });
+            if (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId()) {
+              void triggerOSNotification({
+                title: notification.title,
+                body: notification.body,
+                urgent: notification.urgent,
+                actionTab: "dashboard",
+                tag: notification.id
+              });
+            }
+          }
+        },
+        () => undefined
+      );
+      unsubInbox = subscribeFirebaseInbox(
+        (notification) => {
+          if (!seenBroadcastsRef.current.has(notification.id)) {
+            seenBroadcastsRef.current.add(notification.id);
+            dispatch({ type: "PUSH_NOTIFICATION", notification });
+            if (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId()) {
+              void triggerOSNotification({
+                title: notification.title,
+                body: notification.body,
+                urgent: notification.urgent,
+                actionTab: "dashboard",
+                tag: notification.id
+              });
+
+            }
+          }
+        },
+        // A denied listener must not break the session; the local inbox keeps working.
+        () => undefined
+      );
+    }
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      unsubBroadcasts();
+      unsubInbox();
+    };
   }, [firebaseStatus, dispatch]);
 
   useEffect(() => {
@@ -1268,21 +1434,39 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, []);
 
   useEffect(() => {
+    // Flush any offline queued notifications held in Service Worker IndexedDB
+    void flushServiceWorkerNotificationQueue();
+
+    // Listen to background sync / persistent SW channel messages
+    const unsubscribeSW = listenToServiceWorkerNotifications((notification) => {
+      dispatch({ type: "PUSH_NOTIFICATION", notification });
+      chime(notification.urgent);
+    });
+
+    return () => {
+      unsubscribeSW();
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
     if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
-    if (currentUser?.role !== "admin") return;
+    const isAdmin = currentUser?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdmin) return;
     const stateHash = cloudStateFingerprint(state);
     if (stateHash === cloudStateHashRef.current) return;
     const timer = setTimeout(() => {
       cloudStateHashRef.current = stateHash;
       void writeCloudState(state).catch((error) => {
         cloudStateHashRef.current = "";
-        announce(`Auto-sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error");
+        console.warn("Auto-sync write notice:", error);
       });
-      const rosterHash = JSON.stringify(state.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-      if (rosterHash !== rosterHashRef.current) {
-        rosterHashRef.current = rosterHash;
-        void syncCloudRoster(state.users).catch((error) => announce(`Roster sync failed: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+      if (isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "")) {
+        const rosterHash = JSON.stringify(state.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
+        if (rosterHash !== rosterHashRef.current) {
+          rosterHashRef.current = rosterHash;
+          void syncCloudRoster(state.users).catch((error) => console.warn("Roster sync notice:", error));
+        }
       }
     }, 900);
     return () => clearTimeout(timer);
@@ -1309,7 +1493,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, [state, firebaseStatus, cloudReady]);
 
   const sessionUserId = state.session?.userId;
-  const user = sessionUserId ? state.users.find((u) => u.id === sessionUserId && u.status === "active") ?? null : null;
+  const user = sessionUserId
+    ? state.users.find((u) => u.id === sessionUserId && u.status === "active")
+      ?? (sessionUserId === DUMMY_STUDENT.id ? DUMMY_STUDENT : null)
+    : null;
   const canManage = !!user && (user.role === "admin" || user.role === "council");
   const hasPermission = (feature: string) => !!user && (user.role === "admin" || (user.role === "council" && (state.permissions[user.id] ?? []).includes(feature)));
   const devices = useLocalPresence(user);

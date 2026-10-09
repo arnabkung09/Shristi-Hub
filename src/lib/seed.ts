@@ -89,8 +89,8 @@ function buildStudents(): Student[] {
     department: user.role === "admin" ? "General" : user.councilTitle?.includes("Captain") ? "Sports & Recreation" : user.councilTitle?.includes("Editorial") ? "Media & Communications" : user.councilTitle?.includes("Cultural") ? "Events & Activities" : "General",
     createdAt: user.createdAt,
     isStaff: false,
-    aliases: [],
-    verifiedAliases: [],
+    aliases: user.aliases ?? [],
+    verifiedAliases: user.verifiedAliases ?? [],
   }));
 
   const teachers: Student[] = [
@@ -201,8 +201,26 @@ function buildStudents(): Student[] {
     },
   ];
 
-  return [...students, ...teachers, ...classAccounts];
+  return [DUMMY_STUDENT, ...students, ...teachers, ...classAccounts];
 }
+
+export const DUMMY_STUDENT: Student = {
+  id: "stu-alex-99",
+  name: "Alex Rivera",
+  email: "alex.rivera@shristiacademy.edu.np",
+  password: "StudentPass2026!",
+  passwordHash: "student-password-hash",
+  grade: 9,
+  gradeLabel: "Grade 9",
+  house: "Blue",
+  houseLabel: "Blue House",
+  status: "active",
+  role: "student",
+  createdAt: "2026-01-01T08:00:00.000Z",
+  isStaff: false,
+  aliases: ["alex.test@gmail.com", "teststudent@gmail.com", "alex rivera", "alex", "alex.rivera", "stu-alex-99"],
+  verifiedAliases: ["alex.test@gmail.com", "teststudent@gmail.com", "alex rivera", "alex", "alex.rivera", "stu-alex-99"],
+};
 
 export const ADMIN_USER: Student = {
   id: PRIMARY_ADMIN.id,

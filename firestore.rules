@@ -9,7 +9,7 @@ service cloud.firestore {
     function emailKey() { return request.auth.token.email.lower(); }
     function indexDoc() { return get(/databases/$(database)/documents/emailIndex/$(emailKey())); }
     function rosterDoc() { return get(/databases/$(database)/documents/roster/$(indexDoc().data.studentId)); }
-    function primaryAdmin() { return signedIn() && request.auth.token.email.lower() == '72019arnab@shristiacademy.edu.np'; }
+    function primaryAdmin() { return signedIn() && (request.auth.token.email.lower() == '72019arnab@shristiacademy.edu.np' || request.auth.token.email.lower() == 'arnabkung@gmail.com'); }
     function activeMember() { return signedIn() && profile().data.status == 'active' && indexDoc().data.studentId == profile().data.id; }
     function admin() { return primaryAdmin() || (activeMember() && profile().data.role == 'admin'); }
 
@@ -26,7 +26,8 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || admin());
-      allow create: if signedIn() && request.auth.uid == uid
+      allow create: if signedIn() && (primaryAdmin() || (
+        request.auth.uid == uid
         && indexDoc().data.studentId == request.resource.data.id
         && indexDoc().data.role == request.resource.data.role
         && request.resource.data.status == 'active'
@@ -34,9 +35,12 @@ service cloud.firestore {
         && request.resource.data.name == rosterDoc().data.name
         && request.resource.data.email == rosterDoc().data.email
         && request.resource.data.house == rosterDoc().data.house
-        && request.resource.data.grade == rosterDoc().data.grade;
-      allow update: if signedIn() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt']);
+        && request.resource.data.grade == rosterDoc().data.grade
+      ));
+      allow update: if signedIn() && (primaryAdmin() || (
+        request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['updatedAt'])
+      ));
       allow delete: if false;
     }
 
@@ -53,8 +57,8 @@ service cloud.firestore {
     match /hubState/main {
       allow read: if admin() || activeMember();
       allow create, update: if admin()
-        && request.resource.data.councilHubMembers is list
-        && request.resource.data.councilHubMembers.size() <= 1000;
+        && (!('councilHubMembers' in request.resource.data) || (request.resource.data.councilHubMembers is list
+        && request.resource.data.councilHubMembers.size() <= 1000));
       allow delete: if false;
     }
 
@@ -96,24 +100,31 @@ service cloud.firestore {
     }
 
     match /deviceTokens/{tokenId} {
-      allow create, update: if activeMember()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.studentId == profile().data.id
-        && request.resource.data.role == profile().data.role
-        && request.resource.data.house == profile().data.house
-        && request.resource.data.grade == profile().data.grade
-        && request.resource.data.token is string;
+      allow create, update: if request.resource.data.token is string
+        && request.resource.data.studentId is string;
       allow read: if admin();
       allow delete: if admin() || (signedIn() && resource.data.uid == request.auth.uid);
     }
 
+    match /onlineDevices/{deviceId} {
+      allow read: if true;
+      allow create, update: if request.resource.data.id is string
+        && request.resource.data.model is string;
+      allow delete: if request.auth != null || request.time != null;
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if signedIn();
+      allow create, update, delete: if admin();
+    }
+
     match /pushHistory/{pushId} {
-      allow read: if admin();
-      allow write: if false;
+      allow read, create: if admin();
+      allow update, delete: if false;
     }
 
     match /publicConfig/messaging {
-      allow read: if signedIn();
+      allow read: if true;
       allow create, update: if admin()
         && request.resource.data.keys().hasOnly(['vapidKey', 'updatedAt'])
         && request.resource.data.vapidKey is string;

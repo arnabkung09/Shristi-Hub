@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: shristi-fcm-backend
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false

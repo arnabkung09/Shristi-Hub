@@ -100,7 +100,8 @@ export function normaliseConfig(input: Partial<SheetsConfig> | null | undefined)
   if (!input?.apiUrl) return null;
   const apiUrl = normaliseApiUrl(String(input.apiUrl));
   if (!isValidApiUrl(apiUrl)) return null;
-  const spreadsheetId = input.spreadsheetId || extractSpreadsheetId(apiUrl) || undefined;
+  // Always lock to only 1TTId_uuN1FFlFqs94LBaGSPqd9GFLQCUXI1BGxrtF9U
+  const spreadsheetId = DEFAULT_HOUSE_POINTS_SPREADSHEET_ID;
   const poll = Number(input.pollSeconds);
   const sections = input.sections && typeof input.sections === "object"
     ? SHEET_SECTIONS.reduce<Partial<Record<SheetSection, boolean>>>((acc, section) => {

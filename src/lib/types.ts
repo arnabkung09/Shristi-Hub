@@ -56,6 +56,7 @@ export interface AppNotification {
   senderRole: Role;
   audience: Audience;
   actionTab?: string;
+  targetDeviceId?: string;
   readBy: string[];
   kind: "broadcast" | "system";
 }

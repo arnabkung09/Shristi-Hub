@@ -96,7 +96,13 @@ export const ensureProfile = onCall(async (request) => {
 
 function matchesAudience(token, audience) {
   if (!audience || audience.kind === "all") return true;
-  if (audience.kind === "user") return token.studentId === audience.userId;
+  if (audience.kind === "user") {
+    const target = String(audience.userId || "").toLowerCase();
+    const studentId = String(token.studentId || "").toLowerCase();
+    const uid = String(token.uid || "").toLowerCase();
+    const email = String(token.email || "").toLowerCase();
+    return studentId === target || uid === target || email === target;
+  }
   if (audience.kind === "role") return token.role === audience.role || (audience.role === "council" && token.role === "admin");
   if (audience.kind === "house") return token.house === audience.house;
   if (audience.kind === "grade") return token.grade === audience.grade;
@@ -105,13 +111,14 @@ function matchesAudience(token, audience) {
 
 export const sendPush = onCall(async (request) => {
   const auth = await requireAdmin(request);
-  const { title, body, urgent = false, audience = { kind: "all" }, actionTab = "dashboard" } = request.data ?? {};
+  const { title, body, urgent = false, audience = { kind: "all" }, actionTab = "dashboard", tokens: providedTokens } = request.data ?? {};
   if (typeof title !== "string" || !title.trim() || title.length > 140) throw new HttpsError("invalid-argument", "Push title is required and must be 140 characters or less.");
   if (typeof body !== "string" || !body.trim() || body.length > 1600) throw new HttpsError("invalid-argument", "Push body is required and must be 1600 characters or less.");
 
   const tokenSnapshot = await db.collection("deviceTokens").where("enabled", "==", true).get();
   const docs = tokenSnapshot.docs.filter((snapshot) => matchesAudience(snapshot.data(), audience));
-  const tokens = [...new Set(docs.map((snapshot) => snapshot.data().token).filter(Boolean))];
+  const queriedTokens = docs.map((snapshot) => snapshot.data().token).filter(Boolean);
+  const tokens = [...new Set([...(Array.isArray(providedTokens) ? providedTokens : []), ...queriedTokens])];
   let successCount = 0;
   let failureCount = 0;
   const staleTokens = [];

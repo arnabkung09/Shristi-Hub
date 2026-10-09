@@ -2,7 +2,7 @@
 
 export type BusMessage =
   | { type: "state"; state: unknown; senderId: string }
-  | { type: "ping"; senderName: string; urgent: boolean };
+  | { type: "ping"; senderName: string; urgent: boolean; targetDeviceId?: string; fromDeviceId?: string };
 
 const CHANNEL = "shristi-council-state-v3";
 let channel: BroadcastChannel | null = null;
