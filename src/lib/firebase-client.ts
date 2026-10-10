@@ -296,6 +296,11 @@ export async function enableWebPush(student: Student, deviceId: string) {
 
   const applicationServerKey = urlBase64ToUint8Array(publicKey);
   
+  const existingSub = await reg.pushManager.getSubscription();
+  if (existingSub) {
+    await existingSub.unsubscribe();
+  }
+
   const subscription = await reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey
