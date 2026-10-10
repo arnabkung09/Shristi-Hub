@@ -396,9 +396,15 @@ export async function pingAllDevices(senderName: string, urgent = true): Promise
 
   // Broadcast to server API
   try {
-    await fetch("/api/notifications/broadcast", {
+    const { firebaseAuth } = await import("./firebase-client");
+    const currentUser = firebaseAuth.currentUser;
+    const idToken = currentUser ? await currentUser.getIdToken() : "";
+    await fetch("/api/send", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+      },
       body: JSON.stringify({
         title: `Diagnostic Ping from ${senderName}`,
         body: `Test signal delivered across connected devices at ${new Date().toLocaleTimeString()}.`,
@@ -439,9 +445,15 @@ export async function pingSingleDevice(targetDeviceId: string, senderName: strin
   } catch {}
 
   try {
-    await fetch("/api/notifications/broadcast", {
+    const { firebaseAuth } = await import("./firebase-client");
+    const currentUser = firebaseAuth.currentUser;
+    const idToken = currentUser ? await currentUser.getIdToken() : "";
+    await fetch("/api/send", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+      },
       body: JSON.stringify({
         title: `Direct Ping from ${senderName}`,
         body: `Direct ping signal received for your device.`,
