@@ -65,6 +65,9 @@ export default async function handler(req, res) {
 
   try {
     const dbClient = await clientPromise;
+    if (!dbClient) {
+      return res.status(500).json({ error: 'DATABASE_URI is missing or MongoDB failed to initialize' });
+    }
     const db = dbClient.db();
     const collection = db.collection('devices');
 
@@ -124,6 +127,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, successCount, failureCount });
   } catch (error) {
     console.error('Dispatch error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: `Internal server error: ${error.message}` });
   }
 }
