@@ -2,17 +2,24 @@ import webpush from 'web-push';
 import { MongoClient } from 'mongodb';
 import admin from 'firebase-admin';
 
+let adminInitError = null;
+
 if (!admin.apps.length) {
   try {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
-    admin.initializeApp({
-      credential: Object.keys(serviceAccount).length > 0 
-        ? admin.credential.cert(serviceAccount)
-        : admin.credential.applicationDefault()
-    });
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY 
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY) 
+      : null;
+      
+    if (serviceAccount && Object.keys(serviceAccount).length > 0) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+    } else {
+      adminInitError = 'FIREBASE_SERVICE_ACCOUNT_KEY is missing or empty';
+    }
   } catch (error) {
-    console.warn('Firebase Admin initialization failed. Check FIREBASE_SERVICE_ACCOUNT_KEY:', error.message);
-    admin.initializeApp();
+    console.error('Firebase Admin init failed:', error);
+    adminInitError = `Malformed FIREBASE_SERVICE_ACCOUNT_KEY JSON: ${error.message}`;
   }
 }
 
@@ -44,6 +51,10 @@ export default async function handler(req, res) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+
+  if (adminInitError) {
+    return res.status(500).json({ error: `Firebase Admin Error: ${adminInitError}` });
   }
 
   const idToken = authHeader.split('Bearer ')[1];
