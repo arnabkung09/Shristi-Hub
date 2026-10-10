@@ -733,9 +733,16 @@ export async function sendFirebaseNotification(input: {
 
   // 2. Deliver via Vercel Serverless Endpoint using web-push
   try {
+    // Get the current user's ID token
+    const currentUser = firebaseAuth.currentUser;
+    const idToken = currentUser ? await currentUser.getIdToken() : "";
+
     const res = await fetch("/api/send", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
+      },
       body: JSON.stringify({
         title: input.title,
         body: input.body,

@@ -1,5 +1,20 @@
 import webpush from 'web-push';
 import { MongoClient } from 'mongodb';
+import admin from 'firebase-admin';
+
+if (!admin.apps.length) {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY || '{}');
+    admin.initializeApp({
+      credential: Object.keys(serviceAccount).length > 0 
+        ? admin.credential.cert(serviceAccount)
+        : admin.credential.applicationDefault()
+    });
+  } catch (error) {
+    console.warn('Firebase Admin initialization failed. Check FIREBASE_SERVICE_ACCOUNT_KEY:', error.message);
+    admin.initializeApp();
+  }
+}
 
 // Configure Web Push with VAPID keys
 webpush.setVapidDetails(
@@ -33,13 +48,21 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Basic Admin Authorization
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== `Bearer ${adminSecret}`) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+  }
+
+  const idToken = authHeader.split('Bearer ')[1];
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    // You could also check if decodedToken.email matches your admin emails
+    // if (!decodedToken.email || !PRIMARY_ADMIN_EMAILS.includes(decodedToken.email)) {
+    //   return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    // }
+  } catch (error) {
+    console.error('Auth verification failed:', error);
+    return res.status(403).json({ error: 'Forbidden: Invalid token' });
   }
 
   const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;
