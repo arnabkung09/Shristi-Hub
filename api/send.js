@@ -9,7 +9,9 @@ function getMongoClient() {
     if (!process.env.DATABASE_URI) {
       throw new Error('DATABASE_URI environment variable is missing');
     }
-    const client = new MongoClient(process.env.DATABASE_URI);
+    const client = new MongoClient(process.env.DATABASE_URI, {
+      serverSelectionTimeoutMS: 5000 // 5 seconds timeout
+    });
     if (process.env.NODE_ENV === 'development') {
       if (!global._mongoClientPromise) {
         global._mongoClientPromise = client.connect();
