@@ -2,44 +2,36 @@ import webpush from 'web-push';
 import { MongoClient } from 'mongodb';
 import admin from 'firebase-admin';
 
-let adminInitError = null;
-
-if (!admin.apps.length) {
-  try {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY 
-      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY) 
-      : null;
-      
-    if (serviceAccount && Object.keys(serviceAccount).length > 0) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-    } else {
-      adminInitError = 'FIREBASE_SERVICE_ACCOUNT_KEY is missing or empty';
+let clientPromise;
+function getMongoClient() {
+  if (!clientPromise) {
+    if (!process.env.DATABASE_URI) {
+      throw new Error('DATABASE_URI environment variable is missing');
     }
-  } catch (error) {
-    console.error('Firebase Admin init failed:', error);
-    adminInitError = `Malformed FIREBASE_SERVICE_ACCOUNT_KEY JSON: ${error.message}`;
+    const client = new MongoClient(process.env.DATABASE_URI);
+    if (process.env.NODE_ENV === 'development') {
+      if (!global._mongoClientPromise) {
+        global._mongoClientPromise = client.connect();
+      }
+      clientPromise = global._mongoClientPromise;
+    } else {
+      clientPromise = client.connect();
+    }
   }
+  return clientPromise;
 }
 
-let client;
-let clientPromise;
-
-if (!process.env.DATABASE_URI) {
-  console.warn('DATABASE_URI is missing');
-} else {
-  const uri = process.env.DATABASE_URI;
-  if (process.env.NODE_ENV === 'development') {
-    if (!global._mongoClientPromise) {
-      client = new MongoClient(uri);
-      global._mongoClientPromise = client.connect();
+function getAdminAuth() {
+  if (!admin.apps.length) {
+    if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing');
     }
-    clientPromise = global._mongoClientPromise;
-  } else {
-    client = new MongoClient(uri);
-    clientPromise = client.connect();
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
   }
+  return admin.auth();
 }
 
 export default async function handler(req, res) {
@@ -48,34 +40,27 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided' });
-  }
-
-  if (adminInitError) {
-    return res.status(500).json({ error: `Firebase Admin Error: ${adminInitError}` });
-  }
-
-  const idToken = authHeader.split('Bearer ')[1];
   try {
-    const decodedToken = await admin.auth().verifyIdToken(idToken);
-  } catch (error) {
-    console.error('Auth verification failed:', error);
-    return res.status(403).json({ error: `Forbidden: Invalid token. Details: ${error.message}` });
-  }
-
-  const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;
-
-  try {
-    const dbClient = await clientPromise;
-    if (!dbClient) {
-      return res.status(500).json({ error: 'DATABASE_URI is missing or MongoDB failed to initialize' });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: No token provided' });
     }
+
+    const idToken = authHeader.split('Bearer ')[1];
+    let decodedToken;
+    try {
+      const auth = getAdminAuth();
+      decodedToken = await auth.verifyIdToken(idToken);
+    } catch (authError) {
+      return res.status(403).json({ error: `Forbidden: Auth failed - ${authError.message}` });
+    }
+
+    const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;
+
+    const dbClient = await getMongoClient();
     const db = dbClient.db();
     const collection = db.collection('devices');
 
-    // Build the query to find target devices
     const query = {};
     if (targetDeviceId) {
       query.deviceId = targetDeviceId;
@@ -89,7 +74,6 @@ export default async function handler(req, res) {
       } else if (audience.kind === 'grade') {
         query.grade = audience.grade;
       }
-      // if 'all', query is empty (matches all)
     }
 
     const devices = await collection.find(query).toArray();
@@ -107,21 +91,17 @@ export default async function handler(req, res) {
       ...data
     });
 
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      throw new Error('VAPID keys are missing from environment variables');
+    }
+    webpush.setVapidDetails(
+      'mailto:admin@example.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    );
+
     let successCount = 0;
     let failureCount = 0;
-
-    try {
-      if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-        throw new Error('VAPID keys are missing from environment variables');
-      }
-      webpush.setVapidDetails(
-        'mailto:admin@example.com',
-        process.env.VAPID_PUBLIC_KEY,
-        process.env.VAPID_PRIVATE_KEY
-      );
-    } catch (wpError) {
-      return res.status(500).json({ error: `WebPush Config Error: ${wpError.message}` });
-    }
 
     const promises = devices.map(async (device) => {
       try {
@@ -129,12 +109,8 @@ export default async function handler(req, res) {
         successCount++;
       } catch (error) {
         failureCount++;
-        // If the subscription is no longer valid (e.g. 410 Gone or 404 Not Found), remove it
         if (error.statusCode === 404 || error.statusCode === 410) {
-          console.log(`[Registry] Removing dead token for device: ${device.deviceId}`);
           await collection.deleteOne({ _id: device._id });
-        } else {
-          console.error('Error sending notification:', error);
         }
       }
     });
@@ -144,6 +120,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, successCount, failureCount });
   } catch (error) {
     console.error('Dispatch error:', error);
-    return res.status(500).json({ error: `Internal server error: ${error.message}` });
+    return res.status(500).json({ error: error.message || String(error) });
   }
 }
