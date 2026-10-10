@@ -758,10 +758,13 @@ export async function sendFirebaseNotification(input: {
       multicastFailure = data.failureCount || 0;
       targetedUsers = Math.max(targetedUsers, data.successCount + data.failureCount);
     } else {
-      const errData = await res.json().catch(() => ({}));
-      console.warn("Vercel Web Push API returned an error:", res.status, errData);
+      const rawText = await res.text();
+      let errData = {};
+      try { errData = JSON.parse(rawText); } catch(e) {}
+      
+      console.warn("Vercel Web Push API returned an error:", res.status, rawText);
       if (typeof window !== "undefined") {
-        alert(`Push Delivery Failed (${res.status}): ${errData.error || 'Unknown server error'}`);
+        alert(`Push Delivery Failed (${res.status}):\n${errData.error || rawText.slice(0, 150)}`);
       }
     }
   } catch (err: any) {

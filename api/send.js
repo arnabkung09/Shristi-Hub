@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   }
 
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Vercel 9-second execution timeout reached. The database connection or push service is hanging.')), 9000)
+    setTimeout(() => reject(new Error('Vercel 5-second execution timeout reached. The database connection or push service is hanging.')), 5000)
   );
 
   try {
