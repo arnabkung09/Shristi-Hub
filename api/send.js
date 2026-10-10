@@ -56,13 +56,9 @@ export default async function handler(req, res) {
   const idToken = authHeader.split('Bearer ')[1];
   try {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
-    // You could also check if decodedToken.email matches your admin emails
-    // if (!decodedToken.email || !PRIMARY_ADMIN_EMAILS.includes(decodedToken.email)) {
-    //   return res.status(403).json({ error: 'Forbidden: Admin access required' });
-    // }
   } catch (error) {
     console.error('Auth verification failed:', error);
-    return res.status(403).json({ error: 'Forbidden: Invalid token' });
+    return res.status(403).json({ error: `Forbidden: Invalid token. Details: ${error.message}` });
   }
 
   const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;

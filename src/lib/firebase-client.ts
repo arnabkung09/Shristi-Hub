@@ -757,9 +757,18 @@ export async function sendFirebaseNotification(input: {
       multicastSuccess = data.successCount || 0;
       multicastFailure = data.failureCount || 0;
       targetedUsers = Math.max(targetedUsers, data.successCount + data.failureCount);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      console.warn("Vercel Web Push API returned an error:", res.status, errData);
+      if (typeof window !== "undefined") {
+        alert(`Push Delivery Failed (${res.status}): ${errData.error || 'Unknown server error'}`);
+      }
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn("Vercel backend endpoint delivery failed", err);
+    if (typeof window !== "undefined") {
+      alert(`Network Error when dispatching push: ${err.message}`);
+    }
   }
 
   // 3. Real-time Firestore Broadcast Delivery (instantly received by ALL connected devices and all signed-in accounts)
