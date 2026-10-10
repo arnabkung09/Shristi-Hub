@@ -25,6 +25,7 @@ import { MouseGlow } from "./components/Effects";
 import { Modal } from "./components/ui";
 import OSNotificationBeacon from "./components/OSNotificationBeacon";
 import { getNotificationPreferences, triggerOSNotification } from "./lib/firebase-client";
+import PushAlertsPrompt from "./components/PushAlertsPrompt";
 
 interface Toast {
   id: string;
@@ -174,6 +175,7 @@ function Shell() {
       <footer className="site-footer"><div className="site-container footer-inner"><p>Active Session: <span className="text-[var(--faint)]">{user.id}</span> <span className="mx-1 text-[var(--border)]">|</span> Affiliation: {user.email}</p><div className="footer-links"><button onClick={() => setLegal("terms")}>Terms & Conditions</button><span className="text-[var(--faint)]">/</span><button onClick={() => setLegal("credits")}>Credits Page</button></div><p>{footerNote}</p></div></footer>
       <Modal open={!!legal} onClose={() => setLegal(null)} title={legal === "credits" ? "Credits Page" : "Terms & Conditions"} wide><TermsContent creditsOnly={legal === "credits"} /><div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setLegal(null)}>Close View</button></div></Modal>
       <OSNotificationBeacon />
+      <PushAlertsPrompt />
       <Toasts />
     </div>
   );
