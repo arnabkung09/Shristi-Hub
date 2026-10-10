@@ -32,6 +32,7 @@ import {
 } from "../lib/firebase-client";
 import { useHub, relativeTime } from "../store/hub";
 import { usePWAInstall } from "../hooks/usePWAInstall";
+import PushAlertsButton from "./PushAlertsButton";
 
 interface NotificationSettingsProps {
   onClose?: () => void;
@@ -488,15 +489,7 @@ export default function NotificationSettings({ onClose: _onClose }: Notification
                 Authorize notifications to receive instant mobile phone banners, vibration alerts, and urgent student council broadcasts.
               </p>
               <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={() => void handleRequestOrRefreshPermission()}
-                  disabled={registering}
-                  className="btn btn-primary !h-8 !px-3 !text-xs"
-                >
-                  <Bell className="h-3.5 w-3.5" />
-                  {registering ? "Requesting..." : "Enable Mobile & OS Notifications"}
-                </button>
+                <PushAlertsButton />
               </div>
             </div>
           </div>
