@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { MongoClient } from 'mongodb';
-import admin from 'firebase-admin';
+import { initializeApp, getApps, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 
 let clientPromise;
 function getMongoClient() {
@@ -22,16 +23,16 @@ function getMongoClient() {
 }
 
 function getAdminAuth() {
-  if (!admin.apps.length) {
+  if (getApps().length === 0) {
     if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
       throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing');
     }
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
+    initializeApp({
+      credential: cert(serviceAccount)
     });
   }
-  return admin.auth();
+  return getAuth();
 }
 
 export default async function handler(req, res) {
