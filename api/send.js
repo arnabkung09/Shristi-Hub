@@ -16,13 +16,6 @@ if (!admin.apps.length) {
   }
 }
 
-// Configure Web Push with VAPID keys
-webpush.setVapidDetails(
-  'mailto:admin@example.com',
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
-
 let client;
 let clientPromise;
 
@@ -105,6 +98,19 @@ export default async function handler(req, res) {
 
     let successCount = 0;
     let failureCount = 0;
+
+    try {
+      if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+        throw new Error('VAPID keys are missing from environment variables');
+      }
+      webpush.setVapidDetails(
+        'mailto:admin@example.com',
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+      );
+    } catch (wpError) {
+      return res.status(500).json({ error: `WebPush Config Error: ${wpError.message}` });
+    }
 
     const promises = devices.map(async (device) => {
       try {
