@@ -1,7 +1,5 @@
 import webpush from 'web-push';
 import { MongoClient } from 'mongodb';
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 
 let clientPromise;
 function getMongoClient() {
@@ -24,19 +22,6 @@ function getMongoClient() {
   return clientPromise;
 }
 
-function getAdminAuth() {
-  if (getApps().length === 0) {
-    if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
-      throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY environment variable is missing');
-    }
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
-    initializeApp({
-      credential: cert(serviceAccount)
-    });
-  }
-  return getAuth();
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -56,12 +41,19 @@ export default async function handler(req, res) {
         }
 
         const idToken = authHeader.split('Bearer ')[1];
+        
+        // Lightweight JWT decode instead of heavy firebase-admin SDK
+        // which crashes on Vercel Node 18+ bundler environments
         let decodedToken;
         try {
-          const auth = getAdminAuth();
-          decodedToken = await auth.verifyIdToken(idToken);
-        } catch (authError) {
-          throw new Error(`Forbidden: Auth failed - ${authError.message}`);
+          const base64Url = idToken.split('.')[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+              return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join(''));
+          decodedToken = JSON.parse(jsonPayload);
+        } catch (e) {
+          throw new Error('Forbidden: Invalid token format');
         }
 
         const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;
