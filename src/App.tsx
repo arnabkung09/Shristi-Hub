@@ -20,6 +20,7 @@ import Finances from "./components/Finances";
 import Gallery from "./components/Gallery";
 import AdminNotificationsHub from "./components/AdminNotificationsHub";
 import AdminPanel, { TermsContent } from "./components/AdminPanel";
+import { PRIMARY_ADMIN_ID } from "./lib/admin";
 import HomePortal from "./components/HomePortal";
 import { MouseGlow } from "./components/Effects";
 import { Modal } from "./components/ui";
@@ -240,7 +241,7 @@ function TopCouncilAlertsBanner() {
   return (
     <div className="app-shell">
       <MouseGlow />
-      {user.id === "stu-alex-99" && (
+      {user.id === "stu-alex-99" && (typeof window !== "undefined" && sessionStorage.getItem("shristi_arnab_switched_to_alex") === "true") && (
         <div className="sticky top-0 z-[70] flex items-center justify-between gap-3 border-b border-indigo-500/40 bg-gradient-to-r from-indigo-950/95 via-slate-900/95 to-indigo-950/95 px-4 py-2.5 text-xs text-white shadow-xl backdrop-blur-md">
           <div className="flex items-center gap-2.5">
             <span className="grid h-6 w-6 place-items-center rounded-lg bg-indigo-500/25 text-indigo-300 font-bold text-sm">
@@ -251,19 +252,20 @@ function TopCouncilAlertsBanner() {
                 Viewing as Alex Rivera (Student)
               </span>
               <span className="hidden sm:inline text-slate-300 ml-1.5 text-[11px]">
-                · Grade 9 · Blue House · Test account for push notifications
+                · Test session for Arnab Shrestha
               </span>
             </div>
           </div>
           <button
             type="button"
             onClick={() => {
-              signInDirect("usr-001");
+              try { sessionStorage.removeItem("shristi_arnab_switched_to_alex"); } catch {}
+              signInDirect(PRIMARY_ADMIN_ID);
               setActiveTab("broadcast");
             }}
             className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all shrink-0"
           >
-            Switch Back to Admin (Arnab)
+            Switch Back to Admin (Arnab Shrestha)
           </button>
         </div>
       )}

@@ -33,12 +33,13 @@ import {
   Wifi,
 } from "lucide-react";
 import { audienceLabel, formatTemplate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
-import { houseFullName } from "../lib/admin";
+import { houseFullName, PRIMARY_ADMIN_ID } from "../lib/admin";
 import type { House as HouseKey, NotificationTemplate, Student } from "../lib/types";
 import { chime, postBus } from "../lib/realtime";
 import {
   enableFirebasePush,
   firebaseAuth,
+  isPrimaryAdmin,
   sendFirebaseNotification,
   triggerOSNotification,
 } from "../lib/firebase-client";
@@ -98,6 +99,7 @@ function previewInterpolate(text: string): string {
 
 export default function AdminNotificationsHub() {
   const { state, user, devices, dispatch, announce, hasPermission, signInDirect, setActiveTab } = useHub();
+  const isArnab = Boolean(user && (user.id === PRIMARY_ADMIN_ID || isPrimaryAdmin(user.email)));
   const [activeSection, setActiveSection] = useState<
     "broadcast" | "templates" | "inactivity" | "sandbox" | "devices" | "history"
   >("broadcast");
@@ -677,6 +679,9 @@ export default function AdminNotificationsHub() {
 
   const handleSwitchToAlex = () => {
     try {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("shristi_arnab_switched_to_alex", "true");
+      }
       signInDirect("stu-alex-99");
       setActiveTab("dashboard");
       announce("Signed in as Alex Rivera (Student). Use the top banner to return to Admin.");
@@ -884,21 +889,23 @@ export default function AdminNotificationsHub() {
             </span>
           )}
         </button>
-        <button
-          type="button"
-          onClick={() => setActiveSection("sandbox")}
-          className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
-            activeSection === "sandbox"
-              ? "bg-indigo-600 text-white shadow-md"
-              : "bg-[var(--surface-inset)] text-[var(--muted)] hover:text-[var(--text)]"
-          }`}
-        >
-          <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-          Alex Rivera Sandbox
-          <span className="rounded-full bg-indigo-500/20 px-1.5 py-0.2 text-[9px] font-bold text-indigo-300">
-            TEST SUITE
-          </span>
-        </button>
+        {isArnab && (
+          <button
+            type="button"
+            onClick={() => setActiveSection("sandbox")}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
+              activeSection === "sandbox"
+                ? "bg-indigo-600 text-white shadow-md"
+                : "bg-[var(--surface-inset)] text-[var(--muted)] hover:text-[var(--text)]"
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            Alex Rivera Sandbox
+            <span className="rounded-full bg-indigo-500/20 px-1.5 py-0.2 text-[9px] font-bold text-indigo-300">
+              TEST SUITE
+            </span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setActiveSection("devices")}
@@ -1585,7 +1592,7 @@ export default function AdminNotificationsHub() {
       )}
 
       {/* VIEW: ALEX RIVERA TEST SANDBOX */}
-      {activeSection === "sandbox" && (
+      {isArnab && activeSection === "sandbox" && (
         <section className="panel panel-pad mt-5">
           <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-2.5">

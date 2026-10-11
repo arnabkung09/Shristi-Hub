@@ -4,7 +4,6 @@ import {
   Eye, EyeOff, KeyRound, LoaderCircle, Mail, ShieldAlert, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 import { DEVELOPMENT_BUILD, useHub } from "../store/hub";
-import { DUMMY_STUDENT } from "../lib/seed";
 import { Crest } from "./ui";
 
 type LoginMode = "google" | "password";
@@ -349,38 +348,8 @@ export default function Login() {
                       Development sign-in · this build only
                     </span>
 
-                    {/* Dedicated Dummy Student Account for Push Notification Reliability Testing */}
-                    <div className="mt-2 space-y-1.5">
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-2.5 text-left text-xs font-semibold text-indigo-400 transition-colors hover:border-indigo-500/60 hover:bg-indigo-500/20"
-                        onClick={() => {
-                          try {
-                            signInDirect("stu-alex-99");
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "Unable to open dummy student account.");
-                          }
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-500/20 text-indigo-300">
-                            <Sparkles className="h-3.5 w-3.5" />
-                          </span>
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white">Alex Rivera (Student)</span>
-                            <span className="block text-[10px] font-normal text-indigo-400/80">
-                              Grade 9 · Blue House · Dummy Account for Push Testing
-                            </span>
-                          </div>
-                        </div>
-                        <span className="rounded-md bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">
-                          1-Click Sign In
-                        </span>
-                      </button>
-                    </div>
-
                     <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                      {state.users.filter((account) => account.status === "active").slice(0, 6).map((account) => (
+                      {state.users.filter((account) => account.status === "active" && account.id !== "stu-alex-99").slice(0, 6).map((account) => (
                         <button
                           key={account.id}
                           type="button"
