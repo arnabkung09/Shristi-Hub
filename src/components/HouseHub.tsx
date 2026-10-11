@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { Crown, Medal, Megaphone, MessageSquare, Pin, Send, ShieldCheck, Trash2, Trophy, Users } from "lucide-react";
-import { initials, relativeTime, uid, useHub } from "../store/hub";
+import { initials, relativeTime, uid, useHub, formatTemplate, DEFAULT_NOTIFICATION_TEMPLATES } from "../store/hub";
 import { houseFullName, houseLogo, houseStandings, rankLabel } from "../lib/admin";
 import { HOUSES } from "../lib/seed";
 import { Modal, HouseMark } from "./ui";
 import { Reveal } from "./Effects";
 import type { House, HouseMessage } from "../lib/types";
+import { sendFirebaseNotification } from "../lib/firebase-client";
 
 const HOUSE_THEME: Record<House, { bg: string; text: string; ring: string }> = {
   Blue: { bg: "linear-gradient(125deg,#1d3f8f,#16233f)", text: "#7fb0ff", ring: "#3b82f6" },
@@ -64,10 +65,37 @@ export default function HouseHub() {
         timestamp: Date.now(),
       };
       dispatch({ type: "POST_HOUSE_MESSAGE", message });
+
+      const tmpl = state.notificationTemplates?.house_message || DEFAULT_NOTIFICATION_TEMPLATES.house_message;
+      const notifTitle = formatTemplate(tmpl.title, { house: label, title: message.title, message: message.body, author: user.name });
+      const notifBody = formatTemplate(tmpl.body, { house: label, title: message.title, message: message.body, author: user.name });
+
       dispatch({
         type: "PUSH_NOTIFICATION",
-        notification: { id: uid(), title: `${label}: ${message.title}`, body: message.body, timestamp: Date.now(), urgent: false, senderName: user.name, senderRole: user.role, audience: { kind: "house", house }, actionTab: "house", readBy: [], kind: "broadcast" },
+        notification: {
+          id: uid(),
+          title: notifTitle,
+          body: notifBody,
+          timestamp: Date.now(),
+          urgent: false,
+          senderName: user.name,
+          senderRole: user.role,
+          audience: { kind: "house", house },
+          actionTab: "house",
+          readBy: [],
+          kind: "broadcast",
+        },
       });
+
+      void sendFirebaseNotification({
+        title: notifTitle,
+        body: notifBody,
+        urgent: false,
+        audience: { kind: "house", house },
+        actionTab: "house",
+        senderName: user.name,
+      }).catch(() => undefined);
+
       announce(`Posted to the ${label} hub and notified its members.`);
       setComposer(false); setTitle(""); setBody(""); setError("");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to post."); }

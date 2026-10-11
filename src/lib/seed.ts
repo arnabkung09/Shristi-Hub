@@ -10,7 +10,7 @@ import {
 } from "./ssot-auth";
 import { PRIMARY_ADMIN, SHRISTI_USER_ROSTER } from "./whitelist-seed";
 import { DEFAULT_DEPARTMENTS, FEATURE_PERMISSIONS } from "./admin";
-import { DEFAULT_BRANDING, DEFAULT_EVENT_TYPES, DEFAULT_HOUSES, DEFAULT_LEGAL } from "./content";
+import { DEFAULT_BRANDING, DEFAULT_EVENT_TYPES, DEFAULT_HOUSES, DEFAULT_LEGAL, DEFAULT_NOTIFICATION_TEMPLATES } from "./content";
 
 import gallerySports from "../assets/gallery-sports.jpg";
 import galleryAnnual from "../assets/gallery-annual.jpg";
@@ -442,5 +442,6 @@ export function buildSeedState(): HubState {
     houseMessages: [],
     councilHubMembers: [PRIMARY_ADMIN.id],
     councilMessages: [],
+    notificationTemplates: { ...DEFAULT_NOTIFICATION_TEMPLATES },
   };
 }

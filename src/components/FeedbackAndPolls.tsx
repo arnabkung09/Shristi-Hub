@@ -3,12 +3,13 @@ import {
   CheckCircle2, CircleDashed, Download, Lock, MessageSquareHeart, Plus, Send,
   ShieldCheck, ThumbsDown, ThumbsUp, UserCheck, Users, Vote, XCircle, Search,
 } from "lucide-react";
-import { audienceLabel, fmtDate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
+import { audienceLabel, fmtDate, relativeTime, targetsUser, uid, useHub, formatTemplate, DEFAULT_NOTIFICATION_TEMPLATES } from "../store/hub";
 import { RevealBlocks } from "./Effects";
 import { Avatar, Badge, Btn, Card, EmptyState, Field, Modal, RoleBadge, Select, Tabs, inputCls } from "./ui";
 import { GRADES, HOUSES, SUGGESTION_CATEGORIES } from "../lib/seed";
 import { cn } from "../utils/cn";
-import type { Audience, Poll, PollBallot, SuggestionCategory, SuggestionStatus } from "../lib/types";
+import type { Audience, Poll, PollBallot, SuggestionCategory, SuggestionStatus, AppNotification } from "../lib/types";
+import { sendFirebaseNotification } from "../lib/firebase-client";
 
 const STATUS_META: Record<SuggestionStatus, { label: string; tone: "amber" | "blue" | "emerald" | "red"; icon: React.ReactNode }> = {
   pending: { label: "Pending Review", tone: "amber", icon: <CircleDashed className="h-3 w-3" /> },
@@ -164,7 +165,60 @@ function SuggestionBox() {
                       </div>
                       <div className="flex gap-2">
                         <Btn className="min-h-[36px] text-xs" onClick={() => {
-                          dispatch({ type: "REVIEW_SUGGESTION", suggestionId: s.id, status: rStatus, response: rResponse.trim() || s.response || "", responderName: user.name });
+                          const updatedResponse = rResponse.trim() || s.response || "";
+                          dispatch({ type: "REVIEW_SUGGESTION", suggestionId: s.id, status: rStatus, response: updatedResponse, responderName: user.name });
+
+                          if (updatedResponse && s.authorId) {
+                            const authorStudent = state.users.find((u) => u.id === s.authorId);
+                            const tmpl = state.notificationTemplates?.suggestion_reply || DEFAULT_NOTIFICATION_TEMPLATES.suggestion_reply;
+                            const notifTitle = formatTemplate(tmpl.title, {
+                              responder: user.name,
+                              role: user.role === "admin" ? "Administrator" : "Council Officer",
+                              status: STATUS_META[rStatus]?.label || rStatus,
+                              suggestion: s.text,
+                              response: updatedResponse,
+                            });
+                            const notifBody = formatTemplate(tmpl.body, {
+                              responder: user.name,
+                              role: user.role === "admin" ? "Administrator" : "Council Officer",
+                              status: STATUS_META[rStatus]?.label || rStatus,
+                              suggestion: s.text,
+                              response: updatedResponse,
+                            });
+
+                            const notifAudience: Audience = {
+                              kind: "user",
+                              userId: s.authorId,
+                              name: authorStudent?.name || s.authorLabel || "Student",
+                            };
+
+                            dispatch({
+                              type: "PUSH_NOTIFICATION",
+                              notification: {
+                                id: uid(),
+                                title: notifTitle,
+                                body: notifBody,
+                                timestamp: Date.now(),
+                                urgent: false,
+                                senderName: user.name,
+                                senderRole: user.role,
+                                audience: notifAudience,
+                                actionTab: "voice",
+                                readBy: [],
+                                kind: "system",
+                              },
+                            });
+
+                            void sendFirebaseNotification({
+                              title: notifTitle,
+                              body: notifBody,
+                              urgent: false,
+                              audience: notifAudience,
+                              actionTab: "voice",
+                              senderName: user.name,
+                            }).catch(() => undefined);
+                          }
+
                           setReviewing(null); setRResponse("");
                         }}>Save review</Btn>
                         <Btn variant="ghost" className="min-h-[36px] text-xs" onClick={() => setReviewing(null)}>Cancel</Btn>
@@ -628,6 +682,7 @@ function PollsTab() {
   const [options, setOptions] = useState<string[]>(["", ""]);
   const [expires, setExpires] = useState("");
   const [audience, setAudience] = useState<Audience>({ kind: "all" });
+  const [notifyAudience, setNotifyAudience] = useState(true);
 
   const visiblePolls = useMemo(
     () => (user ? state.polls.filter((p) => targetsUser(p.audience, user)) : []),
@@ -639,6 +694,29 @@ function PollsTab() {
   const create = () => {
     const opts = options.map((o) => o.trim()).filter(Boolean);
     if (!question.trim() || opts.length < 2 || !expires) return setError("Question, at least 2 options and an expiry date are required.");
+
+    const isTeacherOnly = audience.kind === "role" && audience.role === "teacher";
+    const tmplKey = isTeacherOnly ? "poll_teacher" : "poll_new";
+    const tmpl = state.notificationTemplates?.[tmplKey] || DEFAULT_NOTIFICATION_TEMPLATES[tmplKey];
+    const notifTitle = formatTemplate(tmpl.title, { question: question.trim(), expires: fmtDate(expires), creator: user.name });
+    const notifBody = formatTemplate(tmpl.body, { question: question.trim(), expires: fmtDate(expires), creator: user.name });
+
+    const notification: AppNotification | undefined = notifyAudience
+      ? {
+          id: uid(),
+          title: notifTitle,
+          body: notifBody,
+          timestamp: Date.now(),
+          urgent: false,
+          senderName: user.name,
+          senderRole: user.role,
+          audience,
+          actionTab: "voice",
+          readBy: [],
+          kind: "system",
+        }
+      : undefined;
+
     dispatch({
       type: "ADD_POLL",
       poll: {
@@ -654,22 +732,22 @@ function PollsTab() {
         creatorName: user.name,
         createdAt: Date.now(),
       },
-      notification: {
-        id: uid(),
-        title: "New poll published",
-        body: `"${question.trim()}" — cast your vote before ${fmtDate(expires)}.`,
-        timestamp: Date.now(),
+      notification,
+    });
+
+    if (notifyAudience) {
+      void sendFirebaseNotification({
+        title: notifTitle,
+        body: notifBody,
         urgent: false,
-        senderName: user.name,
-        senderRole: user.role,
         audience,
         actionTab: "voice",
-        readBy: [],
-        kind: "system",
-      },
-    });
+        senderName: user.name,
+      }).catch(() => undefined);
+    }
+
     setOpen(false); setError(null);
-    setQuestion(""); setDescription(""); setOptions(["", ""]); setExpires(""); setAudience({ kind: "all" });
+    setQuestion(""); setDescription(""); setOptions(["", ""]); setExpires(""); setAudience({ kind: "all" }); setNotifyAudience(true);
   };
 
   return (
@@ -721,16 +799,18 @@ function PollsTab() {
             <Field label="Expires on"><input type="date" className={inputCls} value={expires} onChange={(e) => setExpires(e.target.value)} /></Field>
             <Field label="Audience">
               <Select
-                value={audience.kind}
+                value={audience.kind === "role" && audience.role === "teacher" ? "teacher" : audience.kind === "role" ? "role" : audience.kind}
                 onChange={(v) => {
                   if (v === "all") setAudience({ kind: "all" });
+                  else if (v === "teacher") setAudience({ kind: "role", role: "teacher" });
                   else if (v === "house") setAudience({ kind: "house", house: "Blue" });
                   else if (v === "grade") setAudience({ kind: "grade", grade: 10 });
                   else setAudience({ kind: "role", role: "council" });
                 }}
               >
-                <option value="all">All Students</option>
-                <option value="role">Council Only</option>
+                <option value="all">All Students & Users</option>
+                <option value="teacher">Teachers & Staff Only (Database Teachers)</option>
+                <option value="role">Council Officers Only</option>
                 <option value="house">Specific House</option>
                 <option value="grade">Specific Grade</option>
               </Select>
@@ -742,6 +822,16 @@ function PollsTab() {
           {audience.kind === "grade" && (
             <Field label="Grade"><Select value={String(audience.grade)} onChange={(v) => setAudience({ kind: "grade", grade: Number(v) })}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
           )}
+
+          <label className="flex items-center gap-2.5 rounded-xl border border-black/[0.08] bg-black/[0.02] p-3 text-xs font-semibold text-slate-700 dark:border-white/[0.08] dark:bg-white/[0.02] dark:text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={notifyAudience}
+              onChange={(e) => setNotifyAudience(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-400 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>Send push notification alert to audience ({audienceLabel(audience)})</span>
+          </label>
 
           <p className="flex items-center gap-2 rounded-xl bg-indigo-500/[0.08] px-3.5 py-2.5 text-xs font-medium text-indigo-700 dark:text-indigo-300">
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" /> Non-anonymous voting: All votes are verified and recorded with student identities. Administrators can view who voted what in the voter audit log.

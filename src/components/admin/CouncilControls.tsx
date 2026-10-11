@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { Camera, CheckSquare, Shield, SlidersHorizontal, UserPlus } from "lucide-react";
-import { useHub } from "../../store/hub";
+import { formatTemplate, useHub } from "../../store/hub";
 import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID } from "../../lib/admin";
 import { Modal } from "../ui";
+import { sendFirebaseNotification } from "../../lib/firebase-client";
+import { DEFAULT_NOTIFICATION_TEMPLATES } from "../../lib/content";
 
 export type CouncilAction = { kind: "appoint" | "permissions" | "delegate" | "remove" | "photo"; userId?: string; source?: "directory" | "admin" };
 
@@ -54,7 +56,36 @@ export default function CouncilControls({ action, onClose }: { action: CouncilAc
       } else if (action.kind === "delegate" && target) {
         if (!taskId || !studentId) throw new Error("Select a task and an officer.");
         dispatch({ type: "DELEGATE_TASK", taskId, assigneeId: studentId, department });
-        if (user) notify({ title: "A task has been delegated to you", body: state.tasks.find((t) => t.id === taskId)?.title ?? "View the council task board.", urgent: false, senderName: user.name, senderRole: user.role, audience: { kind: "user", userId: studentId }, actionTab: "tasks" });
+        const delegatedTask = state.tasks.find((t) => t.id === taskId);
+        const assigneeUser = state.users.find((u) => u.id === studentId);
+        const tpl = state.notificationTemplates?.task_assigned || DEFAULT_NOTIFICATION_TEMPLATES.task_assigned;
+        const alertTitle = tpl?.title || "New Council Task Assigned";
+        const alertBody = tpl
+          ? formatTemplate(tpl.body, {
+              taskTitle: delegatedTask?.title ?? "Council Task",
+              dueDate: delegatedTask?.due ?? "Upcoming",
+              department: department || "General",
+            })
+          : (delegatedTask?.title ?? "View the council task board.");
+        if (user) {
+          notify({
+            title: alertTitle,
+            body: alertBody,
+            urgent: tpl?.urgent ?? false,
+            senderName: user.name,
+            senderRole: user.role,
+            audience: { kind: "user", userId: studentId, name: assigneeUser?.name },
+            actionTab: tpl?.actionTab || "tasks",
+          });
+          void sendFirebaseNotification({
+            title: alertTitle,
+            body: alertBody,
+            urgent: tpl?.urgent ?? false,
+            audience: { kind: "user", userId: studentId, name: assigneeUser?.name },
+            actionTab: tpl?.actionTab || "tasks",
+            senderName: user.name,
+          });
+        }
         announce("Task delegated and the assignee notified.");
       } else if (action.kind === "remove" && target && !primary) {
         dispatch({ type: "REMOVE_COUNCIL", userId: target.id });

@@ -30,6 +30,7 @@ export interface Student {
   avatarUrl?: string;
   createdAt: string;
   isStaff?: boolean;
+  lastActive?: number;
 }
 
 export type Teacher = Student;
@@ -59,6 +60,7 @@ export interface AppNotification {
   targetDeviceId?: string;
   readBy: string[];
   kind: "broadcast" | "system";
+  isHistorical?: boolean;
 }
 
 export type PointCategory = "Sports" | "Academics" | "Cultural & Arts" | "Discipline" | "Community Service";
@@ -347,4 +349,17 @@ export interface HubState {
   houseMessages: HouseMessage[];
   houses: Record<House, HouseBranding>;
   siteRatings: SiteRating[];
+  notificationTemplates?: Record<string, NotificationTemplate>;
 }
+
+export interface NotificationTemplate {
+  id: string;
+  category: string;
+  name: string;
+  title: string;
+  body: string;
+  urgent: boolean;
+  actionTab: string;
+  variables: string[];
+}
+

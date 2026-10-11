@@ -472,6 +472,32 @@ export interface TriggerOSNotificationResult {
   error?: string;
 }
 
+const NOTIFIED_STORAGE_KEY = "shristi_notified_notification_ids_v1";
+
+export function getNotifiedIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(NOTIFIED_STORAGE_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+}
+
+export function markAsNotified(id: string) {
+  if (typeof window === "undefined" || !id) return;
+  try {
+    const set = getNotifiedIds();
+    set.add(id);
+    const arr = Array.from(set).slice(-300);
+    localStorage.setItem(NOTIFIED_STORAGE_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+export function hasBeenNotified(id: string): boolean {
+  if (!id) return false;
+  return getNotifiedIds().has(id);
+}
+
 /**
  * Triggers a real OS-level Web Push / Desktop Notification.
  * Fully compatible with all mobile phone brands (Samsung, Xiaomi, Pixel, OnePlus, Oppo, Vivo, iOS PWA)
@@ -489,6 +515,12 @@ export async function triggerOSNotification(input: {
     return { delivered: false, error: "Notifications not supported in this browser window" };
   }
 
+  const tag = input.tag || `shristi-${Date.now()}`;
+  if (hasBeenNotified(tag)) {
+    return { delivered: false, error: "Notification has already been displayed on this device." };
+  }
+  markAsNotified(tag);
+
   // Respect user preference toggle for OS notifications
   const prefs = getNotificationPreferences();
   if (!prefs.osNotifications) {
@@ -498,7 +530,6 @@ export async function triggerOSNotification(input: {
   const title = input.title || "Shristi Student Council";
   const body = input.body || "New council notification";
   const icon = input.icon || `${window.location.origin}/pwa-192x192.png`;
-  const tag = input.tag || `shristi-${Date.now()}`;
   const actionTab = input.actionTab || "dashboard";
   const urgent = Boolean(input.urgent);
 
@@ -685,7 +716,9 @@ function matchesAudience(student: Record<string, unknown>, audience: Audience) {
     const uid = String(student.firebaseUid || "").toLowerCase();
     return id === target || email === target || uid === target;
   }
-  if (audience.kind === "role") return student.role === audience.role || (audience.role === "council" && student.role === "admin");
+  if (audience.kind === "role") {
+    return student.role === audience.role || (audience.role === "council" && student.role === "admin") || (audience.role === "teacher" && student.role === "admin");
+  }
   if (audience.kind === "house") return student.house === audience.house;
   return student.grade === audience.grade;
 }
@@ -721,7 +754,7 @@ export async function sendFirebaseNotification(input: {
         return studentId === target || uid === target || email === target;
       }
       if (input.audience.kind === "role") {
-        return data.role === input.audience.role || (input.audience.role === "council" && data.role === "admin");
+        return data.role === input.audience.role || (input.audience.role === "council" && data.role === "admin") || (input.audience.role === "teacher" && data.role === "admin");
       }
       if (input.audience.kind === "house") return data.house === input.audience.house;
       if (input.audience.kind === "grade") return data.grade === input.audience.grade;
@@ -869,7 +902,7 @@ export function subscribeCloudBroadcasts(
 ) {
   if (!firebaseAuth.currentUser) return () => undefined;
   const seen = new Set<string>();
-  const initialTime = Date.now() - 30000;
+  const listenerStartTime = Date.now();
   return onSnapshot(
     collection(firebaseDb, "broadcasts"),
     (snapshot) => {
@@ -878,7 +911,7 @@ export function subscribeCloudBroadcasts(
         seen.add(change.doc.id);
         const data = change.doc.data();
         const timestamp = Number(data.timestamp) || Date.now();
-        if (timestamp < initialTime) return;
+        const isHistorical = timestamp < listenerStartTime || hasBeenNotified(change.doc.id);
 
         const audience: Audience =
           data.audience && typeof data.audience === "object"
@@ -898,6 +931,7 @@ export function subscribeCloudBroadcasts(
           targetDeviceId: data.targetDeviceId ? String(data.targetDeviceId) : undefined,
           readBy: [],
           kind: "broadcast",
+          isHistorical,
         });
       });
     },
@@ -914,7 +948,7 @@ export function subscribeFirebaseInbox(
   const current = firebaseAuth.currentUser;
   if (!current) return () => undefined;
   const seen = new Set<string>();
-  const initialTime = Date.now() - 30000;
+  const listenerStartTime = Date.now();
   return onSnapshot(
     collection(firebaseDb, "inbox", current.uid, "items"),
     (snapshot) => {
@@ -923,7 +957,7 @@ export function subscribeFirebaseInbox(
         seen.add(change.doc.id);
         const data = change.doc.data();
         const timestamp = Number(data.timestamp) || Date.now();
-        if (timestamp < initialTime && data.read === true) return;
+        const isHistorical = timestamp < listenerStartTime || hasBeenNotified(change.doc.id) || Boolean(data.read);
 
         const audience: Audience =
           data.audience && typeof data.audience === "object"
@@ -943,6 +977,7 @@ export function subscribeFirebaseInbox(
           targetDeviceId: data.targetDeviceId ? String(data.targetDeviceId) : undefined,
           readBy: data.read ? [current.uid] : [],
           kind: "broadcast",
+          isHistorical,
         });
       });
     },

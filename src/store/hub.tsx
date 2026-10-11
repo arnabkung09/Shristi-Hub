@@ -47,7 +47,13 @@ import {
   syncFirebaseUserActivity,
   writeCloudState,
   triggerOSNotification,
+  getNotifiedIds,
+  markAsNotified,
+  hasBeenNotified,
 } from "../lib/firebase-client";
+import type { NotificationTemplate } from "../lib/types";
+import { DEFAULT_NOTIFICATION_TEMPLATES } from "../lib/content";
+export { DEFAULT_NOTIFICATION_TEMPLATES };
 
 // Bumped when the school-provided roster replaced the earlier sample dataset.
 const STORAGE_KEY = "shristi-council-school-roster-v5";
@@ -84,7 +90,7 @@ export const uid = () => `id-${Date.now().toString(36)}-${Math.random().toString
 export function audienceLabel(a: Audience): string {
   switch (a.kind) {
     case "all": return "All Students";
-    case "role": return a.role === "council" ? "Council Only" : a.role === "admin" ? "Admins Only" : "Students Only";
+    case "role": return a.role === "council" ? "Council Only" : a.role === "admin" ? "Admins Only" : a.role === "teacher" ? "Teachers & Staff Only" : "Students Only";
     case "user": return a.name ? a.name : "One student";
     case "house": return `${a.house} House`;
     case "grade": return `Grade ${a.grade}`;
@@ -94,7 +100,7 @@ export function audienceLabel(a: Audience): string {
 export function targetsUser(a: Audience, user: Student): boolean {
   switch (a.kind) {
     case "all": return true;
-    case "role": return user.role === a.role || (a.role === "council" && user.role === "admin");
+    case "role": return user.role === a.role || (a.role === "council" && user.role === "admin") || (a.role === "teacher" && user.role === "admin");
     case "user": {
       const target = String(a.userId || "").toLowerCase();
       if (!target || target === "cloud" || target === "all") return true;
@@ -113,6 +119,14 @@ export function targetsUser(a: Audience, user: Student): boolean {
     case "house": return user.house === a.house;
     case "grade": return user.grade === a.grade;
   }
+}
+
+export function formatTemplate(template: string, vars: Record<string, string | number>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{${key}}`, String(value ?? ""));
+  }
+  return result;
 }
 
 export function relativeTime(ts: number): string {
@@ -163,7 +177,7 @@ type Action =
   | { type: "ADD_SUGGESTION"; suggestion: Suggestion }
   | { type: "REVIEW_SUGGESTION"; suggestionId: string; status: Suggestion["status"]; response: string; responderName: string }
   | { type: "VOTE"; pollId: string; optionIndex: number; userId: string }
-  | { type: "ADD_POLL"; poll: Poll; notification: AppNotification }
+  | { type: "ADD_POLL"; poll: Poll; notification?: AppNotification }
   | { type: "ADD_MEETING"; meeting: Meeting }
   | { type: "SAVE_MINUTES"; meetingId: string; minutes: string }
   | { type: "ADD_TRANSACTION"; entry: FinanceEntry }
@@ -201,9 +215,11 @@ type Action =
   | { type: "SET_AVATAR"; userId: string; url: string }
   | { type: "SET_ACTIVE_IMAGE"; imageId: string; active: boolean }
   | { type: "DELEGATE_TASK"; taskId: string; assigneeId: string; department: string }
+  | { type: "UPDATE_NOTIFICATION_TEMPLATES"; templates: Record<string, NotificationTemplate> }
+  | { type: "RECORD_ACTIVITY"; userId: string; timestamp?: number }
   | { type: "BROADCAST"; record: BroadcastRecord; notification: AppNotification };
 
-const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER"]);
+const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER", "UPDATE_NOTIFICATION_TEMPLATES"]);
 /**
  * Actions whose data lives in a Google Sheet. The spreadsheet is the single source of
  * truth for House Points, while Calendar and Finances are managed directly within the hub.
@@ -461,7 +477,20 @@ export function reducer(state: HubState, action: Action): HubState {
       return {
         ...state,
         polls: [action.poll, ...state.polls],
-        notifications: [action.notification, ...state.notifications].slice(0, 60),
+        notifications: action.notification ? [action.notification, ...state.notifications].slice(0, 60) : state.notifications,
+      };
+    case "UPDATE_NOTIFICATION_TEMPLATES":
+      return {
+        ...state,
+        notificationTemplates: {
+          ...(state.notificationTemplates ?? {}),
+          ...action.templates,
+        },
+      };
+    case "RECORD_ACTIVITY":
+      return {
+        ...state,
+        users: state.users.map((u) => (u.id === action.userId ? { ...u, lastActive: action.timestamp || Date.now() } : u)),
       };
     case "ADD_MEETING":
       return { ...state, meetings: [action.meeting, ...state.meetings] };
@@ -894,6 +923,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
         }
       : seed.houses,
     siteRatings: parsed.siteRatings ?? seed.siteRatings,
+    notificationTemplates: parsed.notificationTemplates ?? seed.notificationTemplates ?? DEFAULT_NOTIFICATION_TEMPLATES,
   };
 }
 
@@ -968,7 +998,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   // was silently skipped until the next state change.
   const [cloudReady, setCloudReady] = useState(false);
   const stateRef = useRef(state);
-  const seenBroadcastsRef = useRef(new Set<string>());
+  const seenBroadcastsRef = useRef(getNotifiedIds());
+  const sessionStartTimeRef = useRef(Date.now());
   const cloudReadyRef = useRef(false);
   const cloudStateHashRef = useRef("");
   const applyingCloudRef = useRef(false);
@@ -1321,6 +1352,17 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       });
     }
   }), []);
+
+  useEffect(() => {
+    if (state.session?.userId) {
+      const currentStudent = state.users.find((u) => u.id === state.session?.userId);
+      const now = Date.now();
+      if (currentStudent && (!currentStudent.lastActive || now - currentStudent.lastActive > 120000)) {
+        baseDispatch({ type: "RECORD_ACTIVITY", userId: currentStudent.id, timestamp: now });
+      }
+    }
+  }, [state.session?.userId, state.users]);
+
   useEffect(() => {
     let active = true;
     let lastPollTime = Date.now() - 30000;
@@ -1350,7 +1392,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
                   kind: "broadcast",
                 },
               });
-              if (!b.targetDeviceId || b.targetDeviceId === getOrGenerateDeviceId()) {
+              const isFresh = !hasBeenNotified(b.id) && Number(b.timestamp || 0) >= sessionStartTimeRef.current - 1500;
+              if (isFresh && (!b.targetDeviceId || b.targetDeviceId === getOrGenerateDeviceId())) {
                 void triggerOSNotification({
                   title: b.title,
                   body: b.body,
@@ -1380,12 +1423,13 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           if (!seenBroadcastsRef.current.has(notification.id)) {
             seenBroadcastsRef.current.add(notification.id);
             dispatch({ type: "PUSH_NOTIFICATION", notification });
-            if (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId()) {
+            const isFresh = !notification.isHistorical && !hasBeenNotified(notification.id) && Number(notification.timestamp || 0) >= sessionStartTimeRef.current - 1500;
+            if (isFresh && (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId())) {
               void triggerOSNotification({
                 title: notification.title,
                 body: notification.body,
                 urgent: notification.urgent,
-                actionTab: "dashboard",
+                actionTab: notification.actionTab || "dashboard",
                 tag: notification.id
               });
             }
@@ -1398,15 +1442,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           if (!seenBroadcastsRef.current.has(notification.id)) {
             seenBroadcastsRef.current.add(notification.id);
             dispatch({ type: "PUSH_NOTIFICATION", notification });
-            if (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId()) {
+            const isFresh = !notification.isHistorical && !hasBeenNotified(notification.id) && Number(notification.timestamp || 0) >= sessionStartTimeRef.current - 1500;
+            if (isFresh && (!notification.targetDeviceId || notification.targetDeviceId === getOrGenerateDeviceId())) {
               void triggerOSNotification({
                 title: notification.title,
                 body: notification.body,
                 urgent: notification.urgent,
-                actionTab: "dashboard",
+                actionTab: notification.actionTab || "dashboard",
                 tag: notification.id
               });
-
             }
           }
         },

@@ -9,6 +9,7 @@
  * Usage: node scripts/run-security-tests.mjs
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -111,7 +112,13 @@ check("no service-account material is committed", () => {
   const forbidden = ["private_key", "BEGIN PRIVATE KEY", "serviceAccount.json", "FIREBASE_SERVICE_ACCOUNT"];
   const offenders = sources.filter((file) => forbidden.some((value) => file.text.includes(value)));
   assert(offenders.length === 0, `service-account material in ${offenders.map((file) => file.path).join(", ")}`);
-  assert(!existsSync(join(repo, ".env")) && !existsSync(join(repo, ".env.local")), "an .env file is committed");
+  try {
+    const tracked = execSync("git ls-files .env .env.local", { cwd: repo, encoding: "utf8" }).trim();
+    assert(!tracked, "an .env file is committed to git");
+  } catch (e) {
+    if (e.message?.includes("an .env file is committed")) throw e;
+    assert(!existsSync(join(repo, ".env")) && !existsSync(join(repo, ".env.local")), "an .env file is committed");
+  }
   return "only public identifiers are shipped";
 });
 

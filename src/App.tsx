@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { ReactLenis } from "lenis/react";
-import { AlarmClock, ArrowRight, CircleCheck, ShieldAlert, X } from "lucide-react";
+import { Bell, CircleCheck, ShieldAlert, X, ArrowRight } from "lucide-react";
 import { HubProvider, useHub, targetsUser, TAB_KEY } from "./store/hub";
 import { SheetsProvider } from "./lib/sheets/context";
 import { chime } from "./lib/realtime";
@@ -24,7 +24,7 @@ import HomePortal from "./components/HomePortal";
 import { MouseGlow } from "./components/Effects";
 import { Modal } from "./components/ui";
 import OSNotificationBeacon from "./components/OSNotificationBeacon";
-import { getNotificationPreferences, triggerOSNotification } from "./lib/firebase-client";
+import { getNotificationPreferences, triggerOSNotification, getNotifiedIds, markAsNotified, hasBeenNotified } from "./lib/firebase-client";
 import PushAlertsPrompt from "./components/PushAlertsPrompt";
 import PushAlertsButton from "./components/PushAlertsButton";
 
@@ -40,16 +40,26 @@ function Toasts() {
   const { state, user, setActiveTab, feedback } = useHub();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dismissed, setDismissed] = useState(0);
-  const seen = useRef<Set<string>>(new Set(state.notifications.map((n) => n.id)));
+  const seen = useRef<Set<string>>(new Set([...getNotifiedIds(), ...state.notifications.map((n) => n.id)]));
+  const sessionStartTime = useRef(Date.now());
+  const initialMountRef = useRef(true);
 
   useEffect(() => {
     if (!user) return;
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      state.notifications.forEach((n) => seen.current.add(n.id));
+      return;
+    }
     const fresh = state.notifications.filter(
-      (n) => targetsUser(n.audience, user) && !seen.current.has(n.id)
+      (n) => !n.isHistorical && targetsUser(n.audience, user) && !seen.current.has(n.id) && !hasBeenNotified(n.id) && Number(n.timestamp || 0) >= sessionStartTime.current - 1500
     );
     state.notifications.forEach((n) => seen.current.add(n.id));
     if (fresh.length === 0) return;
-    fresh.forEach((n) => seen.current.add(n.id));
+    fresh.forEach((n) => {
+      seen.current.add(n.id);
+      markAsNotified(n.id);
+    });
     const prefs = getNotificationPreferences();
 
     fresh.slice(0, 3).forEach((newest) => {
@@ -132,7 +142,7 @@ function Toasts() {
 }
 
 function Shell() {
-  const { user, activeTab, state } = useHub();
+  const { user, activeTab, state, signInDirect, setActiveTab } = useHub();
   const [legal, setLegal] = useState<"terms" | "credits" | null>(null);
   const [base, query] = activeTab.split("?");
   const footerNote = state.branding.footerNote;
@@ -163,21 +173,111 @@ function Shell() {
     }
   })();
 
+function TopCouncilAlertsBanner() {
+  const { user } = useHub();
+  const [permission, setPermission] = useState(() =>
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("shristi_top_alerts_banner_dismissed") === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    const check = () => setPermission(Notification.permission);
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
+
+  if (!user || permission === "granted" || permission === "unsupported" || dismissed) {
+    return null;
+  }
+
+  return (
+    <div className="mb-5 overflow-hidden rounded-2xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/80 via-slate-900/95 to-purple-950/80 p-3.5 sm:p-4 shadow-xl backdrop-blur-md animate-fade-in">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-500/20 text-indigo-400">
+            <Bell className="h-5 w-5 animate-pulse" />
+          </div>
+          <div className="min-w-0">
+            <h4 className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-bold text-white">
+              <span>Enable Council Alerts</span>
+              <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">
+                Visible to everyone
+              </span>
+            </h4>
+            <p className="mt-0.5 text-[11px] sm:text-xs text-slate-300">
+              Get instant push notifications for emergency assembly notices, house points updates, council polls, and direct messages.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <div className="w-full sm:w-auto min-w-[170px]">
+            <PushAlertsButton />
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss banner"
+            onClick={() => {
+              setDismissed(true);
+              try { localStorage.setItem("shristi_top_alerts_banner_dismissed", "true"); } catch {}
+            }}
+            className="grid h-8 w-8 place-items-center rounded-xl text-slate-400 hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
   return (
     <div className="app-shell">
       <MouseGlow />
+      {user.id === "stu-alex-99" && (
+        <div className="sticky top-0 z-[70] flex items-center justify-between gap-3 border-b border-indigo-500/40 bg-gradient-to-r from-indigo-950/95 via-slate-900/95 to-indigo-950/95 px-4 py-2.5 text-xs text-white shadow-xl backdrop-blur-md">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-6 w-6 place-items-center rounded-lg bg-indigo-500/25 text-indigo-300 font-bold text-sm">
+              🧪
+            </span>
+            <div>
+              <span className="font-bold text-white">
+                Viewing as Alex Rivera (Student)
+              </span>
+              <span className="hidden sm:inline text-slate-300 ml-1.5 text-[11px]">
+                · Grade 9 · Blue House · Test account for push notifications
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              signInDirect("usr-001");
+              setActiveTab("broadcast");
+            }}
+            className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-bold text-white shadow-md hover:bg-indigo-500 transition-all shrink-0"
+          >
+            Switch Back to Admin (Arnab)
+          </button>
+        </div>
+      )}
       <a href="#main-content" onClick={(e) => { e.preventDefault(); document.getElementById("main-content")?.focus(); }} className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:p-3 focus:text-black">Skip to main content</a>
       <Navbar />
       <main className="site-container site-main" id="main-content" tabIndex={-1}>
+        {/* Enable Council Alerts Banner: At the top of every page for maximum visibility */}
+        <TopCouncilAlertsBanner />
         <div key={activeTab} className="page-motion">
           {section}
         </div>
       </main>
       <footer className="site-footer">
         <div className="site-container footer-inner">
-          <div className="w-full max-w-xs mx-auto mb-4">
-            <PushAlertsButton />
-          </div>
           <p>Active Session: <span className="text-[var(--faint)]">{user.id}</span> <span className="mx-1 text-[var(--border)]">|</span> Affiliation: {user.email}</p>
           <div className="footer-links"><button onClick={() => setLegal("terms")}>Terms & Conditions</button><span className="text-[var(--faint)]">/</span><button onClick={() => setLegal("credits")}>Credits Page</button></div>
           <p>{footerNote}</p>

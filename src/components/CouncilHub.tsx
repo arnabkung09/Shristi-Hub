@@ -3,7 +3,7 @@ import {
   Bold, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
   RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi, WifiOff,
 } from "lucide-react";
-import { initials, relativeTime, useHub } from "../store/hub";
+import { initials, relativeTime, useHub, uid, formatTemplate, DEFAULT_NOTIFICATION_TEMPLATES } from "../store/hub";
 import {
   COUNCIL_HUB_TAB,
   COUNCIL_MESSAGE_LIMIT,
@@ -13,7 +13,8 @@ import {
   councilMembers,
 } from "../lib/council";
 import { PRIMARY_ADMIN_ID } from "../lib/admin";
-import type { Student } from "../lib/types";
+import type { Student, Audience } from "../lib/types";
+import { sendFirebaseNotification } from "../lib/firebase-client";
 import { HouseMark } from "./ui";
 import { Reveal } from "./Effects";
 import { CouncilHubMembersDialog } from "./admin/CouncilHubMembersPanel";
@@ -58,10 +59,44 @@ export default function CouncilHub() {
     if (busy) return;
     try {
       setBusy(true);
-      await chat.send(draft);
+      const messageText = draft.trim();
+      await chat.send(messageText);
+
+      // Notify Council Hub members & officers
+      const tmpl = state.notificationTemplates?.council_message || DEFAULT_NOTIFICATION_TEMPLATES.council_message;
+      const notifTitle = formatTemplate(tmpl.title, { author: user.name, title: user.councilTitle || "Officer", message: messageText });
+      const notifBody = formatTemplate(tmpl.body, { author: user.name, title: user.councilTitle || "Officer", message: messageText });
+      const councilAudience: Audience = { kind: "role", role: "council" };
+
+      dispatch({
+        type: "PUSH_NOTIFICATION",
+        notification: {
+          id: uid(),
+          title: notifTitle,
+          body: notifBody,
+          timestamp: Date.now(),
+          urgent: false,
+          senderName: user.name,
+          senderRole: user.role,
+          audience: councilAudience,
+          actionTab: COUNCIL_HUB_TAB,
+          readBy: [],
+          kind: "system",
+        },
+      });
+
+      void sendFirebaseNotification({
+        title: notifTitle,
+        body: notifBody,
+        urgent: false,
+        audience: councilAudience,
+        actionTab: COUNCIL_HUB_TAB,
+        senderName: user.name,
+      }).catch(() => undefined);
+
       setDraft("");
       announce(chat.transport === "cloud"
-        ? "Message posted to the Council Hub."
+        ? "Message posted to the Council Hub and officers notified."
         : "Message posted to this device's Council Hub thread.");
     } catch (e) {
       announce(e instanceof Error ? e.message : "Unable to post.", "error");

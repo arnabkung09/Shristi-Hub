@@ -42,8 +42,8 @@ export default function PushAlertsPrompt() {
   };
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4 sm:px-0">
-      <div className="bg-slate-900 border border-slate-700 shadow-xl rounded-xl p-4 sm:p-5 flex flex-col gap-3 relative animate-in slide-in-from-bottom-5 fade-in duration-300">
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4 sm:px-0">
+      <div className="bg-slate-900 border border-slate-700 shadow-xl rounded-xl p-4 sm:p-5 flex flex-col gap-3 relative animate-in slide-in-from-top-5 fade-in duration-300">
         <button 
           onClick={handleDismiss}
           className="absolute top-2 right-2 text-slate-400 hover:text-slate-200 transition-colors p-1"
