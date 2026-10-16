@@ -3,23 +3,24 @@ import { MongoClient } from 'mongodb';
 let clientPromise;
 
 export function getMongoClient() {
-  if (!clientPromise) {
-    if (!process.env.DATABASE_URI) {
-      throw new Error('DATABASE_URI environment variable is missing');
-    }
+  if (!process.env.DATABASE_URI) {
+    throw new Error('DATABASE_URI environment variable is missing');
+  }
+
+  // Use global variable across ALL environments (especially Vercel serverless)
+  // to avoid establishing a new TLS connection on every lambda invocation
+  if (!globalThis._mongoClientPromise) {
     const client = new MongoClient(process.env.DATABASE_URI, {
+      maxPoolSize: 10,
+      minPoolSize: 1,
+      maxIdleTimeMS: 60000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
       serverSelectionTimeoutMS: 5000,
     });
-    if (process.env.NODE_ENV === 'development') {
-      if (!global._mongoClientPromise) {
-        global._mongoClientPromise = client.connect();
-      }
-      clientPromise = global._mongoClientPromise;
-    } else {
-      clientPromise = client.connect();
-    }
+    globalThis._mongoClientPromise = client.connect();
   }
-  return clientPromise;
+  return globalThis._mongoClientPromise;
 }
 
 export async function getDb(dbName) {

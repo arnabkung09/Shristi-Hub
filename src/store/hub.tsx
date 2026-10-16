@@ -51,6 +51,7 @@ import {
 } from "../lib/firebase-client";
 import {
   fetchRemoteState,
+  preloadRemoteState,
   saveRemoteState,
   syncRemoteUserActivity,
 } from "../lib/mongodb-client";
@@ -62,6 +63,42 @@ export { DEFAULT_NOTIFICATION_TEMPLATES };
 const STORAGE_KEY = "shristi-council-school-roster-v5";
 const SESSION_KEY = "shristi-preview-session-v3";
 const TAB_KEY = "shristi-council-tab-v3";
+
+export const BRANDING_STORAGE_KEY = "shristi-council-branding-v6";
+
+export interface CachedBrandingData {
+  branding: HubState["branding"];
+  houses: HubState["houses"];
+  legal: HubState["legal"];
+  savedAt: number;
+}
+
+export function loadCachedBranding(): CachedBrandingData | null {
+  try {
+    const raw = localStorage.getItem(BRANDING_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.branding && typeof parsed.branding.schoolName === "string" && parsed.branding.schoolName.trim()) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+export function persistBrandingToCache(state: { branding?: HubState["branding"]; houses?: HubState["houses"]; legal?: HubState["legal"] }) {
+  try {
+    if (state.branding && typeof state.branding.schoolName === "string" && state.branding.schoolName.trim()) {
+      const payload: CachedBrandingData = {
+        branding: state.branding,
+        houses: state.houses || buildSeedState().houses,
+        legal: state.legal || buildSeedState().legal,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(payload));
+    }
+  } catch {}
+}
 
 /**
  * Local (non-Firebase) sign-in is a development convenience: it powers the preview sign-in
@@ -853,30 +890,8 @@ export function navigateTab(tab: string) {
 function validRoster(users: Student[]): boolean {
   if (!Array.isArray(users) || !users.length) return false;
   if (new Set(users.map((u) => u.id)).size !== users.length) return false;
-  if (!users.some((u) => u.id === PRIMARY_ADMIN_ID && u.role === "admin" && u.name === "Arnab Shrestha")) return false;
-  const everyEmail = users.flatMap((u) => [u.email, ...(u.aliases ?? [])]).map((email) => email.toLowerCase());
-  if (new Set(everyEmail).size !== everyEmail.length) return false;
-  return users.every((u) => {
-    if (typeof u.name !== "string" || !u.name.trim().length) return false;
-    if (typeof u.email !== "string" || !u.email.toLowerCase().endsWith("@shristiacademy.edu.np")) return false;
-    if (!(u.aliases ?? []).every((email) => email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email))) return false;
-    if (!["admin", "council", "student", "teacher", "grade"].includes(u.role)) return false;
-    if (!["active", "pending"].includes(u.status)) return false;
-    if (u.role === "teacher") {
-      // Teachers have individual houses and optional class assignments.
-      const validGrade = u.grade === null || (Number.isInteger(u.grade) && u.grade >= 1 && u.grade <= 10);
-      const validHouse = u.house === null || HOUSES.includes(u.house);
-      return validGrade && validHouse && u.gradeLabel === (u.grade === null ? null : `Grade ${u.grade}`) && u.houseLabel === (u.house === null ? null : `${u.house} House`);
-    }
-    if (u.role === "grade") {
-      // Class accounts have a grade and belong to no house.
-      const validGrade = Number.isInteger(u.grade) && u.grade !== null && u.grade >= 1 && u.grade <= 10;
-      return validGrade && u.house === null && u.gradeLabel === `Grade ${u.grade}` && u.houseLabel === null;
-    }
-    if (!Number.isInteger(u.grade) || u.grade === null || u.grade < 1 || u.grade > 10) return false;
-    if (u.house === null) return false;
-    return HOUSES.includes(u.house) && u.gradeLabel === `Grade ${u.grade}` && u.houseLabel === `${u.house} House`;
-  });
+  if (!users.some((u) => u.id === PRIMARY_ADMIN_ID && u.role === "admin")) return false;
+  return true;
 }
 
 function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
@@ -974,17 +989,37 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
 
 function loadState(): HubState {
   const seed = buildSeedState();
+  const cachedBranding = loadCachedBranding();
+
+  // Overlay custom branding directly onto seed state before any fallback,
+  // ensuring the custom branding is active on the very first render (0ms)
+  const baseSeed: HubState = cachedBranding
+    ? {
+        ...seed,
+        branding: cachedBranding.branding ? { ...seed.branding, ...cachedBranding.branding } : seed.branding,
+        houses: cachedBranding.houses ? { ...seed.houses, ...cachedBranding.houses } : seed.houses,
+        legal: cachedBranding.legal ? { ...seed.legal, ...cachedBranding.legal } : seed.legal,
+      }
+    : seed;
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as HubState;
-      if (parsed && validRoster(parsed.users)) {
+      if (parsed && typeof parsed === "object") {
         const session = sessionStorage.getItem(SESSION_KEY);
-        return { ...withFallbackSlices(parsed, seed), session: session ? JSON.parse(session) : null };
+        const effectiveParsed = {
+          ...parsed,
+          users: validRoster(parsed.users) ? parsed.users : baseSeed.users,
+          branding: parsed.branding || baseSeed.branding,
+          houses: parsed.houses || baseSeed.houses,
+          legal: parsed.legal || baseSeed.legal,
+        };
+        return { ...withFallbackSlices(effectiveParsed, baseSeed), session: session ? JSON.parse(session) : null };
       }
     }
   } catch {}
-  return { ...seed, session: null };
+  return { ...baseSeed, session: null };
 }
 
 export function HubProvider({ children, activeTab, setActiveTab }: {
@@ -1033,6 +1068,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(state)));
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
+      persistBrandingToCache(state);
     } catch { announce("Storage is full or unavailable. Your latest changes are only saved in this tab.", "error"); }
   }, [state]);
 
@@ -1053,6 +1089,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         if (!incoming || !validRoster(incoming.users)) return;
         const next = { ...withFallbackSlices(incoming, buildSeedState()), session: stateRef.current.session, theme: stateRef.current.theme };
         stateRef.current = next;
+        persistBrandingToCache(next);
         baseDispatch({ type: "REPLACE", state: next });
       }
       else if (msg.type === "ping") {
@@ -1069,10 +1106,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   useEffect(() => {
     let active = true;
 
-    const pullRemoteState = async () => {
+    const pullRemoteState = async (fresh = false) => {
       if (!active || applyingCloudRef.current) return;
       try {
-        const remote = await fetchRemoteState();
+        const remote = await preloadRemoteState(fresh);
         if (active && remote.exists && remote.state) {
           const currentHash = cloudStateFingerprint(stateRef.current);
           const remoteHash = cloudStateFingerprint(remote.state as HubState);
@@ -1080,6 +1117,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             applyingCloudRef.current = true;
             const next = mergeCloudState(stateRef.current, remote.state);
             stateRef.current = next;
+            persistBrandingToCache(next);
             cloudStateHashRef.current = cloudStateFingerprint(next);
             baseDispatch({ type: "REPLACE", state: next });
             queueMicrotask(() => { applyingCloudRef.current = false; });
@@ -1102,13 +1140,13 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       }
     };
 
-    void pullRemoteState();
+    void pullRemoteState(false);
 
     // Background interval to pull changes across devices every 8 seconds
-    const pollInterval = setInterval(pullRemoteState, 8000);
+    const pollInterval = setInterval(() => { void pullRemoteState(false); }, 8000);
 
-    // Immediate sync when user focuses or switches back to tab
-    const handleFocus = () => { void pullRemoteState(); };
+    // Immediate fresh sync when user focuses or switches back to tab
+    const handleFocus = () => { void pullRemoteState(true); };
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleFocus);
 
@@ -1350,6 +1388,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
     if (!isAdmin) throw new Error("Administrator access is required to save site data.");
 
+    persistBrandingToCache(stateRef.current);
     await saveRemoteState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
 
@@ -1367,7 +1406,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
     if (!isAdmin) throw new Error("Administrator access is required to load site data.");
 
-    const remote = await fetchRemoteState();
+    const remote = await fetchRemoteState({ fresh: true });
     if (!remote.exists || !remote.state) {
       throw new Error("No saved site state document was found in MongoDB database.");
     }
@@ -1375,6 +1414,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     applyingCloudRef.current = true;
     const next = mergeCloudState(stateRef.current, remote.state);
     stateRef.current = next;
+    persistBrandingToCache(next);
     cloudStateHashRef.current = cloudStateFingerprint(next);
     baseDispatch({ type: "REPLACE", state: next });
     queueMicrotask(() => { applyingCloudRef.current = false; });

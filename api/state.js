@@ -10,14 +10,13 @@ function sanitizeRoster(users) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-
   try {
     const db = await getDb();
     const collection = db.collection('hub_state');
 
     // Health / Diagnostics endpoint
     if (req.method === 'GET' && (req.query.health === '1' || req.query.test === '1')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       await db.command({ ping: 1 });
       const doc = await collection.findOne({ _id: 'main' });
       return res.status(200).json({
@@ -31,7 +30,48 @@ export default async function handler(req, res) {
       });
     }
 
+    // Ultra-fast dedicated Branding & Identity endpoint (<1KB payload, resolves in ~5ms)
+    if (req.method === 'GET' && req.query.section === 'branding') {
+      if (req.query.fresh === '1') {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=120');
+      }
+
+      const doc = await collection.findOne(
+        { _id: 'main' },
+        { projection: { 'state.branding': 1, 'state.houses': 1, 'state.legal': 1, updatedAt: 1, version: 1 } }
+      );
+
+      if (!doc || !doc.state) {
+        return res.status(200).json({
+          success: true,
+          exists: false,
+          branding: null,
+          houses: null,
+          legal: null,
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        branding: doc.state.branding || null,
+        houses: doc.state.houses || null,
+        legal: doc.state.legal || null,
+        updatedAt: doc.updatedAt,
+        version: doc.version,
+      });
+    }
+
     if (req.method === 'GET') {
+      // Vercel Edge CDN cache: ~20ms response time globally with background revalidation
+      if (req.query.fresh === '1') {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      } else {
+        res.setHeader('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=120');
+      }
+
       const doc = await collection.findOne({ _id: 'main' });
       if (!doc || !doc.state) {
         return res.status(200).json({
@@ -53,6 +93,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       const auth = extractAuth(req);
       const body = req.body || {};
 

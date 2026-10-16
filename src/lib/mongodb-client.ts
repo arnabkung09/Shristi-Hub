@@ -78,9 +78,61 @@ export async function testMongoConnection(): Promise<MongoStatusResult> {
   }
 }
 
-export async function fetchRemoteState(): Promise<RemoteStateResult> {
+export interface RemoteBrandingResult {
+  exists: boolean;
+  branding: HubState["branding"] | null;
+  houses: HubState["houses"] | null;
+  legal: HubState["legal"] | null;
+  updatedAt?: string;
+  version?: number;
+}
+
+let preloadedStatePromise: Promise<RemoteStateResult> | null = null;
+
+export function preloadRemoteState(fresh = false): Promise<RemoteStateResult> {
+  if (fresh || !preloadedStatePromise) {
+    preloadedStatePromise = fetchRemoteState({ fresh });
+  }
+  return preloadedStatePromise;
+}
+
+// Eagerly initiate network fetch immediately upon script evaluation
+if (typeof window !== "undefined") {
+  void preloadRemoteState();
+}
+
+export async function fetchRemoteBranding(options?: { fresh?: boolean }): Promise<RemoteBrandingResult> {
   try {
-    const res = await fetch("/api/state");
+    const url = options?.fresh ? `/api/state?section=branding&fresh=1&t=${Date.now()}` : "/api/state?section=branding";
+    const res = await fetch(url, {
+      cache: options?.fresh ? "no-store" : "default",
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Failed to load branding: ${res.status} ${text}`);
+    }
+
+    const data = await res.json();
+    return {
+      exists: Boolean(data.exists),
+      branding: data.branding || null,
+      houses: data.houses || null,
+      legal: data.legal || null,
+      updatedAt: data.updatedAt,
+      version: data.version,
+    };
+  } catch (error) {
+    console.warn("MongoDB fetchRemoteBranding notice:", error);
+    return { exists: false, branding: null, houses: null, legal: null };
+  }
+}
+
+export async function fetchRemoteState(options?: { fresh?: boolean }): Promise<RemoteStateResult> {
+  try {
+    const url = options?.fresh ? `/api/state?fresh=1&t=${Date.now()}` : "/api/state";
+    const res = await fetch(url, {
+      cache: options?.fresh ? "no-store" : "default",
+    });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`Failed to load state: ${res.status} ${text}`);

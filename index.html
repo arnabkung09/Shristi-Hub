@@ -17,8 +17,22 @@
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7l12-5z' fill='%236366f1'/%3E%3Ctext x='16' y='21' font-size='13' font-family='serif' font-weight='bold' fill='white' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:wght@500;600;700&display=swap" rel="stylesheet" />
     <title>Shristi Academy | Student Council</title>
+    <script>
+      (function() {
+        try {
+          var k = "shristi-council-branding-v6";
+          var raw = localStorage.getItem(k) || localStorage.getItem("shristi-council-school-roster-v5");
+          if (raw) {
+            var d = JSON.parse(raw);
+            var b = d.branding || (d.state && d.state.branding);
+            if (b && b.schoolName) {
+              document.title = b.schoolName + " | " + (b.boardName || "Student Council");
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

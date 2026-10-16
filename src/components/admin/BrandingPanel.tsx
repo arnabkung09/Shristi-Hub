@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileText, Home, Image, LoaderCircle, RotateCcw, Save, Scale, Type } from "lucide-react";
-import { useHub } from "../../store/hub";
+import { useHub, persistBrandingToCache } from "../../store/hub";
 import { DEFAULT_BRANDING, DEFAULT_HOUSES, DEFAULT_LEGAL, renderRichText } from "../../lib/content";
 import { HOUSES } from "../../lib/seed";
 import type { House, HouseBranding } from "../../lib/types";
@@ -34,6 +34,7 @@ export default function BrandingPanel() {
     try {
       setSavingBranding(true);
       setError("");
+      persistBrandingToCache({ branding, houses, legal });
       dispatch({ type: "SET_BRANDING", branding });
       await saveStateToDatabase();
       announce("Council branding updated across all site pages, devices, and saved to MongoDB.", "success");
@@ -49,6 +50,7 @@ export default function BrandingPanel() {
     try {
       setSavingLegal(true);
       setError("");
+      persistBrandingToCache({ branding, houses, legal });
       dispatch({ type: "SET_LEGAL", legal });
       await saveStateToDatabase();
       announce("Terms and credits updated across all site pages, devices, and saved to MongoDB.", "success");
@@ -64,6 +66,7 @@ export default function BrandingPanel() {
     try {
       setSavingHouses(true);
       setError("");
+      persistBrandingToCache({ branding, houses, legal });
       (HOUSES as readonly House[]).forEach((h) => {
         dispatch({ type: "SET_HOUSE_BRANDING", house: h, name: houses[h].name, logoUrl: houses[h].logoUrl });
       });
