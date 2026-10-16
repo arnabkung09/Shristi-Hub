@@ -8,15 +8,14 @@ import {
   Cloud,
   CloudDownload,
   CloudUpload,
+  Database,
   DatabaseZap,
   Download,
-  KeyRound,
   Layers3,
   LoaderCircle,
   LogIn,
   Palette,
   RefreshCw,
-  Save,
   Shield,
   ShieldCheck,
   Sparkles,
@@ -26,11 +25,10 @@ import {
 import {
   firebaseAuth,
   firebaseConfig,
-  testFirebaseConnection,
-  PRIMARY_ADMIN_EMAIL,
   PRIMARY_ADMIN_EMAILS,
   isPrimaryAdmin,
 } from "../../lib/firebase-client";
+import { testMongoConnection } from "../../lib/mongodb-client";
 import { useHub } from "../../store/hub";
 import { downloadJson, publicRoster, PRIMARY_ADMIN_ID } from "../../lib/admin";
 import { INSTITUTIONAL_EMAIL_DOMAIN } from "../../lib/ssot-auth";
@@ -41,16 +39,16 @@ export default function FirebaseConnection() {
   const {
     state,
     announce,
-    firebaseStatus,
     firebaseEmail,
-    uploadAllToFirestore,
-    loadAllFromFirestore,
+    saveStateToDatabase,
+    loadStateFromDatabase,
     signInGoogle,
     setActiveTab,
   } = useHub();
 
   const [status, setStatus] = useState<"testing" | "connected" | "secured" | "error">("testing");
-  const [message, setMessage] = useState("Testing the configured Firebase project...");
+  const [message, setMessage] = useState("Testing the integrated MongoDB database connection...");
+  const [databaseName, setDatabaseName] = useState<string>("mongodb");
   const [syncing, setSyncing] = useState<"upload" | "download" | null>(null);
   const [confirmLoad, setConfirmLoad] = useState(false);
   const [confirmSave, setConfirmSave] = useState(false);
@@ -61,12 +59,14 @@ export default function FirebaseConnection() {
   const test = async () => {
     setStatus("testing");
     try {
-      const result = await testFirebaseConnection();
-      setStatus(result.state);
+      const result = await testMongoConnection();
+      setStatus(result.connected ? "connected" : "error");
       setMessage(result.message);
+      if (result.database) setDatabaseName(result.database);
+      if (result.lastSynced) setLastSynced(new Date(result.lastSynced).toLocaleTimeString());
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "Firebase could not be reached.");
+      setMessage(error instanceof Error ? error.message : "MongoDB could not be reached.");
     }
   };
 
@@ -77,14 +77,14 @@ export default function FirebaseConnection() {
   const upload = async () => {
     setSyncing("upload");
     try {
-      await uploadAllToFirestore();
+      await saveStateToDatabase();
       const now = new Date().toLocaleTimeString();
       setLastSynced(now);
       announce(
-        `All site data including branding (${state.branding.schoolName}), house logos, tasks, and ${state.users.length} roster records were synchronized to Firestore.`
+        `All site data including branding (${state.branding.schoolName}), house logos, tasks, and ${state.users.length} roster records were synchronized to MongoDB.`
       );
     } catch (error) {
-      announce(error instanceof Error ? error.message : "Firestore upload failed.", "error");
+      announce(error instanceof Error ? error.message : "MongoDB save failed.", "error");
     } finally {
       setSyncing(null);
     }
@@ -94,12 +94,12 @@ export default function FirebaseConnection() {
     setConfirmLoad(false);
     setSyncing("download");
     try {
-      await loadAllFromFirestore();
+      await loadStateFromDatabase();
       const now = new Date().toLocaleTimeString();
       setLastSynced(now);
-      announce("All site data including branding was updated from Firestore.");
+      announce("All site data including branding was updated from MongoDB.");
     } catch (error) {
-      announce(error instanceof Error ? error.message : "Firestore download failed.", "error");
+      announce(error instanceof Error ? error.message : "MongoDB load failed.", "error");
     } finally {
       setSyncing(null);
     }
@@ -171,12 +171,12 @@ export default function FirebaseConnection() {
         <div className="panel-heading">
           <div>
             <h2>
-              <DatabaseZap className="!text-orange-500" />
-              Firestore Cloud Synchronization
+              <DatabaseZap className="!text-emerald-500" />
+              Integrated MongoDB Database Synchronization
             </h2>
             <p>
               Synchronize all platform data — branding, house logos, student roster, council
-              departments, tasks, events, and settings — directly into Firestore.
+              departments, tasks, events, and settings — directly into the integrated MongoDB database.
             </p>
           </div>
           <span
@@ -192,8 +192,8 @@ export default function FirebaseConnection() {
             )}
             {status === "testing"
               ? "Testing"
-              : status === "secured"
-              ? "Reachable · Auth required"
+              : status === "connected"
+              ? "Connected to MongoDB"
               : status}
           </span>
         </div>
@@ -201,17 +201,17 @@ export default function FirebaseConnection() {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <p className="eyebrow">Project ID</p>
-              <p className="mt-1 font-mono text-xs">{firebaseConfig.projectId}</p>
+              <p className="eyebrow">Database</p>
+              <p className="mt-1 font-mono text-xs text-emerald-400 font-semibold">{databaseName} (MongoDB Atlas)</p>
             </div>
             <div>
-              <p className="eyebrow">Auth domain</p>
-              <p className="mt-1 font-mono text-xs">{firebaseConfig.authDomain}</p>
+              <p className="eyebrow">State Collection</p>
+              <p className="mt-1 font-mono text-xs">hub_state / doc: main</p>
             </div>
             <div>
-              <p className="eyebrow">Authenticated Google User</p>
+              <p className="eyebrow">Firebase Auth & Project</p>
               <p className="mt-1 break-all font-mono text-xs">
-                {firebaseEmail ?? "Not signed in"}
+                {firebaseConfig.projectId} ({firebaseEmail ?? "Offline Preview"})
               </p>
             </div>
           </div>
@@ -231,7 +231,7 @@ export default function FirebaseConnection() {
             disabled={status === "testing"}
           >
             <RefreshCw />
-            Test Connection
+            Test MongoDB Connection
           </button>
           {!firebaseAuth.currentUser && (
             <button
@@ -254,7 +254,7 @@ export default function FirebaseConnection() {
         </div>
       </section>
 
-      {/* Branding & House Identity Firestore Sync Status */}
+      {/* Branding & House Identity Sync Status */}
       <section className="panel panel-pad">
         <div className="panel-heading">
           <div>
@@ -264,7 +264,7 @@ export default function FirebaseConnection() {
             </h2>
             <p>
               All council branding and house configurations are packaged and synchronized into
-              the shared Firestore document (<code>hubState/main</code>).
+              the shared MongoDB state document.
             </p>
           </div>
           <button
@@ -284,7 +284,7 @@ export default function FirebaseConnection() {
               <div className="min-w-0">
                 <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-bold text-emerald-500">
                   <Sparkles className="mr-1 inline h-2.5 w-2.5" />
-                  Synced to Firestore
+                  Synced to Database
                 </span>
                 <p className="mt-1 font-display text-sm font-bold truncate">
                   {state.branding.schoolName || "Shristi Academy"}
@@ -319,7 +319,7 @@ export default function FirebaseConnection() {
 
           {/* House Configurations */}
           <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-            <p className="eyebrow mb-2">House Brandings Synced to Cloud</p>
+            <p className="eyebrow mb-2">House Brandings Synced to Database</p>
             <div className="space-y-2">
               {(HOUSES as readonly ("Blue" | "Red" | "Green")[]).map((h) => {
                 const house = state.houses[h];
@@ -358,9 +358,9 @@ export default function FirebaseConnection() {
             <p>
               <strong>Save</strong> stores the complete site state — branding, house logos,
               student roster, council settings, tasks, events, polls, and every other section —
-              into the shared Firestore document (<code>hubState/main</code>). Any future version
-              of this site you deploy automatically loads this saved data the moment an
-              administrator signs in, so your configuration carries across deploys.
+              into the integrated MongoDB database (<code>collection: hub_state</code>). Any future version
+              of this site you deploy automatically loads this saved data on load, so your
+              configuration carries across deploys.
             </p>
           </div>
           {lastSynced && (
@@ -440,7 +440,7 @@ export default function FirebaseConnection() {
         <div className="mt-5 flex flex-wrap gap-2">
           <button
             className="btn btn-primary"
-            disabled={(!firebaseAuth.currentUser && firebaseStatus !== "connected") || syncing !== null}
+            disabled={syncing !== null}
             onClick={() => setConfirmSave(true)}
           >
             {syncing === "upload" ? (
@@ -448,11 +448,11 @@ export default function FirebaseConnection() {
             ) : (
               <CloudUpload />
             )}
-            Save all site data to Firestore
+            Save all site data to MongoDB
           </button>
           <button
             className="btn btn-secondary"
-            disabled={(!firebaseAuth.currentUser && firebaseStatus !== "connected") || syncing !== null}
+            disabled={syncing !== null}
             onClick={() => setConfirmLoad(true)}
           >
             {syncing === "download" ? (
@@ -460,28 +460,9 @@ export default function FirebaseConnection() {
             ) : (
               <CloudDownload />
             )}
-            Load existing Firestore data
+            Load existing MongoDB data
           </button>
         </div>
-
-        {!firebaseAuth.currentUser && firebaseStatus !== "connected" && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              className="btn btn-primary !py-1 !text-xs"
-              onClick={() => {
-                void signInGoogle().catch((e) =>
-                  announce(e instanceof Error ? e.message : "Google sign-in failed.", "error")
-                );
-              }}
-            >
-              <LogIn className="h-3.5 w-3.5" />
-              Sign in with Google to enable sync
-            </button>
-            <p className="text-[10px] text-amber-400">
-              Sign in with the administrator Google account ({PRIMARY_ADMIN_EMAILS.join(" or ")}) to synchronize site data with Firestore.
-            </p>
-          </div>
-        )}
       </section>
 
       {/* Pre-Sync Integrity & Diagnostics */}
@@ -536,18 +517,16 @@ export default function FirebaseConnection() {
         )}
       </section>
 
-
-
       {/* Confirmation Modal for Restore */}
       <Modal
         open={confirmLoad}
         onClose={() => setConfirmLoad(false)}
-        title="Load existing Firestore data?"
+        title="Load existing MongoDB data?"
         icon={<CloudDownload />}
-        subtitle="This replaces the current browser's local state and branding with the current cloud document."
+        subtitle="This replaces the current browser's local state and branding with the current MongoDB document."
       >
         <p className="inline-message">
-          Unsynchronized local changes may be overwritten by the Firestore version. The current Firebase session and theme preference are preserved.
+          Unsynchronized local changes will be replaced by the database copy. Your current user session and theme preference are preserved.
         </p>
         <div className="dialog-actions">
           <button className="btn btn-secondary" onClick={() => setConfirmLoad(false)}>
@@ -560,24 +539,23 @@ export default function FirebaseConnection() {
         </div>
       </Modal>
 
-      {/* Confirmation Modal for Save (store all site data in Firestore) */}
+      {/* Confirmation Modal for Save */}
       <Modal
         open={confirmSave}
         onClose={() => setConfirmSave(false)}
-        title="Save all site data to Firestore?"
+        title="Save all site data to MongoDB?"
         icon={<CloudUpload />}
-        subtitle="This overwrites the shared cloud copy with your current local site data."
+        subtitle="This overwrites the shared database copy with your current local site data."
       >
         <p className="inline-message">
           Every section of the site — branding, house logos, the full student roster, council
           departments, tasks, events, polls, suggestions, finances, gallery, and settings — will
-          be written to <code>hubState/main</code>. Any future version of this site you deploy
-          will automatically load this saved data as soon as an administrator signs in, so your
-          configuration survives the update.
+          be saved to the MongoDB database (<code>collection: hub_state</code>). Any future version of this site you deploy
+          will automatically load this saved data on load, so your configuration survives every deploy.
         </p>
         <p className="inline-message mt-3 flex gap-2">
-          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-          <span>You must be signed in with the primary administrator Google account ({PRIMARY_ADMIN_EMAIL}) to write to Firestore.</span>
+          <Database className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          <span>Site state is stored in your MongoDB Atlas database configured by <code>DATABASE_URI</code>.</span>
         </p>
         <div className="dialog-actions">
           <button className="btn btn-secondary" onClick={() => setConfirmSave(false)}>
@@ -592,7 +570,7 @@ export default function FirebaseConnection() {
             }}
           >
             <CloudUpload />
-            Save to Firestore
+            Save to MongoDB
           </button>
         </div>
       </Modal>

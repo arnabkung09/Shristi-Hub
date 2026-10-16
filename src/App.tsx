@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { ReactLenis } from "lenis/react";
-import { Bell, CircleCheck, ShieldAlert, X, ArrowRight } from "lucide-react";
+import { Bell, CircleCheck, ShieldAlert, X, ArrowRight, AlarmClock } from "lucide-react";
 import { HubProvider, useHub, targetsUser, TAB_KEY } from "./store/hub";
 import { SheetsProvider } from "./lib/sheets/context";
 import { chime } from "./lib/realtime";

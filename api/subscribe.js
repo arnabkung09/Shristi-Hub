@@ -1,25 +1,4 @@
-import { MongoClient } from 'mongodb';
-
-let clientPromise;
-function getMongoClient() {
-  if (!clientPromise) {
-    if (!process.env.DATABASE_URI) {
-      throw new Error('DATABASE_URI environment variable is missing');
-    }
-    const client = new MongoClient(process.env.DATABASE_URI, {
-      serverSelectionTimeoutMS: 5000
-    });
-    if (process.env.NODE_ENV === 'development') {
-      if (!global._mongoClientPromise) {
-        global._mongoClientPromise = client.connect();
-      }
-      clientPromise = global._mongoClientPromise;
-    } else {
-      clientPromise = client.connect();
-    }
-  }
-  return clientPromise;
-}
+import { getDb } from './_db.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -34,8 +13,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing deviceId or subscription data.' });
     }
 
-    const dbClient = await getMongoClient();
-    const db = dbClient.db();
+    const db = await getDb();
     const collection = db.collection('devices');
 
     await collection.updateOne(

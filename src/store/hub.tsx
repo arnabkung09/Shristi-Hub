@@ -32,7 +32,6 @@ import {
   createFirebasePassword,
   observeFirebaseAuth,
   provisionFirebaseProfile,
-  readCloudState,
   firebaseUserHasPassword,
   signInFirebasePassword,
   signInWithGoogle,
@@ -48,9 +47,13 @@ import {
   writeCloudState,
   triggerOSNotification,
   getNotifiedIds,
-  markAsNotified,
   hasBeenNotified,
 } from "../lib/firebase-client";
+import {
+  fetchRemoteState,
+  saveRemoteState,
+  syncRemoteUserActivity,
+} from "../lib/mongodb-client";
 import type { NotificationTemplate } from "../lib/types";
 import { DEFAULT_NOTIFICATION_TEMPLATES } from "../lib/content";
 export { DEFAULT_NOTIFICATION_TEMPLATES };
@@ -833,6 +836,8 @@ interface HubContextValue {
   signInGoogle: () => Promise<void>;
   signInPassword: (email: string, password: string) => Promise<void>;
   signInDirect: (userId: string) => void;
+  saveStateToDatabase: () => Promise<void>;
+  loadStateFromDatabase: () => Promise<void>;
   uploadAllToFirestore: () => Promise<void>;
   loadAllFromFirestore: () => Promise<void>;
   signOutSession: () => Promise<void>;
@@ -1052,6 +1057,64 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       }
     });
     return disconnect;
+  }, []);
+
+  // Bootstrap site state from MongoDB immediately on load
+  useEffect(() => {
+    let active = true;
+    const initMongoState = async () => {
+      try {
+        const remote = await fetchRemoteState();
+        if (active && remote.exists && remote.state) {
+          applyingCloudRef.current = true;
+          const next = mergeCloudState(stateRef.current, remote.state);
+          stateRef.current = next;
+          cloudStateHashRef.current = cloudStateFingerprint(next);
+          baseDispatch({ type: "REPLACE", state: next });
+          queueMicrotask(() => { applyingCloudRef.current = false; });
+          if (!cloudBootstrappedRef.current) {
+            cloudBootstrappedRef.current = true;
+            announce("Loaded site data from integrated MongoDB database.", "success");
+          }
+        }
+        if (active) {
+          setCloudReady(true);
+          cloudReadyRef.current = true;
+        }
+      } catch (err) {
+        console.warn("MongoDB initial load notice:", err);
+        if (active) {
+          setCloudReady(true);
+          cloudReadyRef.current = true;
+        }
+      }
+    };
+    void initMongoState();
+
+    // Background polling interval to synchronize changes across tabs and devices
+    const pollInterval = setInterval(async () => {
+      if (!active || applyingCloudRef.current) return;
+      try {
+        const remote = await fetchRemoteState();
+        if (active && remote.exists && remote.state && remote.version) {
+          const currentHash = cloudStateFingerprint(stateRef.current);
+          const remoteHash = cloudStateFingerprint(remote.state as HubState);
+          if (currentHash !== remoteHash) {
+            applyingCloudRef.current = true;
+            const next = mergeCloudState(stateRef.current, remote.state);
+            stateRef.current = next;
+            cloudStateHashRef.current = cloudStateFingerprint(next);
+            baseDispatch({ type: "REPLACE", state: next });
+            queueMicrotask(() => { applyingCloudRef.current = false; });
+          }
+        }
+      } catch {}
+    }, 10000);
+
+    return () => {
+      active = false;
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const dispatch = useMemo<React.Dispatch<Action>>(() => {
@@ -1279,46 +1342,44 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     dispatch({ type: "SET_HOUSE_MEMBERSHIP", house, accountId, include });
   };
 
-  const uploadAllToFirestore = async () => {
+  const saveStateToDatabase = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
     const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
-    if (!isAdmin) throw new Error("Administrator access is required.");
-    if (!firebaseAuth.currentUser) throw new Error("Sign in with Google before uploading site data.");
+    if (!isAdmin) throw new Error("Administrator access is required to save site data.");
 
-    let rosterPublished = true;
-    try {
-      if (isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
-        await syncCloudRoster(stateRef.current.users);
-      }
-    } catch (error) {
-      rosterPublished = false;
-      console.warn("Roster sync notice:", error);
-    }
-    await writeCloudState(stateRef.current);
+    await saveRemoteState(stateRef.current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
-    rosterHashRef.current = JSON.stringify(stateRef.current.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-    announce(
-      rosterPublished
-        ? "All site data including branding, houses, and roster records were uploaded to Firestore."
-        : `Site data including branding, houses, tasks and ${stateRef.current.users.length} accounts were uploaded to Firestore.`,
-      "success",
-    );
+
+    // Optional Firestore best-effort sync if signed in with Google
+    if (firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+      void writeCloudState(stateRef.current).catch(() => {});
+      void syncCloudRoster(stateRef.current.users).catch(() => {});
+    }
+
+    announce("All site data including branding, houses, roster, tasks, and settings saved to MongoDB.", "success");
   };
 
-  const loadAllFromFirestore = async () => {
+  const loadStateFromDatabase = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
     const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
-    if (!isAdmin) throw new Error("Administrator access is required.");
-    const remote = await readCloudState();
-    if (!remote) throw new Error("No existing hubState/main document was found in Firestore.");
+    if (!isAdmin) throw new Error("Administrator access is required to load site data.");
+
+    const remote = await fetchRemoteState();
+    if (!remote.exists || !remote.state) {
+      throw new Error("No saved site state document was found in MongoDB database.");
+    }
+
     applyingCloudRef.current = true;
-    const next = mergeCloudState(stateRef.current, remote);
+    const next = mergeCloudState(stateRef.current, remote.state);
     stateRef.current = next;
     cloudStateHashRef.current = cloudStateFingerprint(next);
     baseDispatch({ type: "REPLACE", state: next });
     queueMicrotask(() => { applyingCloudRef.current = false; });
-    announce("The site was updated with the existing Firestore data.");
+    announce("Site data was successfully loaded from MongoDB database.", "success");
   };
+
+  const uploadAllToFirestore = saveStateToDatabase;
+  const loadAllFromFirestore = loadStateFromDatabase;
 
   const signOutSession = async () => {
     cloudUnsubscribeRef.current?.();
@@ -1493,7 +1554,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, [dispatch]);
 
   useEffect(() => {
-    if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
+    if (!cloudReady || applyingCloudRef.current) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
     const isAdmin = currentUser?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
     if (!isAdmin) return;
@@ -1501,23 +1562,21 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     if (stateHash === cloudStateHashRef.current) return;
     const timer = setTimeout(() => {
       cloudStateHashRef.current = stateHash;
-      void writeCloudState(state).catch((error) => {
+      void saveRemoteState(state).catch((error) => {
         cloudStateHashRef.current = "";
-        console.warn("Auto-sync write notice:", error);
+        console.warn("MongoDB auto-sync write notice:", error);
       });
-      if (isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "")) {
-        const rosterHash = JSON.stringify(state.users.map((student) => [student.id, student.email, student.aliases, student.name, student.grade, student.house, student.role, student.status, student.councilTitle, student.department]));
-        if (rosterHash !== rosterHashRef.current) {
-          rosterHashRef.current = rosterHash;
-          void syncCloudRoster(state.users).catch((error) => console.warn("Roster sync notice:", error));
-        }
+      // Optional best-effort sync to Firestore if administrator has Google session
+      if (firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+        void writeCloudState(state).catch(() => {});
+        void syncCloudRoster(state.users).catch(() => {});
       }
     }, 900);
     return () => clearTimeout(timer);
-  }, [state, firebaseStatus, cloudReady]);
+  }, [state, cloudReady]);
 
   useEffect(() => {
-    if (!cloudReady || applyingCloudRef.current || firebaseStatus !== "connected" || !firebaseAuth.currentUser) return;
+    if (!cloudReady || applyingCloudRef.current) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
     if (!currentUser || currentUser.role === "admin") return;
     const activityHash = JSON.stringify({
@@ -1531,10 +1590,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     if (activityHash === activityHashRef.current) return;
     activityHashRef.current = activityHash;
     const timer = setTimeout(() => {
-      void syncFirebaseUserActivity(state).catch((error) => announce(`Your activity could not sync: ${error instanceof Error ? error.message : "unknown error"}`, "error"));
+      void syncRemoteUserActivity(currentUser, state).catch((error) => {
+        console.warn("MongoDB student activity sync notice:", error);
+      });
+      if (firebaseAuth.currentUser) {
+        void syncFirebaseUserActivity(state).catch(() => {});
+      }
     }, 700);
     return () => clearTimeout(timer);
-  }, [state, firebaseStatus, cloudReady]);
+  }, [state, cloudReady]);
 
   const sessionUserId = state.session?.userId;
   const user = sessionUserId
@@ -1569,7 +1633,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   };
 
   return (
-    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
+    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, saveStateToDatabase, loadStateFromDatabase, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
       {children}
     </HubContext.Provider>
   );

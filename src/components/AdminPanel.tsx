@@ -32,7 +32,7 @@ export default function AdminPanel() {
     { id: "branding", label: "Branding & Content", icon: Palette },
     { id: "images", label: "Active Images (Max 5)", icon: Layers3 },
     { id: "broadcast", label: "Push Notifications", icon: Bell },
-    { id: "sync", label: "Firestore Sync", icon: DatabaseZap },
+    { id: "sync", label: "MongoDB Sync", icon: DatabaseZap },
     { id: "feedback", label: `Site Feedback (${state.siteRatings.length})`, icon: Star },
     { id: "terms", label: "Terms & Credits", icon: FileText },
   ];
@@ -41,7 +41,7 @@ export default function AdminPanel() {
   return (
     <div>
       <div className="admin-intro">
-        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, control Council Hub access, synchronize all site and branding data to Firestore, reset credentials, manage executive roles, and customise platform branding.</p></div>
+        <div><div className="admin-heading"><Shield /><h1>Council System<br />Administration</h1></div><p className="admin-description">Add or remove students, control Council Hub access, synchronize all site and branding data to the integrated MongoDB database, reset credentials, manage executive roles, and customise platform branding.</p></div>
         <nav className="admin-tabs" role="tablist" aria-label="Administration sections">
           {tabs.map((tab, i) => <button key={tab.id} id={`admin-tab-${tab.id}`} role="tab" aria-selected={section === tab.id} aria-controls="admin-content" tabIndex={section === tab.id ? 0 : -1} onClick={() => select(tab.id)} onKeyDown={(e) => {
             if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length]; select(next.id); requestAnimationFrame(() => document.getElementById(`admin-tab-${next.id}`)?.focus()); }

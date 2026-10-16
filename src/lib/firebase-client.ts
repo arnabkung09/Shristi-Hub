@@ -236,10 +236,6 @@ export async function syncFirebaseUserActivity(state: HubState) {
   }, { merge: true });
 }
 
-async function tokenId(token: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return Array.from(new Uint8Array(digest)).slice(0, 16).map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 export async function enableFirebasePush(student: Student) {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
     throw new Error("Web push requires a browser supporting service workers.");
@@ -553,7 +549,7 @@ export async function triggerOSNotification(input: {
 
   // 3. Prevent duplicate native popups if the user is already viewing the app actively
   if (typeof document !== "undefined" && document.visibilityState === "visible") {
-    return { delivered: true, method: "in-app-toast" };
+    return { delivered: true, mode: "desktop" };
   }
 
   // Request permission if not determined yet

@@ -4,6 +4,7 @@ import {
   Eye, EyeOff, KeyRound, LoaderCircle, Mail, ShieldAlert, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 import { DEVELOPMENT_BUILD, useHub } from "../store/hub";
+import { DUMMY_STUDENT } from "../lib/seed";
 import { Crest } from "./ui";
 
 type LoginMode = "google" | "password";

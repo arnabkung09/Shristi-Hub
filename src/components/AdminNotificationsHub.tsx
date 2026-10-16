@@ -1,17 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertCircle,
   Bell,
   CalendarDays,
   Check,
   CheckCircle2,
   CircleCheck,
   Clock,
-  ExternalLink,
   Flame,
   History,
   Laptop,
-  Layers,
   Megaphone,
   MessageSquare,
   Monitor,
@@ -27,14 +24,13 @@ import {
   Tablet,
   Trash2,
   Trophy,
-  UserX,
   Users,
   Vote,
   Wifi,
 } from "lucide-react";
 import { audienceLabel, formatTemplate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
 import { houseFullName, PRIMARY_ADMIN_ID } from "../lib/admin";
-import type { House as HouseKey, NotificationTemplate, Student } from "../lib/types";
+import type { House as HouseKey, HouseMessage, NotificationTemplate, Student } from "../lib/types";
 import { chime, postBus } from "../lib/realtime";
 import {
   enableFirebasePush,
@@ -624,7 +620,7 @@ export default function AdminNotificationsHub() {
 
   const handleSeedAlexSuggestion = () => {
     const existing = state.suggestions.find(
-      (s) => s.authorId === "stu-alex-99" && s.status === "submitted"
+      (s) => s.authorId === "stu-alex-99" && s.status === "pending"
     );
     if (existing) {
       announce("Alex Rivera already has a pending suggestion waiting for admin reply!");
@@ -636,15 +632,13 @@ export default function AdminNotificationsHub() {
       suggestion: {
         id: uid(),
         authorId: "stu-alex-99",
-        authorName: "Alex Rivera",
         authorRole: "student",
         authorLabel: "Alex Rivera · Grade 9 / Blue House",
         category: "Facilities",
         text: "Can the student council please install additional laptop charging stations and whiteboards in the Blue House study zone?",
-        status: "submitted",
+        status: "pending",
         timestamp: Date.now(),
         anonymous: false,
-        verified: true,
       },
     });
     announce("Test suggestion from Alex Rivera created. Redirecting to Voice & Polls to reply...");
@@ -653,12 +647,14 @@ export default function AdminNotificationsHub() {
 
   const handlePostBlueHouseMessage = async () => {
     try {
-      const message = {
+      const message: HouseMessage = {
         id: uid(),
         house: "Blue" as House,
         title: "Blue House Team Assembly Notice",
         body: "All Blue House members please assemble at the gymnasium today at 3 PM for house sports preparation.",
-        author: user.name,
+        kind: "message",
+        authorId: user.id,
+        authorName: user.name,
         authorRole: user.role,
         timestamp: Date.now(),
       };

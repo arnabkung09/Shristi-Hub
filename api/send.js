@@ -1,26 +1,5 @@
 import webpush from 'web-push';
-import { MongoClient } from 'mongodb';
-
-let clientPromise;
-function getMongoClient() {
-  if (!clientPromise) {
-    if (!process.env.DATABASE_URI) {
-      throw new Error('DATABASE_URI environment variable is missing');
-    }
-    const client = new MongoClient(process.env.DATABASE_URI, {
-      serverSelectionTimeoutMS: 5000 // 5 seconds timeout
-    });
-    if (process.env.NODE_ENV === 'development') {
-      if (!global._mongoClientPromise) {
-        global._mongoClientPromise = client.connect();
-      }
-      clientPromise = global._mongoClientPromise;
-    } else {
-      clientPromise = client.connect();
-    }
-  }
-  return clientPromise;
-}
+import { getDb, extractAuth } from './_db.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -35,42 +14,14 @@ export default async function handler(req, res) {
   try {
     await Promise.race([
       (async () => {
-        const authHeader = req.headers.authorization;
-        let idToken = null;
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-          idToken = authHeader.split('Bearer ')[1];
-        } else if (req.headers['x-admin-secret'] && process.env.ADMIN_SECRET && req.headers['x-admin-secret'] === process.env.ADMIN_SECRET) {
-          idToken = 'secret-authenticated';
-        } else if (process.env.NODE_ENV !== 'production') {
-          idToken = 'dev-preview';
-        } else {
-          throw new Error('Unauthorized: No token provided');
-        }
-
-        // Lightweight JWT decode instead of heavy firebase-admin SDK
-        // which crashes on Vercel Node 18+ bundler environments
-        let decodedToken = null;
-        if (idToken && idToken.includes('.')) {
-          try {
-            const parts = idToken.split('.');
-            if (parts.length >= 2 && parts[1]) {
-              const base64Url = parts[1];
-              const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-              const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-                  return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-              }).join(''));
-              decodedToken = JSON.parse(jsonPayload);
-            }
-          } catch (e) {
-            // Non-fatal if dev token format
-            console.warn('Token decode note:', e.message);
-          }
+        const auth = extractAuth(req);
+        if (!auth.isAuthorized) {
+          throw new Error('Unauthorized: No valid session token or admin secret provided');
         }
 
         const { title, body, data, urgent, actionTab, audience, targetDeviceId } = req.body;
 
-        const dbClient = await getMongoClient();
-        const db = dbClient.db();
+        const db = await getDb();
         const collection = db.collection('devices');
 
         const query = {};
@@ -89,6 +40,26 @@ export default async function handler(req, res) {
         }
 
         const devices = await collection.find(query).toArray();
+
+        // Also record broadcast into MongoDB for polling devices
+        const notificationId = `push-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        try {
+          const broadcastsCollection = db.collection('broadcasts');
+          await broadcastsCollection.insertOne({
+            id: notificationId,
+            title: title || 'Shristi Alert',
+            body: body || '',
+            urgent: Boolean(urgent),
+            actionTab: actionTab || 'dashboard',
+            audience: audience || { kind: 'all' },
+            senderName: auth.user?.name || 'Administrator',
+            targetDeviceId: targetDeviceId || null,
+            timestamp: Date.now(),
+            createdAt: new Date(),
+          });
+        } catch (bErr) {
+          console.warn('Broadcast record notice:', bErr);
+        }
 
         if (devices.length === 0) {
           return { success: true, successCount: 0, failureCount: 0, targetedDevices: 0, message: 'No registered push devices found for target.' };
@@ -129,7 +100,7 @@ export default async function handler(req, res) {
 
         await Promise.all(promises);
 
-        return { success: true, successCount, failureCount };
+        return { success: true, successCount, failureCount, targetedDevices: devices.length };
       })(),
       timeoutPromise
     ]).then(result => res.status(200).json(result));

@@ -4,9 +4,9 @@ import PushAlertsButton from './PushAlertsButton';
 import { useHub } from '../store/hub';
 
 export default function PushAlertsPrompt() {
-  const { state } = useHub();
+  const { user } = useHub();
   const [show, setShow] = useState(false);
-  const currentUser = state.users.find((u) => u.isCurrent);
+  const currentUser = user;
 
   useEffect(() => {
     // Check if user is signed in
