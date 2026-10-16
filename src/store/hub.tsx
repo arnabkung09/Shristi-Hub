@@ -901,7 +901,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
       ? {
           ...seed.branding,
           ...parsed.branding,
-          logoUrl: parsed.branding.logoUrl || seed.branding.logoUrl,
+          logoUrl: parsed.branding.logoUrl !== undefined ? parsed.branding.logoUrl : seed.branding.logoUrl,
         }
       : seed.branding,
     legal: parsed.legal
@@ -922,9 +922,9 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
     houseMessages: parsed.houseMessages ?? seed.houseMessages,
     houses: parsed.houses
       ? {
-          Blue: { ...seed.houses.Blue, ...parsed.houses.Blue, logoUrl: parsed.houses.Blue?.logoUrl || seed.houses.Blue.logoUrl },
-          Red: { ...seed.houses.Red, ...parsed.houses.Red, logoUrl: parsed.houses.Red?.logoUrl || seed.houses.Red.logoUrl },
-          Green: { ...seed.houses.Green, ...parsed.houses.Green, logoUrl: parsed.houses.Green?.logoUrl || seed.houses.Green.logoUrl },
+          Blue: { ...seed.houses.Blue, ...parsed.houses.Blue, logoUrl: parsed.houses.Blue?.logoUrl !== undefined ? parsed.houses.Blue.logoUrl : seed.houses.Blue.logoUrl },
+          Red: { ...seed.houses.Red, ...parsed.houses.Red, logoUrl: parsed.houses.Red?.logoUrl !== undefined ? parsed.houses.Red.logoUrl : seed.houses.Red.logoUrl },
+          Green: { ...seed.houses.Green, ...parsed.houses.Green, logoUrl: parsed.houses.Green?.logoUrl !== undefined ? parsed.houses.Green.logoUrl : seed.houses.Green.logoUrl },
         }
       : seed.houses,
     siteRatings: parsed.siteRatings ?? seed.siteRatings,
@@ -1041,6 +1041,12 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, [state.theme]);
 
   useEffect(() => {
+    if (state.branding?.schoolName) {
+      document.title = `${state.branding.schoolName} | ${state.branding.boardName || "Student Council"}`;
+    }
+  }, [state.branding?.schoolName, state.branding?.boardName]);
+
+  useEffect(() => {
     const disconnect = connectBus((msg) => {
       if (msg.type === "state") {
         const incoming = msg.state as HubState;
@@ -1059,44 +1065,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     return disconnect;
   }, []);
 
-  // Bootstrap site state from MongoDB immediately on load
+  // Bootstrap site state from MongoDB immediately on load and sync on tab focus
   useEffect(() => {
     let active = true;
-    const initMongoState = async () => {
-      try {
-        const remote = await fetchRemoteState();
-        if (active && remote.exists && remote.state) {
-          applyingCloudRef.current = true;
-          const next = mergeCloudState(stateRef.current, remote.state);
-          stateRef.current = next;
-          cloudStateHashRef.current = cloudStateFingerprint(next);
-          baseDispatch({ type: "REPLACE", state: next });
-          queueMicrotask(() => { applyingCloudRef.current = false; });
-          if (!cloudBootstrappedRef.current) {
-            cloudBootstrappedRef.current = true;
-            announce("Loaded site data from integrated MongoDB database.", "success");
-          }
-        }
-        if (active) {
-          setCloudReady(true);
-          cloudReadyRef.current = true;
-        }
-      } catch (err) {
-        console.warn("MongoDB initial load notice:", err);
-        if (active) {
-          setCloudReady(true);
-          cloudReadyRef.current = true;
-        }
-      }
-    };
-    void initMongoState();
 
-    // Background polling interval to synchronize changes across tabs and devices
-    const pollInterval = setInterval(async () => {
+    const pullRemoteState = async () => {
       if (!active || applyingCloudRef.current) return;
       try {
         const remote = await fetchRemoteState();
-        if (active && remote.exists && remote.state && remote.version) {
+        if (active && remote.exists && remote.state) {
           const currentHash = cloudStateFingerprint(stateRef.current);
           const remoteHash = cloudStateFingerprint(remote.state as HubState);
           if (currentHash !== remoteHash) {
@@ -1106,14 +1083,40 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             cloudStateHashRef.current = cloudStateFingerprint(next);
             baseDispatch({ type: "REPLACE", state: next });
             queueMicrotask(() => { applyingCloudRef.current = false; });
+            if (!cloudBootstrappedRef.current) {
+              cloudBootstrappedRef.current = true;
+              announce("Loaded site configuration from integrated MongoDB database.", "success");
+            }
           }
         }
-      } catch {}
-    }, 10000);
+        if (active && !cloudReadyRef.current) {
+          setCloudReady(true);
+          cloudReadyRef.current = true;
+        }
+      } catch (err) {
+        console.warn("MongoDB state sync notice:", err);
+        if (active && !cloudReadyRef.current) {
+          setCloudReady(true);
+          cloudReadyRef.current = true;
+        }
+      }
+    };
+
+    void pullRemoteState();
+
+    // Background interval to pull changes across devices every 8 seconds
+    const pollInterval = setInterval(pullRemoteState, 8000);
+
+    // Immediate sync when user focuses or switches back to tab
+    const handleFocus = () => { void pullRemoteState(); };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
 
     return () => {
       active = false;
       clearInterval(pollInterval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
     };
   }, []);
 

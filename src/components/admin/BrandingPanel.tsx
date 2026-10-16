@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FileText, Home, Image, RotateCcw, Save, Scale, Type } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, Home, Image, LoaderCircle, RotateCcw, Save, Scale, Type } from "lucide-react";
 import { useHub } from "../../store/hub";
 import { DEFAULT_BRANDING, DEFAULT_HOUSES, DEFAULT_LEGAL, renderRichText } from "../../lib/content";
 import { HOUSES } from "../../lib/seed";
@@ -7,30 +7,76 @@ import type { House, HouseBranding } from "../../lib/types";
 import { Crest, HouseMark } from "../ui";
 
 export default function BrandingPanel() {
-  const { state, dispatch, announce } = useHub();
+  const { state, dispatch, announce, saveStateToDatabase } = useHub();
   const [branding, setBranding] = useState(state.branding);
   const [legal, setLegal] = useState(state.legal);
   const [houses, setHouses] = useState<Record<House, HouseBranding>>(state.houses);
   const [error, setError] = useState("");
   const [view, setView] = useState<"terms" | "credits">("terms");
 
-  const saveBranding = () => {
-    try { dispatch({ type: "SET_BRANDING", branding }); announce("Branding updated across the platform."); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : "Unable to save branding."); }
-  };
-  const saveLegal = () => {
-    try { dispatch({ type: "SET_LEGAL", legal }); announce("Terms and credits pages updated."); setError(""); }
-    catch (e) { setError(e instanceof Error ? e.message : "Unable to save content."); }
-  };
-  const saveHouses = () => {
+  const [savingBranding, setSavingBranding] = useState(false);
+  const [savingHouses, setSavingHouses] = useState(false);
+  const [savingLegal, setSavingLegal] = useState(false);
+
+  useEffect(() => {
+    setBranding(state.branding);
+  }, [state.branding]);
+
+  useEffect(() => {
+    setHouses(state.houses);
+  }, [state.houses]);
+
+  useEffect(() => {
+    setLegal(state.legal);
+  }, [state.legal]);
+
+  const saveBranding = async () => {
     try {
+      setSavingBranding(true);
+      setError("");
+      dispatch({ type: "SET_BRANDING", branding });
+      await saveStateToDatabase();
+      announce("Council branding updated across all site pages, devices, and saved to MongoDB.", "success");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save branding.");
+      announce(e instanceof Error ? e.message : "Unable to save branding to database.", "error");
+    } finally {
+      setSavingBranding(false);
+    }
+  };
+
+  const saveLegal = async () => {
+    try {
+      setSavingLegal(true);
+      setError("");
+      dispatch({ type: "SET_LEGAL", legal });
+      await saveStateToDatabase();
+      announce("Terms and credits updated across all site pages, devices, and saved to MongoDB.", "success");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save content.");
+      announce(e instanceof Error ? e.message : "Unable to save legal content to database.", "error");
+    } finally {
+      setSavingLegal(false);
+    }
+  };
+
+  const saveHouses = async () => {
+    try {
+      setSavingHouses(true);
+      setError("");
       (HOUSES as readonly House[]).forEach((h) => {
         dispatch({ type: "SET_HOUSE_BRANDING", house: h, name: houses[h].name, logoUrl: houses[h].logoUrl });
       });
-      announce("House names and logos updated across the site.");
-      setError("");
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to save house branding."); }
+      await saveStateToDatabase();
+      announce("House names and logos updated across all site pages, devices, and saved to MongoDB.", "success");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to save house branding.");
+      announce(e instanceof Error ? e.message : "Unable to save house branding to database.", "error");
+    } finally {
+      setSavingHouses(false);
+    }
   };
+
   const onHouseFile = (house: House, file: File | undefined) => {
     if (!file) return;
     if (file.size > 300 * 1024) { setError("Choose a logo smaller than 300 KB."); return; }
@@ -71,7 +117,10 @@ export default function BrandingPanel() {
           <label className="form-field"><span>Footer credit line</span><input className="control" value={branding.footerNote} maxLength={120} onChange={(e) => setBranding({ ...branding, footerNote: e.target.value })} /></label>
           {error && <p role="alert" className="inline-message error">{error}</p>}
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-primary" onClick={saveBranding}><Save />Save branding</button>
+            <button className="btn btn-primary" disabled={savingBranding} onClick={saveBranding}>
+              {savingBranding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save />}
+              Save branding
+            </button>
             <button className="btn btn-secondary" onClick={() => { setBranding({ ...DEFAULT_BRANDING }); setError(""); }}><RotateCcw />Reset to default</button>
           </div>
         </div>
@@ -97,7 +146,10 @@ export default function BrandingPanel() {
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-primary" onClick={saveLegal}><Save />Save content</button>
+            <button className="btn btn-primary" disabled={savingLegal} onClick={saveLegal}>
+              {savingLegal ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save />}
+              Save content
+            </button>
             <button className="btn btn-secondary" onClick={() => setLegal({ ...DEFAULT_LEGAL })}><RotateCcw />Reset to default</button>
           </div>
         </div>
@@ -131,7 +183,10 @@ export default function BrandingPanel() {
         ))}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <button className="btn btn-primary" onClick={saveHouses}><Save />Save house branding</button>
+        <button className="btn btn-primary" disabled={savingHouses} onClick={saveHouses}>
+          {savingHouses ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save />}
+          Save house branding
+        </button>
         <button className="btn btn-secondary" onClick={() => setHouses({ Blue: { ...DEFAULT_HOUSES.Blue }, Red: { ...DEFAULT_HOUSES.Red }, Green: { ...DEFAULT_HOUSES.Green } })}><RotateCcw />Reset houses</button>
       </div>
     </section>
