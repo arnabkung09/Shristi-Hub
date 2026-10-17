@@ -1,20 +1,13 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Eye, EyeOff, KeyRound, LoaderCircle, Mail, ShieldAlert, ShieldCheck, Sparkles, Users,
+  LoaderCircle, ShieldAlert, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
 import { DEVELOPMENT_BUILD, useHub } from "../store/hub";
-import { DUMMY_STUDENT } from "../lib/seed";
 import { Crest } from "./ui";
 
-type LoginMode = "google" | "password";
-
 export default function Login() {
-  const { state, signInGoogle, signInPassword, signInDirect, firebaseStatus, announce } = useHub();
-  const [mode, setMode] = useState<LoginMode>("google");
-  const [identifier, setIdentifier] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const { state, signInGoogle, signInDirect, firebaseStatus, announce } = useHub();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -39,69 +32,6 @@ export default function Login() {
         return;
       }
       setError(err instanceof Error ? err.message : "Google sign-in failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handlePasswordSignIn = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    setError(null);
-    const rawId = identifier.trim().toLowerCase();
-    if (!rawId) {
-      setError("Please enter your school email, ID, or verified alias.");
-      return;
-    }
-    if (!password) {
-      setError("Please enter your password.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Find matching user by email, ID, name, or aliases
-      let targetUser = state.users.find(
-        (u) =>
-          u.name.toLowerCase() === rawId ||
-          u.email.toLowerCase() === rawId ||
-          u.id.toLowerCase() === rawId ||
-          (u.aliases ?? []).some((a) => a.toLowerCase() === rawId)
-      );
-
-      if (
-        !targetUser &&
-        (rawId === DUMMY_STUDENT.email.toLowerCase() ||
-          rawId === DUMMY_STUDENT.id.toLowerCase() ||
-          rawId === DUMMY_STUDENT.name.toLowerCase() ||
-          rawId === "stu-alex-99" ||
-          rawId === "alex rivera" ||
-          rawId === "alex")
-      ) {
-        targetUser = DUMMY_STUDENT;
-      }
-
-      if (!targetUser) {
-        throw new Error("No account found matching this email or ID on the school roster.");
-      }
-
-      // Check if signing in with an added alias email
-      const isAlias =
-        targetUser.email.toLowerCase() !== rawId &&
-        (targetUser.aliases ?? []).some((a) => a.toLowerCase() === rawId);
-
-      const isVerified =
-        !isAlias || (targetUser.verifiedAliases ?? []).includes(rawId);
-
-      if (isAlias && !isVerified) {
-        setAliasPending({ aliasEmail: rawId, schoolEmail: targetUser.email });
-        announce("Ask a council administrator to confirm this email on the school roster.");
-        return;
-      }
-
-      // If verified or using primary school email, proceed with password verification
-      await signInPassword(rawId, password);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed. Please verify credentials.");
     } finally {
       setLoading(false);
     }
@@ -231,109 +161,59 @@ export default function Login() {
             ) : (
               /* Standard Login Screen */
               <div>
-                <h2 className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-                  Sign in
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-3 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                    <Sparkles className="h-3 w-3" /> Institutional Access
+                  </span>
+                </div>
+                <h2 className="mt-2.5 font-display text-2xl font-bold text-slate-900 dark:text-white">
+                  Sign in to House Hub
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Select your authentication method to access the council hub.
+                  Access your account using your institutional Google Workspace or verified Gmail address.
                 </p>
 
-                {/* Sign-in Mode Tabs */}
-                <div className="mt-5 flex rounded-xl border border-black/[0.08] bg-black/[0.02] p-1 dark:border-white/[0.08] dark:bg-white/[0.03]">
+                <div className="mt-6 space-y-4">
                   <button
                     type="button"
-                    className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
-                      mode === "google"
-                        ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
-                        : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                    onClick={() => setMode("google")}
+                    className="btn btn-primary w-full !min-h-[50px] flex items-center justify-center gap-3 text-sm font-semibold shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]"
+                    onClick={() => void handleGoogleSignIn()}
+                    disabled={working}
                   >
-                    Google Workspace
+                    {working ? (
+                      <LoaderCircle className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24">
+                        <path
+                          fill="#4285F4"
+                          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                        />
+                        <path
+                          fill="#EA4335"
+                          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                        />
+                      </svg>
+                    )}
+                    <span>{working ? "Connecting with Google..." : "Continue with Google / Gmail"}</span>
                   </button>
-                  <button
-                    type="button"
-                    className={`flex-1 rounded-lg py-1.5 text-xs font-bold transition-all ${
-                      mode === "password"
-                        ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
-                        : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                    onClick={() => setMode("password")}
-                  >
-                    School ID / Password
-                  </button>
-                </div>
 
-                {mode === "google" ? (
-                  <div className="mt-6 space-y-4">
-                    <button
-                      type="button"
-                      className="btn btn-primary w-full !min-h-[48px]"
-                      onClick={() => void handleGoogleSignIn()}
-                      disabled={working}
-                    >
-                      {working ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <span className="grid h-5 w-5 place-items-center rounded-full bg-white font-bold text-blue-600">
-                          G
-                        </span>
-                      )}
-                      {working ? "Verifying Google token..." : "Sign in with Google"}
-                    </button>
-                    <p className="text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
-                      Google OAuth verifies your institutional address against the school roster.
+                  <div className="rounded-2xl border border-black/[0.06] bg-slate-50/80 p-3.5 text-xs leading-relaxed text-slate-600 dark:border-white/[0.06] dark:bg-ink-800/60 dark:text-slate-400">
+                    <p className="font-semibold text-slate-800 dark:text-slate-200">
+                      Fast & Secure Single Sign-On
+                    </p>
+                    <p className="mt-1">
+                      Sign-in is exclusively managed via Google Authentication. Use your institutional <code className="rounded bg-indigo-50 px-1 py-0.5 font-mono text-[11px] text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">@shristiacademy.edu.np</code> address or registered Gmail account.
                     </p>
                   </div>
-                ) : (
-                  <form onSubmit={handlePasswordSignIn} className="mt-5 space-y-3.5">
-                    <label className="form-field">
-                      <span>School Email, ID, or Verified Alias</span>
-                      <div className="relative">
-                        <input
-                          required
-                          type="text"
-                          className="control !pl-9"
-                          placeholder="e.g. 72019arnab@shristiacademy.edu.np"
-                          value={identifier}
-                          onChange={(e) => setIdentifier(e.target.value)}
-                        />
-                        <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                      </div>
-                    </label>
-
-                    <label className="form-field">
-                      <span>Password</span>
-                      <div className="relative">
-                        <input
-                          required
-                          type={showPassword ? "text" : "password"}
-                          className="control !pl-9 !pr-10"
-                          placeholder="••••••••"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                        />
-                        <KeyRound className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                        <button
-                          type="button"
-                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-200"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </label>
-
-                    <button
-                      type="submit"
-                      disabled={working}
-                      className="btn btn-primary w-full !min-h-[44px] mt-2"
-                    >
-                      {working ? <LoaderCircle className="animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
-                      {working ? "Authenticating..." : "Sign in to Hub"}
-                    </button>
-                  </form>
-                )}
+                </div>
 
                 {error && (
                   <p className="mt-4 rounded-xl bg-red-500/10 px-3.5 py-2.5 text-xs font-medium leading-relaxed text-red-600 dark:text-red-300">

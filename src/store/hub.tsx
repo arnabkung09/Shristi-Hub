@@ -1180,18 +1180,25 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, []);
 
   const resolveGoogleStudent = (email: string) => {
+    const normalized = email.trim().toLowerCase();
     const direct = stateRef.current.users.find(
-      (student) => student.email.toLowerCase() === email || student.aliases?.some((alias) => alias.toLowerCase() === email)
+      (student) => student.email.toLowerCase() === normalized || student.aliases?.some((alias) => alias.toLowerCase() === normalized)
     );
     if (direct) return direct;
-    if (isPrimaryAdmin(email)) {
+    if (isPrimaryAdmin(normalized)) {
       return stateRef.current.users.find((u) => u.id === PRIMARY_ADMIN_ID || u.email.toLowerCase() === PRIMARY_ADMIN_EMAIL.toLowerCase());
+    }
+    // Match @gmail.com accounts whose username prefix matches student's institutional email username
+    if (normalized.endsWith("@gmail.com")) {
+      const username = normalized.replace("@gmail.com", "");
+      const match = stateRef.current.users.find((student) => student.email.toLowerCase().replace(/@.*$/, "") === username);
+      if (match) return match;
     }
     return undefined;
   };
 
   const connectAuthenticatedUser = async (googleEmail: string) => {
-    const normalized = googleEmail.toLowerCase();
+    const normalized = googleEmail.trim().toLowerCase();
     const student = resolveGoogleStudent(normalized);
     if (!student) {
       await signOutFirebase();
@@ -1211,17 +1218,16 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       throw new Error(`ALIAS_NOT_CONFIRMED:${encodeURIComponent(normalized)}:${encodeURIComponent(student.email)}`);
     }
 
-    // Firestore provisioning is best-effort: a signed-in roster member must still be able
-    // to use the hub when rules are not deployed yet, while being told cloud sync is off.
-    try {
-      await provisionFirebaseProfile(student, stateRef.current.users);
-    } catch (error) {
-      console.warn("Firestore profile provision notice:", error);
-    }
+    // Instant UI dispatch: Log user in with zero delay
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseEmail(normalized);
-    setNeedsPasswordSetup(!firebaseUserHasPassword());
+    setNeedsPasswordSetup(false);
     setFirebaseStatus("connected");
+
+    // Profile provisioning is non-blocking and executes in the background
+    void provisionFirebaseProfile(student, stateRef.current.users).catch((error) => {
+      console.warn("Firestore profile provision notice:", error);
+    });
 
     cloudUnsubscribeRef.current?.();
     cloudReadyRef.current = false;

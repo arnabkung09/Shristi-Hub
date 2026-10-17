@@ -19,6 +19,16 @@ const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firebaseDb = getFirestore(app);
 
+// Pre-initialize persistence eagerly on module load so sign-in does not wait on it
+if (typeof window !== "undefined") {
+  setPersistence(firebaseAuth, browserLocalPersistence).catch(() => {});
+}
+
+// Pre-initialize Google Auth Provider with email & profile scopes
+const googleAuthProvider = new GoogleAuthProvider();
+googleAuthProvider.addScope("email");
+googleAuthProvider.addScope("profile");
+
 export const PRIMARY_ADMIN_EMAILS = [
   "72019arnab@shristiacademy.edu.np",
   "arnabkung@gmail.com",
@@ -29,10 +39,8 @@ export const isPrimaryAdmin = (email?: string | null) =>
 
 
 export async function signInWithGoogle() {
-  await setPersistence(firebaseAuth, browserLocalPersistence);
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: "select_account" });
-  return (await signInWithPopup(firebaseAuth, provider)).user;
+  // Direct popup launch preserves synchronous browser user-gesture chain (0ms delay, no popup blocker)
+  return (await signInWithPopup(firebaseAuth, googleAuthProvider)).user;
 }
 export const observeFirebaseAuth = (callback: (user: FirebaseUser | null) => void) => onAuthStateChanged(firebaseAuth, callback);
 export const signOutFirebase = () => signOut(firebaseAuth);
@@ -128,46 +136,34 @@ export async function provisionFirebaseProfile(student: Student, roster: Student
   const studentData = cloudStudent(student);
 
   if (isPrimaryAdmin(current.email)) {
-    try {
-      await syncCloudRoster(roster);
-    } catch (e) {
-      console.warn("Roster sync notice during provisioning:", e);
-    }
+    // Non-blocking background sync so login is never delayed by batch uploads
+    syncCloudRoster(roster).catch((e) => console.warn("Roster sync notice during provisioning:", e));
   }
 
-  // Ensure email index and roster documents exist
-  try {
-    const emailRef = doc(firebaseDb, "emailIndex", emailDocId(current.email));
-    await setDoc(emailRef, {
-      studentId: student.id,
-      email: current.email.toLowerCase(),
-      role: student.role,
-      status: student.status,
-    }, { merge: true });
-    await setDoc(doc(firebaseDb, "roster", student.id), studentData, { merge: true });
-  } catch (err) {
-    console.warn("Index/roster doc setup notice:", err);
-  }
-
+  // Ensure email index, roster document, and user profile are written in parallel
+  const emailRef = doc(firebaseDb, "emailIndex", emailDocId(current.email));
+  const rosterRef = doc(firebaseDb, "roster", student.id);
   const profileRef = doc(firebaseDb, "users", current.uid);
+
   try {
-    const existingProfile = await getDoc(profileRef).catch(() => null);
-    if (!existingProfile?.exists()) {
-      await setDoc(profileRef, {
+    await Promise.all([
+      setDoc(emailRef, {
+        studentId: student.id,
+        email: current.email.toLowerCase(),
+        role: student.role,
+        status: student.status,
+      }, { merge: true }),
+      setDoc(rosterRef, studentData, { merge: true }),
+      setDoc(profileRef, {
         ...studentData,
         status: "active",
         firebaseUid: current.uid,
         googleEmail: current.email.toLowerCase(),
         updatedAt: serverTimestamp(),
-      });
-    } else {
-      await setDoc(profileRef, { updatedAt: serverTimestamp() }, { merge: true });
-    }
+      }, { merge: true }),
+    ]);
   } catch (err) {
-    console.warn("users/{uid} profile write notice:", err);
-    if (!isPrimaryAdmin(current.email)) {
-      throw err;
-    }
+    console.warn("Index/roster/profile write notice:", err);
   }
   return studentData;
 }

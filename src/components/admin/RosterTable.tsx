@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, CirclePlus,
-  Clock, Download, Eye, EyeOff, GraduationCap, KeyRound, LockKeyhole, MailPlus,
+  Clock, Download, GraduationCap, LockKeyhole, MailPlus,
   Pencil, RotateCcw, School, Search, ShieldCheck, Trash2, UserCheck, UserPlus,
 } from "lucide-react";
 import { useHub } from "../../store/hub";
 import type { House, Role, Student } from "../../lib/types";
 import { GRADES, HOUSES } from "../../lib/seed";
 import {
-  buildStudentRecord, generateAccountPassword, houseFullName, houseLogo, PRIMARY_ADMIN_ID,
+  buildStudentRecord, houseFullName, houseLogo, PRIMARY_ADMIN_ID,
   publicRoster, downloadJson,
 } from "../../lib/admin";
 import { assertInstitutionalEmail } from "../../lib/ssot-auth";
@@ -16,7 +16,7 @@ import { ROSTER_SOURCE_ISSUES } from "../../lib/whitelist-seed";
 import { Modal } from "../ui";
 
 type DatabaseTab = "students" | "teachers" | "classes";
-type RowAction = { kind: "edit" | "password" | "activation" | "remove" | "emails"; student: Student };
+type RowAction = { kind: "edit" | "activation" | "remove" | "emails"; student: Student };
 
 export default function RosterTable() {
   const { state } = useHub();
@@ -341,14 +341,6 @@ export default function RosterTable() {
                         <RotateCcw />
                       </button>
                       <button
-                        className="icon-action purple"
-                        title="Reset password"
-                        aria-label={`Reset password for ${s.name}`}
-                        onClick={() => setAction({ kind: "password", student: s })}
-                      >
-                        <KeyRound />
-                      </button>
-                      <button
                         className="icon-action"
                         style={{ color: "var(--purple)" }}
                         title="Manage login emails & aliases (add verified email)"
@@ -508,9 +500,6 @@ function AddAccountModal({
   const [house, setHouse] = useState<House | null>(type === "classes" ? null : "Blue");
   const [error, setError] = useState("");
 
-  // One random one-time password per account instead of a shared role default.
-  const [defaultPassword] = useState(() => generateAccountPassword());
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -528,7 +517,6 @@ function AddAccountModal({
         grade,
         house,
         role,
-        password: defaultPassword,
       });
 
       dispatch({ type: "ADD_STUDENT", student: newAccount });
@@ -662,7 +650,7 @@ function AddAccountModal({
           </div>
 
           <p className="inline-message">
-            The account receives default password <strong>{defaultPassword}</strong>. You can reset it anytime from database actions.
+            The account authenticates seamlessly via Google Workspace or registered Gmail (<code className="font-mono text-indigo-400">{email || "institutional email"}</code>).
           </p>
 
           {error && <p role="alert" className="inline-message error">{error}</p>}
@@ -696,8 +684,6 @@ function AccountDialog({
   const [name, setName] = useState(student.name);
   const [grade, setGrade] = useState<number | null>(student.grade);
   const [house, setHouse] = useState<House | null>(student.house);
-  const [password, setPassword] = useState("");
-  const [reveal, setReveal] = useState(false);
   const [error, setError] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [sentCodeNotice, setSentCodeNotice] = useState<string | null>(null);
@@ -708,7 +694,6 @@ function AccountDialog({
 
   const titles = {
     edit: `Edit ${student.role === "teacher" ? "Teacher" : student.role === "grade" ? "Class" : "Student"} Profile`,
-    password: "Reset Account Password",
     activation: "Reset Account Activation",
     remove: "Remove Account Entirely",
     emails: "Login Emails & Verified Aliases",
@@ -725,14 +710,6 @@ function AccountDialog({
           house,
         });
       }
-      if (kind === "password" && user) {
-        dispatch({
-          type: "RESET_PASSWORD",
-          actorId: user.id,
-          userId: student.id,
-          password,
-        });
-      }
       if (kind === "activation") {
         dispatch({ type: "RESET_ACTIVATION", userId: student.id });
       }
@@ -741,9 +718,7 @@ function AccountDialog({
       }
 
       announce(
-        kind === "password"
-          ? `Credentials updated for ${student.name}.`
-          : kind === "activation"
+        kind === "activation"
           ? `${student.name}'s account is now pending activation.`
           : kind === "remove"
           ? `${student.name} was removed from the database.`
@@ -801,15 +776,7 @@ function AccountDialog({
       open
       onClose={onClose}
       title={titles[kind]}
-      icon={
-        kind === "password" ? (
-          <KeyRound />
-        ) : kind === "emails" ? (
-          <MailPlus />
-        ) : (
-          <ShieldCheck />
-        )
-      }
+      icon={kind === "emails" ? <MailPlus /> : <ShieldCheck />}
       subtitle={`${student.name} · ${student.email}`}
     >
       {kind === "emails" ? (
@@ -998,67 +965,11 @@ function AccountDialog({
               </>
             )}
 
-            {kind === "password" && (
-              <>
-                <p className="inline-message">
-                  Set a new password for <strong>{student.name}</strong>. Share it with them securely.
-                </p>
-                <label className="form-field">
-                  <span>New password</span>
-                  <div className="relative">
-                    <input
-                      className="control !pr-11"
-                      type={reveal ? "text" : "password"}
-                      value={password}
-                      minLength={8}
-                      required
-                      autoComplete="new-password"
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="At least 8 characters"
-                    />
-                    <button
-                      type="button"
-                      className="icon-action absolute right-1 top-1"
-                      aria-label={reveal ? "Hide password" : "Show password"}
-                      onClick={() => setReveal(!reveal)}
-                    >
-                      {reveal ? <EyeOff /> : <Eye />}
-                    </button>
-                  </div>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => {
-                      setPassword(generateAccountPassword());
-                      setReveal(true);
-                    }}
-                  >
-                    Generate one-time password
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-outline"
-                    onClick={() => {
-                      const bytes = crypto.getRandomValues(new Uint8Array(8));
-                      setPassword(
-                        `SA-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`
-                      );
-                      setReveal(true);
-                    }}
-                  >
-                    <KeyRound /> Generate Random
-                  </button>
-                </div>
-              </>
-            )}
-
             {kind === "activation" && (
               <p className="inline-message">
                 {primary
                   ? "The primary administrator must remain active to prevent lockout."
-                  : `Return ${student.name}'s account to Pending Sign Up? The record and password are preserved. The account will reactivate upon next sign-in.`}
+                  : `Return ${student.name}'s account to Pending Sign Up? The record is preserved. The account will reactivate upon next Google sign-in.`}
               </p>
             )}
 
@@ -1081,14 +992,12 @@ function AccountDialog({
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            {!(primary && kind !== "password") && (
+            {!primary && (
               <button
                 type="submit"
                 className={`btn ${kind === "activation" || kind === "remove" ? "btn-danger" : "btn-primary"}`}
               >
-                {kind === "password"
-                  ? "Set Password"
-                  : kind === "activation"
+                {kind === "activation"
                   ? "Reset Activation"
                   : kind === "remove"
                   ? "Remove Account"
