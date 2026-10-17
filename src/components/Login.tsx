@@ -3,11 +3,11 @@ import { motion } from "framer-motion";
 import {
   LoaderCircle, ShieldAlert, ShieldCheck, Sparkles, Users,
 } from "lucide-react";
-import { DEVELOPMENT_BUILD, useHub } from "../store/hub";
+import { useHub } from "../store/hub";
 import { Crest } from "./ui";
 
 export default function Login() {
-  const { state, signInGoogle, signInDirect, firebaseStatus, announce } = useHub();
+  const { state, signInGoogle, firebaseStatus, announce } = useHub();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -220,37 +220,6 @@ export default function Login() {
                     {error}
                   </p>
                 )}
-
-                {DEVELOPMENT_BUILD && (
-                  /* Local preview builds only: pick a roster account without a Firebase
-                     session. Production builds render nothing here and refuse the call. */
-                  <div className="mt-6 border-t border-black/[0.06] pt-4 dark:border-white/[0.08]">
-                    <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Development sign-in · this build only
-                    </span>
-
-                    <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                      {state.users.filter((account) => account.status === "active" && account.id !== "stu-alex-99").slice(0, 6).map((account) => (
-                        <button
-                          key={account.id}
-                          type="button"
-                          className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] px-2 py-1.5 text-left text-[10px] font-semibold transition-colors hover:border-accent"
-                          onClick={() => {
-                            try {
-                              signInDirect(account.id);
-                            } catch (err) {
-                              setError(err instanceof Error ? err.message : "Unable to open that account.");
-                            }
-                          }}
-                        >
-                          {account.name.split(" ")[0]}
-                          <span className="block text-[8px] font-normal text-slate-400">{account.role}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
               </div>
             )}
           </div>

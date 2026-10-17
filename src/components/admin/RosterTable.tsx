@@ -678,7 +678,7 @@ function AccountDialog({
   action: RowAction;
   onClose: () => void;
 }) {
-  const { state, user, dispatch, announce } = useHub();
+  const { state, dispatch, announce } = useHub();
   const { student, kind } = action;
 
   const [name, setName] = useState(student.name);

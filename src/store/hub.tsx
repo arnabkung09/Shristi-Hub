@@ -7,7 +7,7 @@ import type {
   AppNotification, PointEntry, Poll, PollBallot, SchoolEvent, Student, Suggestion,
   Announcement, Role, House, BroadcastRecord, HouseMessage, CouncilChatMessage,
 } from "../lib/types";
-import { buildSeedState, DUMMY_STUDENT, HOUSES, HOUSE_LABELS } from "../lib/seed";
+import { buildSeedState, HOUSES, HOUSE_LABELS } from "../lib/seed";
 import { connectBus, postBus, chime } from "../lib/realtime";
 import {
   adminResetStudentCredentials,
@@ -32,7 +32,6 @@ import {
   createFirebasePassword,
   observeFirebaseAuth,
   provisionFirebaseProfile,
-  firebaseUserHasPassword,
   signInFirebasePassword,
   signInWithGoogle,
   signOutFirebase,
@@ -106,14 +105,7 @@ export function persistBrandingToCache(state: { branding?: HubState["branding"];
  * exclusively through Firebase Authentication, so no shared password can ever open an
  * administrator session on the live site.
  */
-export const DEVELOPMENT_BUILD = (() => {
-  try {
-    // Keep AI Studio preview and production builds identical in UI and functionality
-    return true;
-  } catch {
-    return true;
-  }
-})();
+export const DEVELOPMENT_BUILD = false;
 
 /** Passwords never reach browser storage in a production build. */
 function withoutStoredCredentials(state: HubState): HubState {
@@ -310,7 +302,7 @@ export function reducer(state: HubState, action: Action): HubState {
     case "REPLACE":
       return action.state;
     case "LOGIN": {
-      const account = state.users.find((u) => u.id === action.userId) ?? (action.userId === DUMMY_STUDENT.id ? DUMMY_STUDENT : undefined);
+      const account = state.users.find((u) => u.id === action.userId);
       if (!account) throw new Error("This account is not on the student roster.");
       const users = state.users.some((u) => u.id === account.id) ? state.users : [...state.users, account];
       return {
@@ -965,7 +957,7 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
         aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
       } as Student;
     });
-    // Retain local / seed users (such as dummy test student Alex Rivera) not in remoteUsers
+    // Retain local / seed users not in remoteUsers
     const remoteIdSet = new Set(remoteMapped.map((u) => u.id));
     const localRemaining = local.users.filter((u) => !remoteIdSet.has(u.id));
     const mergedIdSet = new Set([...remoteIdSet, ...localRemaining.map((u) => u.id)]);
@@ -1295,26 +1287,13 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const signInPassword = async (email: string, password: string) => {
     setFirebaseStatus("connecting");
     const normalized = email.trim().toLowerCase();
-    let localStudent = stateRef.current.users.find(
+    const localStudent = stateRef.current.users.find(
       (s) =>
         s.name.toLowerCase() === normalized ||
         s.email.toLowerCase() === normalized ||
         s.aliases?.some((a) => a.toLowerCase() === normalized) ||
         s.id.toLowerCase() === normalized
     );
-
-    if (
-      !localStudent &&
-      (normalized === DUMMY_STUDENT.email.toLowerCase() ||
-        normalized === DUMMY_STUDENT.id.toLowerCase() ||
-        normalized === DUMMY_STUDENT.name.toLowerCase() ||
-        normalized === "stu-alex-99" ||
-        normalized === "alex rivera" ||
-        normalized === "alex")
-    ) {
-      localStudent = DUMMY_STUDENT;
-      dispatch({ type: "ADD_STUDENT", student: DUMMY_STUDENT });
-    }
 
     try {
       const signedIn = await signInFirebasePassword(email, password);
@@ -1357,11 +1336,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
    */
   const signInDirect = (userId: string) => {
     if (!DEVELOPMENT_BUILD) throw new Error("Preview sign-in is disabled on the live platform.");
-    let student = stateRef.current.users.find((u) => u.id === userId);
-    if (!student && userId === DUMMY_STUDENT.id) {
-      student = DUMMY_STUDENT;
-      dispatch({ type: "ADD_STUDENT", student: DUMMY_STUDENT });
-    }
+    const student = stateRef.current.users.find((u) => u.id === userId);
     if (!student) throw new Error("Account not found.");
     dispatch({ type: "LOGIN", userId: student.id });
     setFirebaseStatus("signed-out");
@@ -1651,8 +1626,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   const sessionUserId = state.session?.userId;
   const user = sessionUserId
-    ? state.users.find((u) => u.id === sessionUserId && u.status === "active")
-      ?? (sessionUserId === DUMMY_STUDENT.id ? DUMMY_STUDENT : null)
+    ? state.users.find((u) => u.id === sessionUserId && u.status === "active") ?? null
     : null;
   const canManage = !!user && (user.role === "admin" || user.role === "council");
   const hasPermission = (feature: string) => !!user && (user.role === "admin" || (user.role === "council" && (state.permissions[user.id] ?? []).includes(feature)));

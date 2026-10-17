@@ -4,9 +4,38 @@ import { buildSeedState } from "../src/lib/seed";
 import { reducer, uid } from "../src/store/hub";
 import type { Suggestion, Poll } from "../src/lib/types";
 
+function createTestPoll(): Poll {
+  return {
+    id: "pl-1",
+    question: "Spirit Day theme for Founders' Week?",
+    description: "Winning theme becomes the official dress code for Friday.",
+    options: ["Retro 90s", "Monochrome", "Neon Future", "Cultural Heritage"],
+    votes: [1, 2, 0, 1],
+    voters: ["sheet-001", "sheet-002", "sheet-003", "sheet-004"],
+    ballots: [
+      { userId: "sheet-001", userName: "Adhiyajna Bhandari", userEmail: "adhiyajna@shristiacademy.edu.np", userRole: "student", userGrade: 1, userHouse: "Blue", optionIndex: 0, optionLabel: "Retro 90s", timestamp: Date.now() - 86400000 },
+      { userId: "sheet-002", userName: "Karma Sherpa", userEmail: "karma@shristiacademy.edu.np", userRole: "student", userGrade: 1, userHouse: "Blue", optionIndex: 1, optionLabel: "Monochrome", timestamp: Date.now() - 86400000 },
+      { userId: "sheet-003", userName: "Sayuj Amir Kansakar", userEmail: "79029sayuj@shristiacademy.edu.np", userRole: "student", userGrade: 1, userHouse: "Blue", optionIndex: 1, optionLabel: "Monochrome", timestamp: Date.now() - 86400000 },
+      { userId: "sheet-004", userName: "Filiya Singh", userEmail: "filiya@shristiacademy.edu.np", userRole: "student", userGrade: 1, userHouse: "Blue", optionIndex: 3, optionLabel: "Cultural Heritage", timestamp: Date.now() },
+    ],
+    expires: "2026-12-31",
+    audience: { kind: "all" },
+    creatorName: "Arnab Shrestha",
+    createdAt: Date.now() - 172800000,
+  };
+}
+
+function getTestState() {
+  const state = buildSeedState();
+  if (!state.polls.some((p) => p.id === "pl-1")) {
+    state.polls = [createTestPoll()];
+  }
+  return state;
+}
+
 test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   await t.test("seed state contains non-anonymous suggestions and ballots", () => {
-    const state = buildSeedState();
+    const state = getTestState();
 
     // Verify all seeded suggestions are non-anonymous and have author identity
     for (const s of state.suggestions) {
@@ -30,7 +59,7 @@ test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   });
 
   await t.test("VOTE action records voter identity and selected option in poll.ballots", () => {
-    let state = buildSeedState();
+    let state = getTestState();
 
     // Select a student from state.users that hasn't voted in pl-1 yet
     const seededPoll = state.polls.find((p) => p.id === "pl-1")!;
@@ -68,7 +97,7 @@ test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   });
 
   await t.test("Administrator can inspect who voted for what across options", () => {
-    let state = buildSeedState();
+    let state = getTestState();
     const pollId = "pl-1";
     const seededPoll = state.polls.find((p) => p.id === pollId)!;
 
@@ -117,7 +146,7 @@ test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   });
 
   await t.test("VOTE action prevents duplicate voting by the same user", () => {
-    let state = buildSeedState();
+    let state = getTestState();
     const pollId = "pl-1";
     const seededPoll = state.polls.find((p) => p.id === pollId)!;
     const student = state.users.find((u) => u.role === "student" && !seededPoll.voters.includes(u.id))!;
@@ -181,7 +210,7 @@ test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   });
 
   await t.test("Class accounts (role: grade) cannot vote", () => {
-    let state = buildSeedState();
+    let state = getTestState();
     const classUser = state.users.find((u) => u.role === "grade")!;
     assert.ok(classUser, "Class account exists in users");
 
@@ -201,7 +230,7 @@ test("Non-Anonymous Voting & Admin Poll Audit System", async (t) => {
   });
 
   await t.test("DELETE_STUDENT removes voter's ballots cleanly", () => {
-    let state = buildSeedState();
+    let state = getTestState();
     const admin = state.users.find((u) => u.role === "admin")!;
     const pollId = "pl-1";
     const student = state.users.find((u) => u.role === "student" && !state.polls.find((p) => p.id === pollId)!.voters.includes(u.id))!;

@@ -142,18 +142,49 @@ export const ROSTER_SOURCE_ISSUES: RosterSourceIssue[] = [
   { studentName: "Prajakta Shrestha (Green House)", sourceValue: "prajakta@shristiacademy.edu.np", resolvedValue: "provisional.prajakta.green@shristiacademy.edu.np", reason: "The same name/email also appears in Red House. A provisional unique address prevents account collision and requires school verification.", requiresVerification: true },
 ];
 
+export interface CouncilAppointment {
+  role: "admin" | "council";
+  councilTitle: string;
+  department: string;
+}
+
+export const OFFICIAL_COUNCIL_APPOINTMENTS: Record<string, CouncilAppointment> = {
+  "72019arnab@shristiacademy.edu.np": { role: "admin", councilTitle: "President", department: "Event Management" },
+  "72005aadeesh@shristiacademy.edu.np": { role: "council", councilTitle: "Vice-President", department: "Discipline" },
+  "73005pranesh@shristiacademy.edu.np": { role: "council", councilTitle: "Secretary", department: "Discipline" },
+  "72029sarbagya@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Monetary Fund" },
+  "sanobar@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Audio & Speech" },
+  "72081pralav@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Audio & Speech" },
+  "yahosurai@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "theia@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "74022vian@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "75028avik@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "75029shuvham@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "75026sanskar@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "76009aadya@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "79013shivansh@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "viyan@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "debora@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "aaravchaudhary@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "miriellerai@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "79035tezoor@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+  "aadish@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
+};
+
 const parsedRows: WhitelistedStudent[] = SOURCE_ROWS.trim().split("\n").map((line, index) => {
   const [name, house, grade, email] = line.split("|");
-  const isArnab = email === "72019arnab@shristiacademy.edu.np";
+  const normalizedEmail = email.toLowerCase();
+  const appointment = OFFICIAL_COUNCIL_APPOINTMENTS[normalizedEmail];
+  const isArnab = normalizedEmail === "72019arnab@shristiacademy.edu.np";
   return {
     id: isArnab ? "shr-085" : `sheet-${String(index + 1).padStart(3, "0")}`,
-    email: email.toLowerCase(),
+    email: normalizedEmail,
     name,
     grade: grade as CanonicalGrade,
     house: house as CanonicalHouse,
-    role: isArnab ? "admin" : "student",
-    councilTitle: isArnab ? "President" : undefined,
-    status: isArnab ? "active" : "pending",
+    role: appointment ? appointment.role : "student",
+    councilTitle: appointment ? appointment.councilTitle : undefined,
+    status: appointment ? "active" : "pending",
     createdAt: CREATED_AT,
   };
 });
@@ -164,7 +195,7 @@ export const SHRISTI_USER_ROSTER: User[] = SHRISTI_WHITELIST.map((student) => ({
   ...student,
   aliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
   verifiedAliases: student.id === "shr-085" ? ["arnabkung@gmail.com"] : [],
-  passwordHash: student.role === "admin" ? "admin-password-hash" : "seeded-password-hash",
+  passwordHash: student.role === "admin" ? "admin-password-hash" : student.role === "council" ? "council-password-hash" : "seeded-password-hash",
 }));
 
 export const PRIMARY_ADMIN = SHRISTI_USER_ROSTER.find((student) => student.email === "72019arnab@shristiacademy.edu.np")!;

@@ -2,7 +2,19 @@ import type { CouncilTask, House, HouseBranding, Role, SiteRating, Student } fro
 import { canonicalGradeFromNumber, normalizeEmail } from "./ssot-auth";
 
 export const PRIMARY_ADMIN_ID = "shr-085";
-export const DEFAULT_DEPARTMENTS = ["General", "Academics", "Sports & Recreation", "Media & Communications", "Student Welfare", "Finance", "Events & Activities"];
+export const DEFAULT_DEPARTMENTS = [
+  "General",
+  "Event Management",
+  "Discipline",
+  "Monetary Fund",
+  "Audio & Speech",
+  "Academics",
+  "Sports & Recreation",
+  "Media & Communications",
+  "Student Welfare",
+  "Finance",
+  "Events & Activities",
+];
 export const FEATURE_PERMISSIONS = [
   { id: "events", name: "Events & News", description: "Create events and publish announcements." },
   { id: "voice", name: "Polls & Feedback", description: "Publish polls and respond to suggestions." },
@@ -23,6 +35,10 @@ export function departmentFor(student: Student, departments: string[] = DEFAULT_
     title.includes("editorial") || title.includes("media") ? "Media & Communications" :
     title.includes("welfare") ? "Student Welfare" :
     title.includes("finance") ? "Finance" :
+    title.includes("monetary") ? "Monetary Fund" :
+    title.includes("discipline") ? "Discipline" :
+    title.includes("event") ? "Event Management" :
+    title.includes("audio") || title.includes("speech") ? "Audio & Speech" :
     title.includes("academic") ? "Academics" :
     "General";
   if (departments.includes(inferred)) return inferred;

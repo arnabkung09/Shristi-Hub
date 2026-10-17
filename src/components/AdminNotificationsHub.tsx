@@ -29,13 +29,12 @@ import {
   Wifi,
 } from "lucide-react";
 import { audienceLabel, formatTemplate, relativeTime, targetsUser, uid, useHub } from "../store/hub";
-import { houseFullName, PRIMARY_ADMIN_ID } from "../lib/admin";
-import type { House as HouseKey, HouseMessage, NotificationTemplate, Student } from "../lib/types";
+import { houseFullName } from "../lib/admin";
+import type { House as HouseKey, NotificationTemplate, Student } from "../lib/types";
 import { chime, postBus } from "../lib/realtime";
 import {
   enableFirebasePush,
   firebaseAuth,
-  isPrimaryAdmin,
   sendFirebaseNotification,
   triggerOSNotification,
 } from "../lib/firebase-client";
@@ -78,7 +77,7 @@ const SAMPLE_VARS: Record<string, string> = {
   title: "Upcoming Council Assembly",
   message: "Please review the agenda and attendance sheets before 2 PM today.",
   house: "Red",
-  name: "Alex Rivera",
+  name: "Aadeesh Bista",
   days: "4",
   taskTitle: "Coordinate Sports Day Registration Booth",
   dueDate: "Nov 15",
@@ -94,10 +93,9 @@ function previewInterpolate(text: string): string {
 }
 
 export default function AdminNotificationsHub() {
-  const { state, user, devices, dispatch, announce, hasPermission, signInDirect, setActiveTab } = useHub();
-  const isArnab = Boolean(user && (user.id === PRIMARY_ADMIN_ID || isPrimaryAdmin(user.email)));
+  const { state, user, devices, dispatch, announce, hasPermission } = useHub();
   const [activeSection, setActiveSection] = useState<
-    "broadcast" | "templates" | "inactivity" | "sandbox" | "devices" | "history"
+    "broadcast" | "templates" | "inactivity" | "devices" | "history"
   >("broadcast");
 
   // Broadcast Composer State
@@ -343,27 +341,6 @@ export default function AdminNotificationsHub() {
     }
   };
 
-  const handleTestPushStudent = async () => {
-    setTestingPush(true);
-    try {
-      const testTitle = "Push Reliability Test for Alex Rivera";
-      const testBody = `Direct alert delivered to your test student device at ${new Date().toLocaleTimeString()}. Audio, vibration, and push verified!`;
-      await sendFirebaseNotification({
-        title: testTitle,
-        body: testBody,
-        urgent: true,
-        audience: { kind: "user", userId: "stu-alex-99", name: "Alex Rivera (Student)" },
-        actionTab: "broadcast",
-        senderName: user.name,
-      });
-      announce("Test push notification dispatched directly to Alex Rivera (Student).");
-    } catch (err) {
-      announce(err instanceof Error ? err.message : "Test push failed.", "error");
-    } finally {
-      setTestingPush(false);
-    }
-  };
-
   const handleCleanDevices = async () => {
     setCleaningDevices(true);
     try {
@@ -596,96 +573,6 @@ export default function AdminNotificationsHub() {
     }
   };
 
-  // Alex Rivera testing sandbox helpers
-  const alexUser = state.users.find((u) => u.id === "stu-alex-99");
-  const alexInactiveMs = alexUser
-    ? now - (alexUser.lastActive || (alexUser.createdAt ? Date.parse(alexUser.createdAt) : 0))
-    : 0;
-  const alexInactiveDays = Math.max(0, Math.floor(alexInactiveMs / (24 * 60 * 60 * 1000)));
-  const isAlexInactive = alexInactiveDays >= 3;
-
-  const handleToggleAlexInactivity = () => {
-    if (isAlexInactive) {
-      dispatch({ type: "RECORD_ACTIVITY", userId: "stu-alex-99", timestamp: Date.now() });
-      announce("Alex Rivera is now marked active (last active timestamp updated to right now).");
-    } else {
-      dispatch({
-        type: "RECORD_ACTIVITY",
-        userId: "stu-alex-99",
-        timestamp: Date.now() - 4 * 24 * 60 * 60 * 1000,
-      });
-      announce("Alex Rivera is now marked inactive (4 days away). Check Inactive Members tab!");
-    }
-  };
-
-  const handleSeedAlexSuggestion = () => {
-    const existing = state.suggestions.find(
-      (s) => s.authorId === "stu-alex-99" && s.status === "pending"
-    );
-    if (existing) {
-      announce("Alex Rivera already has a pending suggestion waiting for admin reply!");
-      setActiveTab("voice");
-      return;
-    }
-    dispatch({
-      type: "ADD_SUGGESTION",
-      suggestion: {
-        id: uid(),
-        authorId: "stu-alex-99",
-        authorRole: "student",
-        authorLabel: "Alex Rivera · Grade 9 / Blue House",
-        category: "Facilities",
-        text: "Can the student council please install additional laptop charging stations and whiteboards in the Blue House study zone?",
-        status: "pending",
-        timestamp: Date.now(),
-        anonymous: false,
-      },
-    });
-    announce("Test suggestion from Alex Rivera created. Redirecting to Voice & Polls to reply...");
-    setTimeout(() => setActiveTab("voice"), 600);
-  };
-
-  const handlePostBlueHouseMessage = async () => {
-    try {
-      const message: HouseMessage = {
-        id: uid(),
-        house: "Blue" as House,
-        title: "Blue House Team Assembly Notice",
-        body: "All Blue House members please assemble at the gymnasium today at 3 PM for house sports preparation.",
-        kind: "message",
-        authorId: user.id,
-        authorName: user.name,
-        authorRole: user.role,
-        timestamp: Date.now(),
-      };
-      dispatch({ type: "POST_HOUSE_MESSAGE", message });
-      await sendFirebaseNotification({
-        title: "Blue House: Team Assembly Notice",
-        body: message.body,
-        urgent: false,
-        audience: { kind: "house", house: "Blue" },
-        actionTab: "house",
-        senderName: user.name,
-      });
-      announce("Blue House message posted and push alert dispatched to Alex Rivera!");
-    } catch (err) {
-      announce(err instanceof Error ? err.message : "Failed to post message.", "error");
-    }
-  };
-
-  const handleSwitchToAlex = () => {
-    try {
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("shristi_arnab_switched_to_alex", "true");
-      }
-      signInDirect("stu-alex-99");
-      setActiveTab("dashboard");
-      announce("Signed in as Alex Rivera (Student). Use the top banner to return to Admin.");
-    } catch (err) {
-      announce(err instanceof Error ? err.message : "Could not sign in.", "error");
-    }
-  };
-
   // Dynamic quick templates in sidebar referencing customized templates
   const quickTemplates = useMemo(() => {
     const cur = { ...DEFAULT_NOTIFICATION_TEMPLATES, ...(state.notificationTemplates ?? {}) };
@@ -885,23 +772,6 @@ export default function AdminNotificationsHub() {
             </span>
           )}
         </button>
-        {isArnab && (
-          <button
-            type="button"
-            onClick={() => setActiveSection("sandbox")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all ${
-              activeSection === "sandbox"
-                ? "bg-indigo-600 text-white shadow-md"
-                : "bg-[var(--surface-inset)] text-[var(--muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            Alex Rivera Sandbox
-            <span className="rounded-full bg-indigo-500/20 px-1.5 py-0.2 text-[9px] font-bold text-indigo-300">
-              TEST SUITE
-            </span>
-          </button>
-        )}
         <button
           type="button"
           onClick={() => setActiveSection("devices")}
@@ -1587,229 +1457,6 @@ export default function AdminNotificationsHub() {
         </section>
       )}
 
-      {/* VIEW: ALEX RIVERA TEST SANDBOX */}
-      {isArnab && activeSection === "sandbox" && (
-        <section className="panel panel-pad mt-5">
-          <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-500/20 text-indigo-400">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <h3 className="text-base font-bold text-[var(--text)]">
-                  Alex Rivera Testing Sandbox (Push &amp; Inactivity Simulation)
-                </h3>
-                <p className="text-xs text-[var(--muted)]">
-                  Dedicated student test environment. Test all push notification triggers and simulate student activity scenarios with 1 click.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSwitchToAlex}
-              className="btn btn-primary !h-8 !px-3.5 !text-xs font-bold"
-            >
-              <Users className="h-3.5 w-3.5" />
-              Sign In as Alex Rivera
-            </button>
-          </div>
-
-          {/* Account Profile Card */}
-          <div className="mt-4 rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900/40 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-indigo-500/20 text-lg font-bold text-indigo-300">
-                  AR
-                </span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-sm font-bold text-white">Alex Rivera</strong>
-                    <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300">
-                      stu-alex-99
-                    </span>
-                    <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-bold text-blue-300">
-                      Blue House
-                    </span>
-                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
-                      Grade 9
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 mt-0.5">
-                    alex.rivera@shristiacademy.edu.np · Status: Active Student Account
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-black/40 px-3 py-1.5 text-right">
-                  <span className="block text-[9px] uppercase tracking-wider text-slate-400 font-bold">
-                    Activity Status
-                  </span>
-                  <span
-                    className={`text-xs font-bold ${
-                      isAlexInactive ? "text-rose-400" : "text-emerald-400"
-                    }`}
-                  >
-                    {isAlexInactive ? `Inactive (${alexInactiveDays} days away)` : "Active (Recently Online)"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Test Scenario Action Cards Grid */}
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {/* Scenario 1: One-Click Account Switch */}
-            <div className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-500/20 text-indigo-400">
-                    <Users className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-[var(--text)]">
-                    1. One-Click Account Switch
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                  Switch current session to Alex Rivera without logging out. Once switched, an omnipresent top bar lets you return to Admin in one click!
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleSwitchToAlex}
-                className="btn btn-primary mt-4 !h-8 w-full !text-xs font-bold"
-              >
-                Switch Session to Alex Rivera
-              </button>
-            </div>
-
-            {/* Scenario 2: Direct Push Alert to Alex */}
-            <div className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-amber-500/20 text-amber-400">
-                    <Bell className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-[var(--text)]">
-                    2. Direct Push Notification
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                  Dispatches an immediate high-priority alert directly to Alex Rivera (audience: user stu-alex-99) across cloud push and inbox.
-                </p>
-              </div>
-              <button
-                type="button"
-                disabled={testingPush}
-                onClick={() => void handleTestPushStudent()}
-                className="btn btn-secondary mt-4 !h-8 w-full !text-xs font-bold text-amber-400 hover:text-amber-300"
-              >
-                <Send className="h-3 w-3" />
-                {testingPush ? "Sending..." : "Dispatch Alert to Alex Rivera"}
-              </button>
-            </div>
-
-            {/* Scenario 3: Toggle Inactivity Simulation */}
-            <div className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-rose-500/20 text-rose-400">
-                    <Clock className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-[var(--text)]">
-                    3. Simulate &gt; 3 Days Inactivity
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                  Instantly backdates Alex Rivera's lastActive timestamp to 4 days ago. Alex will immediately appear in the Inactive Members tab!
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleToggleAlexInactivity}
-                className={`btn mt-4 !h-8 w-full !text-xs font-bold ${
-                  isAlexInactive ? "btn-green" : "btn-secondary text-rose-400 hover:text-rose-300"
-                }`}
-              >
-                <Clock className="h-3 w-3" />
-                {isAlexInactive ? "Mark Active (Reset to Today)" : "Simulate 4 Days Inactivity"}
-              </button>
-            </div>
-
-            {/* Scenario 4: Seed Suggestion & Admin Reply */}
-            <div className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-500/20 text-emerald-400">
-                    <MessageSquare className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-[var(--text)]">
-                    4. Test Suggestion Reply Push
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                  Submits a suggestion from Alex Rivera and opens the review drawer. When you save your reply, Alex Rivera is notified via push!
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleSeedAlexSuggestion}
-                className="btn btn-secondary mt-4 !h-8 w-full !text-xs font-bold text-emerald-400 hover:text-emerald-300"
-              >
-                <MessageSquare className="h-3 w-3" />
-                Seed Suggestion &amp; Reply
-              </button>
-            </div>
-
-            {/* Scenario 5: Blue House Chat Notice */}
-            <div className="flex flex-col justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-500/20 text-blue-400">
-                    <Trophy className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-[var(--text)]">
-                    5. Blue House Hub Alert
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                  Posts an announcement into Blue House. Alex Rivera is in Blue House and will receive the house notification.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handlePostBlueHouseMessage()}
-                className="btn btn-secondary mt-4 !h-8 w-full !text-xs font-bold text-blue-400 hover:text-blue-300"
-              >
-                <Send className="h-3 w-3" />
-                Post Blue House Notice
-              </button>
-            </div>
-
-            {/* Scenario 6: Multi-Device Verification Guide */}
-            <div className="flex flex-col justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-500/20 text-indigo-400">
-                    <Laptop className="h-4 w-4" />
-                  </span>
-                  <h4 className="text-xs font-bold text-white">
-                    6. Two-Window Multi-Device Test
-                  </h4>
-                </div>
-                <p className="mt-2 text-[11px] text-slate-300 leading-relaxed">
-                  Open an <strong>Incognito window</strong>, go to the login screen, click <em>Alex Rivera</em>, and enable push. Keep both windows open side-by-side to watch live push alerts arrive across browsers!
-                </p>
-              </div>
-              <div className="mt-4 rounded-lg bg-black/40 p-2 text-center text-[10px] text-indigo-300 font-mono">
-                Cross-tab &amp; Cross-device broadcast sync verified
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
-
       {/* VIEW 4: LIVE CONNECTED DEVICES REGISTRY */}
       {activeSection === "devices" && (
         <section className="panel panel-pad mt-5">
@@ -1935,16 +1582,6 @@ export default function AdminNotificationsHub() {
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sync This Device</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleTestPushStudent()}
-                disabled={testingPush}
-                className="btn btn-secondary !h-8 !px-3 !text-xs font-bold text-indigo-400 hover:text-indigo-300"
-                title="Test push notification to dummy student account (Alex Rivera)"
-              >
-                <Send className="h-3 w-3 text-indigo-400" />
-                Test Alex Rivera (Student)
               </button>
               <button
                 type="button"

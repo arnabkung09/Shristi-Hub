@@ -27,7 +27,7 @@ export default function CouncilMembers() {
 
   const admin = user?.role === "admin";
   const canManage = admin || hasPermission("tasks");
-  const officers = state.users.filter((u) => u.role !== "student" && (u.status === "active" || state.permissions[u.id]));
+  const officers = state.users.filter((u) => (u.role === "council" || u.role === "admin") && (u.status === "active" || state.permissions[u.id]));
   const filtered = officers.filter((u) => `${u.name} ${u.email} ${u.councilTitle} ${u.houseLabel} ${u.id}`.toLowerCase().includes(query.toLowerCase()) && (grade === "all" || u.grade === Number(grade)) && (role === "all" || u.role === role) && (area === "all" || departmentFor(u, state.departments) === area));
   const departmentTasks = milestone ? tasksForDepartment(milestone, state.tasks, state.users, state.departments) : [];
   const completed = departmentTasks.filter((t) => t.status === "done");
