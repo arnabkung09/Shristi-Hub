@@ -154,7 +154,7 @@ export const OFFICIAL_COUNCIL_APPOINTMENTS: Record<string, CouncilAppointment> =
   "73005pranesh@shristiacademy.edu.np": { role: "council", councilTitle: "Secretary", department: "Discipline" },
   "72029sarbagya@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Monetary Fund" },
   "sanobar@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Audio & Speech" },
-  "72081pralav@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Audio & Speech" },
+  "72081pralav@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "Sports Management" },
   "yahosurai@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
   "theia@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },
   "74022vian@shristiacademy.edu.np": { role: "council", councilTitle: "Class Representative", department: "General" },

@@ -36,7 +36,15 @@ export const POINT_CATEGORIES = ["Sports", "Academics", "Cultural & Arts", "Disc
 export const EVENT_CATEGORIES = ["Academic", "Cultural", "Sports", "Assembly", "Council Meeting"] as const;
 export const SUGGESTION_CATEGORIES = ["Academics", "Facilities", "Canteen", "Sports", "Clubs", "Student Welfare"] as const;
 export const TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"] as const;
-export const DEPARTMENTS = ["Executive", "Sports", "Cultural", "Editorial", "Discipline", "Welfare", "Environment"] as const;
+export const DEPARTMENTS = [
+  "General",
+  "Event Management",
+  "Discipline",
+  "Monetary Fund",
+  "Audio & Speech",
+  "Creative Design",
+  "Sports Management",
+] as const;
 export const COUNCIL_POSTS = [
   "President",
   "Vice-President",

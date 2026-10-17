@@ -172,6 +172,7 @@ function cloudSafeState(state: HubState) {
   const safe = {
     ...state,
     session: null,
+    departments: Array.isArray(state.departments) ? [...state.departments] : [],
     users: state.users.map(cloudStudent),
     gallery: state.gallery.map((item) => ({ ...item, image: item.image ?? null })),
     branding: {

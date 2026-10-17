@@ -105,11 +105,17 @@ export default async function handler(req, res) {
         }
 
         const doc = await collection.findOne({ _id: 'main' });
-        if (!doc || !doc.state) {
-          return res.status(404).json({ error: 'Hub state document not initialized yet' });
-        }
-
-        const current = doc.state;
+        const current = doc?.state || {
+          departments: body.departments || [],
+          events: [],
+          polls: [],
+          siteRatings: [],
+          suggestions: [],
+          notifications: [],
+          tasks: [],
+          houseMessages: [],
+          councilMessages: [],
+        };
 
         // Sync RSVPs / Attendees
         let events = current.events || [];
@@ -196,6 +202,26 @@ export default async function handler(req, res) {
           });
         }
 
+        // Sync House Messages
+        let houseMessages = current.houseMessages || [];
+        if (Array.isArray(activity.houseMessages)) {
+          const existingIds = new Set(houseMessages.map((m) => m.id));
+          const newMessages = activity.houseMessages.filter((m) => !existingIds.has(m.id));
+          if (newMessages.length > 0) {
+            houseMessages = [...newMessages, ...houseMessages].slice(0, 500);
+          }
+        }
+
+        // Sync Council Messages
+        let councilMessages = current.councilMessages || [];
+        if (Array.isArray(activity.councilMessages)) {
+          const existingIds = new Set(councilMessages.map((m) => m.id));
+          const newMessages = activity.councilMessages.filter((m) => !existingIds.has(m.id));
+          if (newMessages.length > 0) {
+            councilMessages = [...newMessages, ...councilMessages].slice(0, 500);
+          }
+        }
+
         const updatedState = {
           ...current,
           events,
@@ -204,6 +230,8 @@ export default async function handler(req, res) {
           suggestions,
           notifications,
           tasks,
+          houseMessages,
+          councilMessages,
         };
 
         const now = new Date();
@@ -230,12 +258,12 @@ export default async function handler(req, res) {
         });
       }
 
-      // 2. Full Site State Save (Administrators)
+      // 2. Full Site State Save (Administrators & Council)
       if (!body.state || typeof body.state !== 'object') {
         return res.status(400).json({ error: 'State payload is missing or invalid' });
       }
 
-      if (!auth.isAdmin && process.env.NODE_ENV === 'production' && !auth.isAuthorized) {
+      if (!auth.isAdmin && !auth.isCouncil && process.env.NODE_ENV === 'production' && !auth.isAuthorized) {
         return res.status(403).json({ error: 'Administrator access required to save site state.' });
       }
 

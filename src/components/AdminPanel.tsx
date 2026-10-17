@@ -89,15 +89,95 @@ function DepartmentsPanel() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
-  return <section className="panel panel-pad">
-    <div className="panel-heading"><div><h2><Building2 />Manage Council Departments</h2><p>Create, view, and remove student council departments. Changes update forms and filters across the portal immediately.</p></div></div>
-    <p className="inline-message mb-4">These departments are used in officer assignments, task delegation, directory filters, and completed-milestone badges.</p>
-    <form className="department-form" onSubmit={(e) => { e.preventDefault(); try { dispatch({ type: "ADD_DEPARTMENT", name }); announce(`${name.trim()} department added.`); setName(""); setError(""); } catch (err) { setError(err instanceof Error ? err.message : "Unable to add department."); } }}><input className="control" aria-label="New department name" placeholder="Enter new department name (e.g. Environmental Care)..." required minLength={2} maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /><button className="btn btn-primary" type="submit"><CirclePlus />Add Department</button></form>
-    {error && !removing && <p role="alert" className="inline-message error mb-4">{error}</p>}
-    <h3 className="eyebrow">Current Active Departments ({state.departments.length})</h3>
-    <div className="department-grid">{state.departments.map((department) => <div key={department} className="department-row"><span><Building2 /></span><span>{department}</span><button className="icon-action red" aria-label={`Remove ${department} department`} title="Remove department" onClick={() => { setRemoving(department); setError(""); }}><Trash2 /></button></div>)}</div>
-    <Modal open={!!removing} onClose={() => setRemoving(null)} title="Remove Council Department" icon={<Building2 />}><p className="inline-message">Remove <strong>{removing}</strong>? Officers and tasks currently in this department will move to General. The General department is always retained.</p>{error && <p role="alert" className="inline-message error mt-4">{error}</p>}<div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setRemoving(null)}>Cancel</button><button className="btn btn-danger" onClick={() => { try { dispatch({ type: "DELETE_DEPARTMENT", name: removing! }); announce("Department removed."); setRemoving(null); setError(""); } catch (err) { setError(err instanceof Error ? err.message : "Unable to remove department."); } }}><Trash2 />Remove department</button></div></Modal>
-  </section>;
+
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      dispatch({ type: "ADD_DEPARTMENT", name: trimmed });
+      announce(`${trimmed} department added.`);
+      setName("");
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to add department.");
+    }
+  };
+
+  const handleRemove = () => {
+    if (!removing) return;
+    try {
+      dispatch({ type: "DELETE_DEPARTMENT", name: removing });
+      announce(`${removing} department removed.`);
+      setRemoving(null);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to remove department.");
+    }
+  };
+
+  return (
+    <section className="panel panel-pad">
+      <div className="panel-heading">
+        <div>
+          <h2><Building2 />Manage Council Departments</h2>
+          <p>Create, view, and remove student council departments. Changes update forms and filters across the portal immediately and persist to MongoDB.</p>
+        </div>
+      </div>
+      <p className="inline-message mb-4">
+        These departments are used in officer assignments, task delegation, directory filters, and completed-milestone badges.
+      </p>
+      <form className="department-form" onSubmit={handleAdd}>
+        <input
+          className="control"
+          aria-label="New department name"
+          placeholder="Enter new department name (e.g. Environmental Care)..."
+          required
+          minLength={2}
+          maxLength={60}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <button className="btn btn-primary" type="submit">
+          <CirclePlus />Add Department
+        </button>
+      </form>
+      {error && !removing && <p role="alert" className="inline-message error mb-4">{error}</p>}
+      <h3 className="eyebrow">Current Active Departments ({state.departments.length})</h3>
+      <div className="department-grid">
+        {state.departments.map((department) => (
+          <div key={department} className="department-row">
+            <span><Building2 /></span>
+            <span>{department}</span>
+            {department === "General" ? (
+              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-100 dark:bg-white/10 px-2.5 py-1 rounded-full">Default</span>
+            ) : (
+              <button
+                className="icon-action red"
+                aria-label={`Remove ${department} department`}
+                title="Remove department"
+                onClick={() => { setRemoving(department); setError(""); }}
+              >
+                <Trash2 />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <Modal open={!!removing} onClose={() => setRemoving(null)} title="Remove Council Department" icon={<Building2 />}>
+        <p className="inline-message">
+          Remove <strong>{removing}</strong>? Officers and tasks currently in this department will move to General. The General department is always retained.
+        </p>
+        {error && <p role="alert" className="inline-message error mt-4">{error}</p>}
+        <div className="dialog-actions">
+          <button className="btn btn-secondary" onClick={() => setRemoving(null)}>Cancel</button>
+          <button className="btn btn-danger" onClick={handleRemove}>
+            <Trash2 />Remove department
+          </button>
+        </div>
+      </Modal>
+    </section>
+  );
 }
 
 function ActiveImages() {

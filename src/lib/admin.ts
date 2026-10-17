@@ -8,12 +8,8 @@ export const DEFAULT_DEPARTMENTS = [
   "Discipline",
   "Monetary Fund",
   "Audio & Speech",
-  "Academics",
-  "Sports & Recreation",
-  "Media & Communications",
-  "Student Welfare",
-  "Finance",
-  "Events & Activities",
+  "Creative Design",
+  "Sports Management",
 ];
 export const FEATURE_PERMISSIONS = [
   { id: "events", name: "Events & News", description: "Create events and publish announcements." },
@@ -30,16 +26,12 @@ export function departmentFor(student: Student, departments: string[] = DEFAULT_
   if (student.department && departments.includes(student.department)) return student.department;
   const title = (student.councilTitle ?? "").toLowerCase();
   const inferred =
-    title.includes("sports") || title.includes("captain") ? "Sports & Recreation" :
-    title.includes("cultural") ? "Events & Activities" :
-    title.includes("editorial") || title.includes("media") ? "Media & Communications" :
-    title.includes("welfare") ? "Student Welfare" :
-    title.includes("finance") ? "Finance" :
-    title.includes("monetary") ? "Monetary Fund" :
+    title.includes("sports") || title.includes("game") || title.includes("captain") ? "Sports Management" :
+    title.includes("design") || title.includes("art") ? "Creative Design" :
+    title.includes("audio") || title.includes("speech") ? "Audio & Speech" :
+    title.includes("monetary") || title.includes("finance") ? "Monetary Fund" :
     title.includes("discipline") ? "Discipline" :
     title.includes("event") ? "Event Management" :
-    title.includes("audio") || title.includes("speech") ? "Audio & Speech" :
-    title.includes("academic") ? "Academics" :
     "General";
   if (departments.includes(inferred)) return inferred;
   return departments.includes("General") ? "General" : (departments[0] ?? "General");

@@ -900,7 +900,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
     pointsLedger: seed.pointsLedger,
     councilHubMembers: parsed.councilHubMembers ?? seed.councilHubMembers,
     councilMessages: parsed.councilMessages ?? seed.councilMessages,
-    departments: parsed.departments?.length ? parsed.departments : seed.departments,
+    departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : seed.departments,
     permissions: parsed.permissions ?? seed.permissions,
     activeImageIds: parsed.activeImageIds ?? seed.activeImageIds,
     audit: parsed.audit ?? [],
@@ -976,7 +976,12 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const branding = remote.branding ? { ...local.branding, ...remote.branding } : local.branding;
   const houses = remote.houses ? { ...local.houses, ...remote.houses } : local.houses;
   const legal = remote.legal ? { ...local.legal, ...remote.legal } : local.legal;
-  return withFallbackSlices({ ...local, ...remote, users, gallery, branding, houses, legal, session: local.session, theme: local.theme } as HubState, buildSeedState());
+  const departments = Array.isArray(remote.departments) && remote.departments.length > 0
+    ? remote.departments
+    : Array.isArray(local.departments) && local.departments.length > 0
+    ? local.departments
+    : buildSeedState().departments;
+  return withFallbackSlices({ ...local, ...remote, departments, users, gallery, branding, houses, legal, session: local.session, theme: local.theme } as HubState, buildSeedState());
 }
 
 function loadState(): HubState {
@@ -1006,6 +1011,7 @@ function loadState(): HubState {
           branding: parsed.branding || baseSeed.branding,
           houses: parsed.houses || baseSeed.houses,
           legal: parsed.legal || baseSeed.legal,
+          departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : baseSeed.departments,
         };
         return { ...withFallbackSlices(effectiveParsed, baseSeed), session: session ? JSON.parse(session) : null };
       }
@@ -1025,10 +1031,6 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const [firebaseStatus, setFirebaseStatus] = useState<HubContextValue["firebaseStatus"]>(firebaseAuth.currentUser ? "connecting" : "signed-out");
   const [firebaseEmail, setFirebaseEmail] = useState<string | null>(firebaseAuth.currentUser?.email ?? null);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
-  // Cloud readiness is React state (not only a ref) so the auto-sync effects re-run the
-  // moment the Firestore subscription attaches — otherwise the first write after sign-in
-  // was silently skipped until the next state change.
-  const [cloudReady, setCloudReady] = useState(false);
   const stateRef = useRef(state);
   const seenBroadcastsRef = useRef(getNotifiedIds());
   const sessionStartTimeRef = useRef(Date.now());
@@ -1110,6 +1112,9 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             const next = mergeCloudState(stateRef.current, remote.state);
             stateRef.current = next;
             persistBrandingToCache(next);
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+            } catch {}
             cloudStateHashRef.current = cloudStateFingerprint(next);
             baseDispatch({ type: "REPLACE", state: next });
             queueMicrotask(() => { applyingCloudRef.current = false; });
@@ -1119,14 +1124,18 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             }
           }
         }
+        if (active && (!remote.exists || !remote.state)) {
+          const currentUser = stateRef.current.users.find((s) => s.id === stateRef.current.session?.userId);
+          if (currentUser?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "")) {
+            void saveRemoteState(stateRef.current, currentUser).catch(() => {});
+          }
+        }
         if (active && !cloudReadyRef.current) {
-          setCloudReady(true);
           cloudReadyRef.current = true;
         }
       } catch (err) {
         console.warn("MongoDB state sync notice:", err);
         if (active && !cloudReadyRef.current) {
-          setCloudReady(true);
           cloudReadyRef.current = true;
         }
       }
@@ -1164,6 +1173,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         next = { ...next, audit: [{ id: uid(), action: action.type.toLowerCase().replace(/_/g, " "), actor: actor?.name ?? "Administrator", timestamp: Date.now() }, ...next.audit].slice(0, 100) };
       }
       stateRef.current = next;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+        persistBrandingToCache(next);
+      } catch {}
       baseDispatch({ type: "REPLACE", state: next });
       if (next !== previous && !["REPLACE", "LOGOUT", "SET_THEME"].includes(action.type)) {
         queueMicrotask(() => postBus({ type: "state", state: { ...next, session: null }, senderId: selfId }));
@@ -1223,7 +1236,6 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     cloudUnsubscribeRef.current?.();
     cloudReadyRef.current = false;
-    setCloudReady(false);
     cloudUnsubscribeRef.current = subscribeCloudState(
       (remote) => {
         if (remote) {
@@ -1248,7 +1260,6 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           }
         }
         cloudReadyRef.current = true;
-        setCloudReady(true);
         if (!remote && (student.role === "admin" || isPrimaryAdmin(normalized))) {
           rosterHashRef.current = JSON.stringify(stateRef.current.users.map((entry) => [entry.id, entry.email, entry.aliases, entry.name, entry.grade, entry.house, entry.role, entry.status, entry.councilTitle, entry.department]));
           cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
@@ -1370,7 +1381,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     if (!isAdmin) throw new Error("Administrator access is required to save site data.");
 
     persistBrandingToCache(stateRef.current);
-    await saveRemoteState(stateRef.current);
+    await saveRemoteState(stateRef.current, current);
     cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
 
     // Optional Firestore best-effort sync if signed in with Google
@@ -1396,6 +1407,9 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     const next = mergeCloudState(stateRef.current, remote.state);
     stateRef.current = next;
     persistBrandingToCache(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+    } catch {}
     cloudStateHashRef.current = cloudStateFingerprint(next);
     baseDispatch({ type: "REPLACE", state: next });
     queueMicrotask(() => { applyingCloudRef.current = false; });
@@ -1409,7 +1423,6 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     cloudUnsubscribeRef.current?.();
     cloudUnsubscribeRef.current = null;
     cloudReadyRef.current = false;
-    setCloudReady(false);
     cloudBootstrappedRef.current = false;
     if (firebaseAuth.currentUser) await signOutFirebase();
     dispatch({ type: "LOGOUT" });
@@ -1578,51 +1591,51 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, [dispatch]);
 
   useEffect(() => {
-    if (!cloudReady || applyingCloudRef.current) return;
+    if (applyingCloudRef.current) return;
     const currentUser = state.users.find((student) => student.id === state.session?.userId);
     const isAdmin = currentUser?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
-    if (!isAdmin) return;
-    const stateHash = cloudStateFingerprint(state);
-    if (stateHash === cloudStateHashRef.current) return;
-    const timer = setTimeout(() => {
-      cloudStateHashRef.current = stateHash;
-      void saveRemoteState(state).catch((error) => {
-        cloudStateHashRef.current = "";
-        console.warn("MongoDB auto-sync write notice:", error);
-      });
-      // Optional best-effort sync to Firestore if administrator has Google session
-      if (firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
-        void writeCloudState(state).catch(() => {});
-        void syncCloudRoster(state.users).catch(() => {});
-      }
-    }, 900);
-    return () => clearTimeout(timer);
-  }, [state, cloudReady]);
+    const isCouncil = currentUser?.role === "council";
 
-  useEffect(() => {
-    if (!cloudReady || applyingCloudRef.current) return;
-    const currentUser = state.users.find((student) => student.id === state.session?.userId);
-    if (!currentUser || currentUser.role === "admin") return;
-    const activityHash = JSON.stringify({
-      events: state.events.map((event) => [event.id, event.attendees.includes(currentUser.id)]),
-      polls: state.polls.map((poll) => [poll.id, poll.voters.includes(currentUser.id), poll.votes]),
-      rating: state.siteRatings.find((rating) => rating.userId === currentUser.id),
-      suggestions: state.suggestions.filter((suggestion) => suggestion.authorId === currentUser.id || suggestion.authorLabel === `${currentUser.name} · Grade ${currentUser.grade}`),
-      read: state.notifications.filter((notification) => notification.readBy.includes(currentUser.id)).map((notification) => notification.id),
-      tasks: state.tasks.filter((task) => task.assigneeId === currentUser.id).map((task) => [task.id, task.status]),
-    });
-    if (activityHash === activityHashRef.current) return;
-    activityHashRef.current = activityHash;
-    const timer = setTimeout(() => {
-      void syncRemoteUserActivity(currentUser, state).catch((error) => {
-        console.warn("MongoDB student activity sync notice:", error);
+    if (isAdmin || isCouncil) {
+      const stateHash = cloudStateFingerprint(state);
+      if (stateHash === cloudStateHashRef.current) return;
+      const timer = setTimeout(() => {
+        cloudStateHashRef.current = stateHash;
+        void saveRemoteState(state, currentUser).catch((error) => {
+          cloudStateHashRef.current = "";
+          console.warn("MongoDB auto-sync write notice:", error);
+        });
+        // Optional best-effort sync to Firestore if administrator has Google session
+        if (isAdmin && firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+          void writeCloudState(state).catch(() => {});
+          void syncCloudRoster(state.users).catch(() => {});
+        }
+      }, 350);
+      return () => clearTimeout(timer);
+    } else if (currentUser) {
+      const activityHash = JSON.stringify({
+        events: state.events.map((event) => [event.id, event.attendees.includes(currentUser.id)]),
+        polls: state.polls.map((poll) => [poll.id, poll.voters.includes(currentUser.id), poll.votes]),
+        rating: state.siteRatings.find((rating) => rating.userId === currentUser.id),
+        suggestions: state.suggestions.filter((suggestion) => suggestion.authorId === currentUser.id || suggestion.authorLabel === `${currentUser.name} · Grade ${currentUser.grade}`),
+        read: state.notifications.filter((notification) => notification.readBy.includes(currentUser.id)).map((notification) => notification.id),
+        tasks: state.tasks.filter((task) => task.assigneeId === currentUser.id).map((task) => [task.id, task.status]),
+        houseMessages: state.houseMessages.filter((m) => m.authorId === currentUser.id).map((m) => [m.id, m.body]),
+        councilMessages: state.councilMessages.filter((m) => m.authorId === currentUser.id).map((m) => [m.id, m.body]),
       });
-      if (firebaseAuth.currentUser) {
-        void syncFirebaseUserActivity(state).catch(() => {});
-      }
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [state, cloudReady]);
+      if (activityHash === activityHashRef.current) return;
+      activityHashRef.current = activityHash;
+      const timer = setTimeout(() => {
+        void syncRemoteUserActivity(currentUser, state).catch((error) => {
+          console.warn("MongoDB student activity sync notice:", error);
+        });
+        if (firebaseAuth.currentUser) {
+          void syncFirebaseUserActivity(state).catch(() => {});
+        }
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [state]);
 
   const sessionUserId = state.session?.userId;
   const user = sessionUserId

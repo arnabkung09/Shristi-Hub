@@ -39,17 +39,13 @@ export function extractAuth(req) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     idToken = authHeader.split('Bearer ')[1];
   } else if (req.headers['x-admin-secret'] && process.env.ADMIN_SECRET && req.headers['x-admin-secret'] === process.env.ADMIN_SECRET) {
-    return { isAuthorized: true, isAdmin: true, user: { role: 'admin', email: 'admin-secret' } };
+    return { isAuthorized: true, isAdmin: true, isCouncil: true, user: { role: 'admin', email: 'admin-secret' } };
   } else if (process.env.NODE_ENV !== 'production') {
-    return { isAuthorized: true, isAdmin: true, user: { role: 'admin', email: 'dev-preview' } };
-  }
-
-  if (!idToken) {
-    return { isAuthorized: false, isAdmin: false, user: null };
+    return { isAuthorized: true, isAdmin: true, isCouncil: true, user: { role: 'admin', email: 'dev-preview' } };
   }
 
   let decodedToken = null;
-  if (idToken.includes('.')) {
+  if (idToken && idToken.includes('.')) {
     try {
       const parts = idToken.split('.');
       if (parts.length >= 2 && parts[1]) {
@@ -68,15 +64,22 @@ export function extractAuth(req) {
     }
   }
 
-  const email = (decodedToken?.email || '').toLowerCase();
-  const role = decodedToken?.role || '';
+  const headerRole = req.headers['x-user-role'];
+  const headerEmail = (req.headers['x-user-email'] || '').toLowerCase();
+  const headerId = req.headers['x-user-id'];
+
+  const email = (decodedToken?.email || headerEmail || '').toLowerCase();
+  const role = decodedToken?.role || headerRole || '';
   const isAdmin =
     role === 'admin' ||
     PRIMARY_ADMIN_EMAILS.some((adm) => adm.toLowerCase() === email);
+  const isCouncil = isAdmin || role === 'council';
+  const isAuthorized = Boolean(idToken || email || headerId);
 
   return {
-    isAuthorized: true,
+    isAuthorized,
     isAdmin,
-    user: decodedToken || { email, role },
+    isCouncil,
+    user: decodedToken || { email, role, id: headerId },
   };
 }

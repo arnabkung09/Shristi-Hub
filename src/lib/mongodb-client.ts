@@ -16,10 +16,16 @@ export interface RemoteStateResult {
   version?: number;
 }
 
-async function getAuthHeader(): Promise<Record<string, string>> {
+async function getAuthHeader(user?: Student | null): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+
+  if (user) {
+    if (user.role) headers["x-user-role"] = user.role;
+    if (user.email) headers["x-user-email"] = user.email;
+    if (user.id) headers["x-user-id"] = user.id;
+  }
 
   const current = firebaseAuth.currentUser;
   if (current) {
@@ -36,10 +42,10 @@ async function getAuthHeader(): Promise<Record<string, string>> {
   try {
     const payload = btoa(
       JSON.stringify({
-        sub: "admin-preview",
-        email: "72019arnab@shristiacademy.edu.np",
-        role: "admin",
-        name: "Arnab Shrestha",
+        sub: user?.id || "admin-preview",
+        email: user?.email || "72019arnab@shristiacademy.edu.np",
+        role: user?.role || "admin",
+        name: user?.name || "Arnab Shrestha",
         iat: Math.floor(Date.now() / 1000),
       })
     );
@@ -151,8 +157,11 @@ export async function fetchRemoteState(options?: { fresh?: boolean }): Promise<R
   }
 }
 
-export async function saveRemoteState(state: HubState): Promise<{ success: boolean; message: string; updatedAt?: string; version?: number }> {
-  const headers = await getAuthHeader();
+export async function saveRemoteState(
+  state: HubState,
+  user?: Student | null
+): Promise<{ success: boolean; message: string; updatedAt?: string; version?: number }> {
+  const headers = await getAuthHeader(user);
 
   const res = await fetch("/api/state", {
     method: "POST",
@@ -180,7 +189,7 @@ export async function syncRemoteUserActivity(
   student: Student,
   state: HubState
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeader();
+  const headers = await getAuthHeader(student);
 
   const activityPayload = {
     events: state.events
@@ -197,6 +206,8 @@ export async function syncRemoteUserActivity(
     taskStatuses: Object.fromEntries(
       state.tasks.filter((t) => t.assigneeId === student.id).map((t) => [t.id, t.status])
     ),
+    houseMessages: state.houseMessages.filter((m) => m.authorId === student.id),
+    councilMessages: state.councilMessages.filter((m) => m.authorId === student.id),
   };
 
   const res = await fetch("/api/state", {
