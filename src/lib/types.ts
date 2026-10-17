@@ -350,6 +350,8 @@ export interface HubState {
   houses: Record<House, HouseBranding>;
   siteRatings: SiteRating[];
   notificationTemplates?: Record<string, NotificationTemplate>;
+  lastModified?: number;
+  schemaVersion?: number;
 }
 
 export interface NotificationTemplate {

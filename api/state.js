@@ -61,6 +61,7 @@ export default async function handler(req, res) {
         legal: doc.state.legal || null,
         updatedAt: doc.updatedAt,
         version: doc.version,
+        lastModified: doc.lastModified || doc.version || doc.state?.lastModified,
       });
     }
 
@@ -89,6 +90,7 @@ export default async function handler(req, res) {
         updatedAt: doc.updatedAt,
         updatedBy: doc.updatedBy,
         version: doc.version,
+        lastModified: doc.lastModified || doc.version || doc.state?.lastModified,
       });
     }
 
@@ -268,14 +270,14 @@ export default async function handler(req, res) {
       }
 
       const rawState = body.state;
+      const now = new Date();
+      const version = rawState.lastModified || Date.now();
       const sanitizedState = {
         ...rawState,
+        lastModified: version,
         session: null,
         users: sanitizeRoster(rawState.users),
       };
-
-      const now = new Date();
-      const version = Date.now();
 
       await collection.updateOne(
         { _id: 'main' },
@@ -285,6 +287,7 @@ export default async function handler(req, res) {
             updatedAt: now,
             updatedBy: auth.user?.email || 'admin',
             version,
+            lastModified: version,
           },
         },
         { upsert: true }

@@ -14,6 +14,7 @@ export interface RemoteStateResult {
   state: Partial<HubState> | null;
   updatedAt?: string;
   version?: number;
+  lastModified?: number;
 }
 
 async function getAuthHeader(user?: Student | null): Promise<Record<string, string>> {
@@ -91,6 +92,7 @@ export interface RemoteBrandingResult {
   legal: HubState["legal"] | null;
   updatedAt?: string;
   version?: number;
+  lastModified?: number;
 }
 
 let preloadedStatePromise: Promise<RemoteStateResult> | null = null;
@@ -126,6 +128,7 @@ export async function fetchRemoteBranding(options?: { fresh?: boolean }): Promis
       legal: data.legal || null,
       updatedAt: data.updatedAt,
       version: data.version,
+      lastModified: data.lastModified || data.version,
     };
   } catch (error) {
     console.warn("MongoDB fetchRemoteBranding notice:", error);
@@ -150,6 +153,7 @@ export async function fetchRemoteState(options?: { fresh?: boolean }): Promise<R
       state: (data.state as Partial<HubState>) || null,
       updatedAt: data.updatedAt,
       version: data.version,
+      lastModified: data.lastModified || data.version || data.state?.lastModified,
     };
   } catch (error) {
     console.warn("MongoDB fetchRemoteState notice:", error);

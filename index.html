@@ -21,11 +21,22 @@
     <script>
       (function() {
         try {
-          var k = "shristi-council-branding-v6";
-          var raw = localStorage.getItem(k) || localStorage.getItem("shristi-council-school-roster-v5");
+          var keys = [
+            "shristi_hub_canonical_branding_v1",
+            "shristi-council-branding-v6",
+            "shristi-council-branding-v5",
+            "shristi_hub_canonical_state_v1",
+            "shristi-council-school-roster-v5",
+            "shristi-council-school-roster-v4"
+          ];
+          var raw = null;
+          for (var i = 0; i < keys.length; i++) {
+            raw = localStorage.getItem(keys[i]);
+            if (raw) break;
+          }
           if (raw) {
             var d = JSON.parse(raw);
-            var b = d.branding || (d.state && d.state.branding);
+            var b = d.branding || (d.state && d.state.branding) || (d.schoolName ? d : null);
             if (b && b.schoolName) {
               document.title = b.schoolName + " | " + (b.boardName || "Student Council");
             }

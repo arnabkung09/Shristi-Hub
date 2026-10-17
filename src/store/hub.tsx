@@ -58,12 +58,41 @@ import type { NotificationTemplate } from "../lib/types";
 import { DEFAULT_NOTIFICATION_TEMPLATES } from "../lib/content";
 export { DEFAULT_NOTIFICATION_TEMPLATES };
 
-// Bumped when the school-provided roster replaced the earlier sample dataset.
+// Canonical, permanent storage keys that persist across ALL builds, releases, and versions
+export const CANONICAL_STORAGE_KEY = "shristi_hub_canonical_state_v1";
+export const CANONICAL_BRANDING_KEY = "shristi_hub_canonical_branding_v1";
+
+// Active versioned keys for backwards-compatibility with existing sessions
 const STORAGE_KEY = "shristi-council-school-roster-v5";
 const SESSION_KEY = "shristi-preview-session-v3";
 const TAB_KEY = "shristi-council-tab-v3";
 
 export const BRANDING_STORAGE_KEY = "shristi-council-branding-v6";
+
+// Known legacy and versioned keys across previous and current releases
+const KNOWN_LEGACY_STATE_KEYS = [
+  CANONICAL_STORAGE_KEY,
+  STORAGE_KEY,
+  "shristi-council-school-roster-v4",
+  "shristi-council-school-roster-v3",
+  "shristi-council-school-roster-v2",
+  "shristi-council-school-roster-v1",
+  "shristi-council-state-v5",
+  "shristi-council-state-v4",
+  "shristi-council-state-v3",
+  "shristi-council-state-v2",
+  "shristi-council-state-v1",
+];
+
+const KNOWN_LEGACY_BRANDING_KEYS = [
+  CANONICAL_BRANDING_KEY,
+  BRANDING_STORAGE_KEY,
+  "shristi-council-branding-v5",
+  "shristi-council-branding-v4",
+  "shristi-council-branding-v3",
+  "shristi-council-branding-v2",
+  "shristi-council-branding-v1",
+];
 
 export interface CachedBrandingData {
   branding: HubState["branding"];
@@ -73,28 +102,118 @@ export interface CachedBrandingData {
 }
 
 export function loadCachedBranding(): CachedBrandingData | null {
-  try {
-    const raw = localStorage.getItem(BRANDING_STORAGE_KEY);
-    if (raw) {
+  const tryParse = (raw: string | null): CachedBrandingData | null => {
+    if (!raw) return null;
+    try {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.branding && typeof parsed.branding.schoolName === "string" && parsed.branding.schoolName.trim()) {
         return parsed;
       }
+      if (parsed && parsed.state && parsed.state.branding && typeof parsed.state.branding.schoolName === "string" && parsed.state.branding.schoolName.trim()) {
+        return {
+          branding: parsed.state.branding,
+          houses: parsed.state.houses || buildSeedState().houses,
+          legal: parsed.state.legal || buildSeedState().legal,
+          savedAt: parsed.state.lastModified || Date.now(),
+        };
+      }
+      if (parsed && typeof parsed.schoolName === "string" && parsed.schoolName.trim()) {
+        return {
+          branding: parsed,
+          houses: buildSeedState().houses,
+          legal: buildSeedState().legal,
+          savedAt: Date.now(),
+        };
+      }
+    } catch {}
+    return null;
+  };
+
+  for (const key of KNOWN_LEGACY_BRANDING_KEYS) {
+    try {
+      const found = tryParse(localStorage.getItem(key));
+      if (found) return found;
+    } catch {}
+  }
+
+  // Fallback: scan any localStorage keys containing "shristi" and "branding"
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.includes("shristi") && key.includes("branding")) {
+        const found = tryParse(localStorage.getItem(key));
+        if (found) return found;
+      }
     }
   } catch {}
+
   return null;
 }
 
-export function persistBrandingToCache(state: { branding?: HubState["branding"]; houses?: HubState["houses"]; legal?: HubState["legal"] }) {
+export function persistBrandingToCache(state: { branding?: HubState["branding"]; houses?: HubState["houses"]; legal?: HubState["legal"]; lastModified?: number }) {
   try {
     if (state.branding && typeof state.branding.schoolName === "string" && state.branding.schoolName.trim()) {
       const payload: CachedBrandingData = {
         branding: state.branding,
         houses: state.houses || buildSeedState().houses,
         legal: state.legal || buildSeedState().legal,
-        savedAt: Date.now(),
+        savedAt: state.lastModified || Date.now(),
       };
-      localStorage.setItem(BRANDING_STORAGE_KEY, JSON.stringify(payload));
+      const json = JSON.stringify(payload);
+      localStorage.setItem(CANONICAL_BRANDING_KEY, json);
+      localStorage.setItem(BRANDING_STORAGE_KEY, json);
+      for (const key of KNOWN_LEGACY_BRANDING_KEYS) {
+        try { localStorage.setItem(key, json); } catch {}
+      }
+    }
+  } catch {}
+}
+
+export function findStoredStateInAnyVersion(): HubState | null {
+  const tryParseState = (raw: string | null): HubState | null => {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const candidate = parsed.state && typeof parsed.state === "object" ? parsed.state : parsed;
+        if (candidate && (candidate.users || candidate.branding || candidate.departments || candidate.tasks)) {
+          return candidate as HubState;
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  // 1. Try known versioned keys in order
+  for (const key of KNOWN_LEGACY_STATE_KEYS) {
+    try {
+      const found = tryParseState(localStorage.getItem(key));
+      if (found) return found;
+    } catch {}
+  }
+
+  // 2. Scan localStorage for any shristi state / roster key
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.includes("shristi") && (key.includes("roster") || key.includes("state") || key.includes("hub"))) {
+        const found = tryParseState(localStorage.getItem(key));
+        if (found) return found;
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+export function persistStateLocally(state: HubState) {
+  try {
+    const sanitized = withoutStoredCredentials(state);
+    const json = JSON.stringify(sanitized);
+    localStorage.setItem(CANONICAL_STORAGE_KEY, json);
+    localStorage.setItem(STORAGE_KEY, json);
+    for (const key of KNOWN_LEGACY_STATE_KEYS) {
+      try { localStorage.setItem(key, json); } catch {}
     }
   } catch {}
 }
@@ -892,15 +1011,21 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
   const missingFromSeed = seed.users.filter((su) => !parsedIds.has(su.id));
   const mergedUsers = [...parsedUsers, ...missingFromSeed];
 
+  let departments = Array.isArray(parsed.departments) && parsed.departments.length > 0
+    ? parsed.departments
+    : seed.departments;
+  if (!departments.includes("General")) {
+    departments = ["General", ...departments];
+  }
+
   return {
     ...seed,
     ...parsed,
     users: mergedUsers,
-    // The spreadsheet is the single source of truth for house points; purge any stale legacy competitions
-    pointsLedger: seed.pointsLedger,
+    pointsLedger: Array.isArray(parsed.pointsLedger) ? parsed.pointsLedger : seed.pointsLedger,
     councilHubMembers: parsed.councilHubMembers ?? seed.councilHubMembers,
     councilMessages: parsed.councilMessages ?? seed.councilMessages,
-    departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : seed.departments,
+    departments,
     permissions: parsed.permissions ?? seed.permissions,
     activeImageIds: parsed.activeImageIds ?? seed.activeImageIds,
     audit: parsed.audit ?? [],
@@ -926,7 +1051,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
           Green: [...(parsed.houseMemberships.Green ?? [])],
         }
       : seed.houseMemberships,
-    houseMessages: parsed.houseMessages ?? seed.houseMessages,
+    houseMessages: Array.isArray(parsed.houseMessages) ? parsed.houseMessages : seed.houseMessages,
     houses: parsed.houses
       ? {
           Blue: { ...seed.houses.Blue, ...parsed.houses.Blue, logoUrl: parsed.houses.Blue?.logoUrl !== undefined ? parsed.houses.Blue.logoUrl : seed.houses.Blue.logoUrl },
@@ -934,30 +1059,78 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
           Green: { ...seed.houses.Green, ...parsed.houses.Green, logoUrl: parsed.houses.Green?.logoUrl !== undefined ? parsed.houses.Green.logoUrl : seed.houses.Green.logoUrl },
         }
       : seed.houses,
-    siteRatings: parsed.siteRatings ?? seed.siteRatings,
+    siteRatings: Array.isArray(parsed.siteRatings) ? parsed.siteRatings : seed.siteRatings,
     notificationTemplates: parsed.notificationTemplates ?? seed.notificationTemplates ?? DEFAULT_NOTIFICATION_TEMPLATES,
+    lastModified: parsed.lastModified || Date.now(),
   };
 }
 
 function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
+  const seed = buildSeedState();
+  const remoteTime = Number((remote as any).lastModified || (remote as any).version || 0);
+  const localTime = Number(local.lastModified || 0);
+  const isLocalNewer = localTime > remoteTime;
+
+  // Departments:
+  let departments: string[];
+  const remoteDepts = Array.isArray(remote.departments) && remote.departments.length > 0 ? remote.departments : null;
+  const localDepts = Array.isArray(local.departments) && local.departments.length > 0 ? local.departments : null;
+
+  if (remoteDepts && localDepts) {
+    departments = isLocalNewer ? localDepts : remoteDepts;
+  } else if (remoteDepts) {
+    departments = remoteDepts;
+  } else if (localDepts) {
+    departments = localDepts;
+  } else {
+    departments = [...seed.departments];
+  }
+  if (!departments.includes("General")) {
+    departments = ["General", ...departments];
+  }
+
+  // Branding:
+  const remoteBranding = remote.branding && typeof remote.branding.schoolName === "string" && remote.branding.schoolName.trim() ? remote.branding : null;
+  const localBranding = local.branding && typeof local.branding.schoolName === "string" && local.branding.schoolName.trim() ? local.branding : null;
+  const branding = isLocalNewer
+    ? { ...seed.branding, ...(remoteBranding || {}), ...(localBranding || {}) }
+    : { ...seed.branding, ...(localBranding || {}), ...(remoteBranding || {}) };
+
+  // Houses & Legal:
+  const houses = isLocalNewer
+    ? { ...seed.houses, ...(remote.houses || {}), ...(local.houses || {}) }
+    : { ...seed.houses, ...(local.houses || {}), ...(remote.houses || {}) };
+
+  const legal = isLocalNewer
+    ? { ...seed.legal, ...(remote.legal || {}), ...(local.legal || {}) }
+    : { ...seed.legal, ...(local.legal || {}), ...(remote.legal || {}) };
+
+  // Users:
   const remoteUsers = Array.isArray(remote.users) ? remote.users : [];
-  const seedUsers = buildSeedState().users;
+  const seedUsers = seed.users;
   let users: Student[];
   if (remoteUsers.length) {
     const remoteMapped = remoteUsers.map((cloudUser) => {
       const localUser = local.users.find((student) => student.id === cloudUser.id)
         ?? seedUsers.find((student) => student.id === cloudUser.id);
-      return {
-        ...localUser,
-        ...cloudUser,
-        // Cloud-created accounts authenticate through Firebase; they never inherit a
-        // shared local password.
-        password: localUser?.password ?? "",
-        passwordHash: localUser?.passwordHash ?? "firebase-auth",
-        aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
-      } as Student;
+      return (isLocalNewer
+        ? {
+            ...seedUsers.find((su) => su.id === cloudUser.id),
+            ...cloudUser,
+            ...localUser,
+            password: localUser?.password ?? "",
+            passwordHash: localUser?.passwordHash ?? "firebase-auth",
+            aliases: localUser?.aliases ?? cloudUser.aliases ?? [],
+          }
+        : {
+            ...seedUsers.find((su) => su.id === cloudUser.id),
+            ...localUser,
+            ...cloudUser,
+            password: localUser?.password ?? "",
+            passwordHash: localUser?.passwordHash ?? "firebase-auth",
+            aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
+          }) as Student;
     });
-    // Retain local / seed users not in remoteUsers
     const remoteIdSet = new Set(remoteMapped.map((u) => u.id));
     const localRemaining = local.users.filter((u) => !remoteIdSet.has(u.id));
     const mergedIdSet = new Set([...remoteIdSet, ...localRemaining.map((u) => u.id)]);
@@ -968,20 +1141,88 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     const seedMissing = seedUsers.filter((u) => !localIdSet.has(u.id));
     users = [...local.users, ...seedMissing];
   }
+
+  // Tasks: merge by ID
+  const localTasks = Array.isArray(local.tasks) ? local.tasks : [];
+  const remoteTasks = Array.isArray(remote.tasks) ? remote.tasks : [];
+  const taskMap = new Map<string, CouncilTask>();
+  const taskOrder = isLocalNewer ? [...remoteTasks, ...localTasks] : [...localTasks, ...remoteTasks];
+  for (const t of taskOrder) {
+    if (t && t.id) taskMap.set(t.id, t);
+  }
+  const tasks = taskMap.size ? Array.from(taskMap.values()) : (isLocalNewer ? localTasks : remoteTasks);
+
+  // Polls: merge voters and ballots
+  const localPolls = Array.isArray(local.polls) ? local.polls : [];
+  const remotePolls = Array.isArray(remote.polls) ? remote.polls : [];
+  const pollMap = new Map<string, Poll>();
+  for (const lp of localPolls) {
+    pollMap.set(lp.id, { ...lp });
+  }
+  for (const rp of remotePolls) {
+    const existing = pollMap.get(rp.id);
+    if (!existing) {
+      pollMap.set(rp.id, { ...rp });
+    } else {
+      const allVoters = Array.from(new Set([...(existing.voters || []), ...(rp.voters || [])]));
+      const ballotMap = new Map<string, PollBallot>();
+      (existing.ballots || []).forEach((b) => ballotMap.set(b.userId, b));
+      (rp.ballots || []).forEach((b) => ballotMap.set(b.userId, b));
+      pollMap.set(rp.id, {
+        ...existing,
+        ...rp,
+        voters: allVoters,
+        ballots: Array.from(ballotMap.values()),
+        votes: rp.votes?.length ? rp.votes : existing.votes,
+      });
+    }
+  }
+  const polls = Array.from(pollMap.values());
+
+  // Suggestions:
+  const localSug = Array.isArray(local.suggestions) ? local.suggestions : [];
+  const remoteSug = Array.isArray(remote.suggestions) ? remote.suggestions : [];
+  const sugMap = new Map<string, Suggestion>();
+  for (const s of [...remoteSug, ...localSug]) {
+    if (s && s.id) sugMap.set(s.id, s);
+  }
+  const suggestions = Array.from(sugMap.values()).sort((a, b) => b.timestamp - a.timestamp);
+
+  // Events:
+  const localEvents = Array.isArray(local.events) ? local.events : [];
+  const remoteEvents = Array.isArray(remote.events) ? remote.events : [];
+  const eventMap = new Map<string, SchoolEvent>();
+  for (const ev of [...remoteEvents, ...localEvents]) {
+    if (ev && ev.id) eventMap.set(ev.id, ev);
+  }
+  const events = eventMap.size ? Array.from(eventMap.values()) : seed.events;
+
+  // Gallery:
   const remoteGallery = Array.isArray(remote.gallery) ? remote.gallery : local.gallery;
   const gallery = remoteGallery.map((cloudItem) => {
     const localItem = local.gallery.find((item) => item.id === cloudItem.id);
     return { ...localItem, ...cloudItem, image: cloudItem.image || localItem?.image } as GalleryItem;
   });
-  const branding = remote.branding ? { ...local.branding, ...remote.branding } : local.branding;
-  const houses = remote.houses ? { ...local.houses, ...remote.houses } : local.houses;
-  const legal = remote.legal ? { ...local.legal, ...remote.legal } : local.legal;
-  const departments = Array.isArray(remote.departments) && remote.departments.length > 0
-    ? remote.departments
-    : Array.isArray(local.departments) && local.departments.length > 0
-    ? local.departments
-    : buildSeedState().departments;
-  return withFallbackSlices({ ...local, ...remote, departments, users, gallery, branding, houses, legal, session: local.session, theme: local.theme } as HubState, buildSeedState());
+
+  const lastModified = Math.max(localTime, remoteTime, Date.now());
+
+  return withFallbackSlices({
+    ...local,
+    ...remote,
+    departments,
+    branding,
+    houses,
+    legal,
+    users,
+    tasks,
+    polls,
+    suggestions,
+    events,
+    gallery,
+    lastModified,
+    session: local.session,
+    theme: local.theme,
+  } as HubState, seed);
 }
 
 function loadState(): HubState {
@@ -1000,21 +1241,18 @@ function loadState(): HubState {
     : seed;
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as HubState;
-      if (parsed && typeof parsed === "object") {
-        const session = sessionStorage.getItem(SESSION_KEY);
-        const effectiveParsed = {
-          ...parsed,
-          users: validRoster(parsed.users) ? parsed.users : baseSeed.users,
-          branding: parsed.branding || baseSeed.branding,
-          houses: parsed.houses || baseSeed.houses,
-          legal: parsed.legal || baseSeed.legal,
-          departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : baseSeed.departments,
-        };
-        return { ...withFallbackSlices(effectiveParsed, baseSeed), session: session ? JSON.parse(session) : null };
-      }
+    const parsed = findStoredStateInAnyVersion();
+    if (parsed && typeof parsed === "object") {
+      const session = sessionStorage.getItem(SESSION_KEY);
+      const effectiveParsed = {
+        ...parsed,
+        users: validRoster(parsed.users) ? parsed.users : baseSeed.users,
+        branding: parsed.branding || baseSeed.branding,
+        houses: parsed.houses || baseSeed.houses,
+        legal: parsed.legal || baseSeed.legal,
+        departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : baseSeed.departments,
+      };
+      return { ...withFallbackSlices(effectiveParsed, baseSeed), session: session ? JSON.parse(session) : null };
     }
   } catch {}
   return { ...baseSeed, session: null };
@@ -1060,7 +1298,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(state)));
+      persistStateLocally(state);
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
       persistBrandingToCache(state);
     } catch { announce("Storage is full or unavailable. Your latest changes are only saved in this tab.", "error"); }
@@ -1084,6 +1322,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         const next = { ...withFallbackSlices(incoming, buildSeedState()), session: stateRef.current.session, theme: stateRef.current.theme };
         stateRef.current = next;
         persistBrandingToCache(next);
+        persistStateLocally(next);
         baseDispatch({ type: "REPLACE", state: next });
       }
       else if (msg.type === "ping") {
@@ -1113,7 +1352,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             stateRef.current = next;
             persistBrandingToCache(next);
             try {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+              persistStateLocally(next);
             } catch {}
             cloudStateHashRef.current = cloudStateFingerprint(next);
             baseDispatch({ type: "REPLACE", state: next });
@@ -1168,13 +1407,16 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       }
       const previous = stateRef.current;
       let next = reducer(previous, action);
+      if (next !== previous) {
+        next = { ...next, lastModified: Date.now() };
+      }
       if (ADMIN_ACTIONS.has(action.type) && next !== previous) {
         const actor = previous.users.find((u) => u.id === previous.session?.userId);
         next = { ...next, audit: [{ id: uid(), action: action.type.toLowerCase().replace(/_/g, " "), actor: actor?.name ?? "Administrator", timestamp: Date.now() }, ...next.audit].slice(0, 100) };
       }
       stateRef.current = next;
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+        persistStateLocally(next);
         persistBrandingToCache(next);
       } catch {}
       baseDispatch({ type: "REPLACE", state: next });
@@ -1408,7 +1650,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     stateRef.current = next;
     persistBrandingToCache(next);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(withoutStoredCredentials(next)));
+      persistStateLocally(next);
     } catch {}
     cloudStateHashRef.current = cloudStateFingerprint(next);
     baseDispatch({ type: "REPLACE", state: next });
