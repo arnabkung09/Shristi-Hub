@@ -8,9 +8,12 @@ initializeApp();
 setGlobalOptions({ region: "asia-south1", maxInstances: 10 });
 
 const db = getFirestore();
-const ADMIN_EMAIL = "72019arnab@shristiacademy.edu.np";
+const PRIMARY_ADMIN_EMAILS = new Set([
+  "72019arnab@shristiacademy.edu.np",
+  "arnabkung@gmail.com",
+]);
 const HOUSES = new Set(["Blue", "Red", "Green"]);
-const ROLES = new Set(["admin", "council", "student"]);
+const ROLES = new Set(["admin", "council", "student", "teacher", "grade"]);
 
 function requireAuth(request) {
   if (!request.auth?.uid || !request.auth.token.email) throw new HttpsError("unauthenticated", "Google authentication is required.");
@@ -19,7 +22,7 @@ function requireAuth(request) {
 
 async function requireAdmin(request) {
   const auth = requireAuth(request);
-  if (auth.email === ADMIN_EMAIL) return auth;
+  if (PRIMARY_ADMIN_EMAILS.has(auth.email)) return auth;
   const profile = await db.doc(`users/${auth.uid}`).get();
   if (!profile.exists || profile.data()?.role !== "admin" || profile.data()?.status !== "active") {
     throw new HttpsError("permission-denied", "Administrator access is required.");
@@ -28,18 +31,39 @@ async function requireAdmin(request) {
 }
 
 function validateStudent(value) {
-  if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Invalid student record.");
-  if (!value.id || !value.name || !value.email) throw new HttpsError("invalid-argument", "Student id, name, and email are required.");
+  if (!value || typeof value !== "object") throw new HttpsError("invalid-argument", "Invalid account record.");
+  if (!value.id || !value.name || !value.email) throw new HttpsError("invalid-argument", "Account id, name, and email are required.");
   if (!/^[^\s@]+@shristiacademy\.edu\.np$/i.test(value.email)) throw new HttpsError("invalid-argument", "Primary email must use the school domain.");
-  if (!Number.isInteger(value.grade) || value.grade < 1 || value.grade > 10) throw new HttpsError("invalid-argument", "Grade must be 1 through 10.");
-  if (!HOUSES.has(value.house) || !ROLES.has(value.role)) throw new HttpsError("invalid-argument", "Invalid house or role.");
+  if (!ROLES.has(value.role)) throw new HttpsError("invalid-argument", "Invalid account role.");
+
+  const isTeacher = value.role === "teacher";
+  const isGradeAccount = value.role === "grade";
+
+  if (value.grade === null || value.grade === undefined) {
+    if (!isTeacher) throw new HttpsError("invalid-argument", "Grade must be 1 through 10.");
+  } else if (!Number.isInteger(value.grade) || value.grade < 1 || value.grade > 10) {
+    throw new HttpsError("invalid-argument", "Grade must be 1 through 10.");
+  }
+
+  if (value.house === null || value.house === undefined) {
+    if (!isTeacher && !isGradeAccount) throw new HttpsError("invalid-argument", "House is required for student accounts.");
+  } else if (!HOUSES.has(value.house)) {
+    throw new HttpsError("invalid-argument", "Invalid house assignment.");
+  }
+
   const aliases = Array.isArray(value.aliases) ? value.aliases.map((email) => String(email).toLowerCase()) : [];
   if (aliases.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email))) throw new HttpsError("invalid-argument", "Invalid email alias.");
-  return { ...value, aliases, emails: [String(value.email).toLowerCase(), ...aliases] };
+  return {
+    ...value,
+    grade: value.grade ?? null,
+    house: value.house ?? null,
+    aliases,
+    emails: [String(value.email).toLowerCase(), ...aliases],
+  };
 }
 
 async function writeRoster(students) {
-  if (!Array.isArray(students) || students.length < 1 || students.length > 2000) throw new HttpsError("invalid-argument", "Roster must contain 1 to 2000 students.");
+  if (!Array.isArray(students) || students.length < 1 || students.length > 2000) throw new HttpsError("invalid-argument", "Roster must contain 1 to 2000 accounts.");
   const normalized = students.map(validateStudent);
   const allEmails = normalized.flatMap((student) => student.emails);
   if (new Set(allEmails).size !== allEmails.length) throw new HttpsError("invalid-argument", "Roster contains duplicate primary or alias emails.");
@@ -58,7 +82,6 @@ async function writeRoster(students) {
     await batch.commit();
   }
 
-  // Revoked roster members lose Firestore access even if an old Google session remains valid.
   const profiles = await db.collection("users").get();
   const revoked = profiles.docs.filter((snapshot) => !activeIds.has(snapshot.data().id));
   for (let start = 0; start < revoked.length; start += 400) {
@@ -71,9 +94,9 @@ async function writeRoster(students) {
 
 export const seedRoster = onCall(async (request) => {
   const auth = requireAuth(request);
-  if (auth.email !== ADMIN_EMAIL) throw new HttpsError("permission-denied", "Only the primary administrator can seed the roster.");
+  if (!PRIMARY_ADMIN_EMAILS.has(auth.email)) throw new HttpsError("permission-denied", "Only the primary administrator can seed the roster.");
   const count = await writeRoster(request.data?.students);
-  const adminRecord = request.data.students.find((student) => String(student.email).toLowerCase() === ADMIN_EMAIL);
+  const adminRecord = request.data.students.find((student) => PRIMARY_ADMIN_EMAILS.has(String(student.email).toLowerCase()));
   if (!adminRecord) throw new HttpsError("invalid-argument", "Primary administrator is missing from the roster.");
   await db.doc(`users/${auth.uid}`).set({ ...validateStudent(adminRecord), firebaseUid: auth.uid, googleEmail: auth.email, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { count };
@@ -103,7 +126,9 @@ function matchesAudience(token, audience) {
     const email = String(token.email || "").toLowerCase();
     return studentId === target || uid === target || email === target;
   }
-  if (audience.kind === "role") return token.role === audience.role || (audience.role === "council" && token.role === "admin");
+  if (audience.kind === "role") {
+    return token.role === audience.role || (audience.role === "council" && token.role === "admin") || (audience.role === "teacher" && token.role === "admin");
+  }
   if (audience.kind === "house") return token.house === audience.house;
   if (audience.kind === "grade") return token.grade === audience.grade;
   return false;
@@ -185,7 +210,14 @@ export const syncUserActivity = onCall(async (request) => {
       if (!candidate || !Array.isArray(candidate.voters) || !candidate.voters.includes(studentId) || !Array.isArray(candidate.votes)) return poll;
       const changes = candidate.votes.map((value, index) => Number(value) - Number((poll.votes || [])[index] || 0));
       if (changes.filter((change) => change === 1).length !== 1 || changes.some((change) => change !== 0 && change !== 1)) throw new HttpsError("invalid-argument", "Invalid poll vote update.");
-      return { ...poll, votes: candidate.votes, voters: [...(poll.voters || []), studentId] };
+      const existingBallots = Array.isArray(poll.ballots) ? poll.ballots : [];
+      const ownBallot = Array.isArray(candidate.ballots) ? candidate.ballots.find((b) => b && b.userId === studentId) : null;
+      return {
+        ...poll,
+        votes: candidate.votes,
+        voters: [...(poll.voters || []), studentId],
+        ballots: ownBallot ? [...existingBallots.filter((b) => b.userId !== studentId), ownBallot] : existingBallots,
+      };
     });
 
     const candidateRatings = Array.isArray(incoming.siteRatings) ? incoming.siteRatings : [];
@@ -211,8 +243,8 @@ export const syncUserActivity = onCall(async (request) => {
 
     const currentSuggestionIds = new Set((current.suggestions || []).map((suggestion) => suggestion.id));
     const newSuggestions = (Array.isArray(incoming.suggestions) ? incoming.suggestions : []).filter((suggestion) => !currentSuggestionIds.has(suggestion.id)).slice(0, 3).map((suggestion) => ({
-      id: String(suggestion.id).slice(0, 100), category: String(suggestion.category).slice(0, 60), text: String(suggestion.text).slice(0, 3000), anonymous: Boolean(suggestion.anonymous),
-      authorId: suggestion.anonymous ? null : studentId, authorLabel: suggestion.anonymous ? "Anonymous" : `${profile.name} · Grade ${profile.grade}`,
+      id: String(suggestion.id).slice(0, 100), category: String(suggestion.category).slice(0, 60), text: String(suggestion.text).slice(0, 3000), anonymous: false,
+      authorId: studentId, authorLabel: `${profile.name} · ${profile.role === "teacher" ? "Staff / Teacher" : `Grade ${profile.grade ?? "—"}`}`,
       status: "pending", timestamp: Date.now(),
     }));
 
