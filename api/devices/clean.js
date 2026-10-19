@@ -10,7 +10,7 @@ export default async function handler(req, res) {
     const db = await getDb();
     const collection = db.collection('connected_devices');
 
-    const cutoff = Date.now() - 60000;
+    const cutoff = Date.now() - 90000;
     const result = await collection.deleteMany({
       lastPing: { $lt: cutoff },
     });

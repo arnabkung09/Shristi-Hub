@@ -872,7 +872,7 @@ function AccountDialog({
                 </button>
               </div>
               <small>
-                A 6-digit confirmation code will be dispatched to their base school account ({currentStudent.email}) to verify access upon login.
+                Added emails can be confirmed immediately using “Verify now” above so the account can sign in with Google.
               </small>
             </label>
           </form>

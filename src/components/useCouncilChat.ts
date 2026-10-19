@@ -15,9 +15,10 @@ export type CouncilChatTransport = "cloud" | "device";
  * Council Hub chat with two transports:
  *
  * - `cloud` — a Google-signed-in member is connected, so messages are read from and
- *   written to the membership-gated Firestore room `hubChat/council/messages`.
- * - `device` — the offline/demo path, where the thread lives in the locally persisted
- *   `councilMessages` slice and syncs between tabs of the same browser.
+ *   written to the membership-gated Firestore room `hubChat/council/messages` alongside
+ *   the MongoDB-backed `councilMessages` slice.
+ * - `device` — the MongoDB/local path, where the thread lives in the persisted
+ *   `councilMessages` slice and syncs across devices via `/api/state` and between tabs.
  *
  * Either way the same rule applies: only accounts explicitly added to the hub can read
  * or post. Administrators manage the membership list but are not members automatically.
@@ -28,13 +29,33 @@ export function useCouncilChat() {
   const cloud = member && firebaseStatus === "connected";
   const cloudChat = useHubChat(COUNCIL_HUB_ROOM, user, cloud);
 
-  const deviceMessages = useMemo(() => sortCouncilMessages(state.councilMessages), [state.councilMessages]);
+  const mergedMessages = useMemo(() => {
+    const map = new Map<string, CouncilChatMessage>();
+    for (const m of state.councilMessages || []) {
+      if (m && m.id) map.set(m.id, m);
+    }
+    if (cloud && Array.isArray(cloudChat.messages)) {
+      for (const cm of cloudChat.messages) {
+        if (cm && cm.id && !map.has(cm.id)) {
+          const isDuplicate = Array.from(map.values()).some(
+            (existing) =>
+              existing.authorId === cm.authorId &&
+              existing.body === cm.body &&
+              Math.abs(existing.timestamp - cm.timestamp) < 5000
+          );
+          if (!isDuplicate) {
+            map.set(cm.id, cm);
+          }
+        }
+      }
+    }
+    return sortCouncilMessages(Array.from(map.values()));
+  }, [state.councilMessages, cloud, cloudChat.messages]);
 
   const send = useCallback(async (body: string) => {
     if (!user || !canPostToCouncilHub(state, user)) {
       throw new Error("Only accounts added to the Council Hub can post here.");
     }
-    if (cloud) return cloudChat.send(body);
     const message: CouncilChatMessage = {
       id: uid(),
       authorId: user.id,
@@ -44,20 +65,30 @@ export function useCouncilChat() {
       body,
       timestamp: Date.now(),
     };
-    return dispatch({ type: "POST_COUNCIL_MESSAGE", message });
+    dispatch({ type: "POST_COUNCIL_MESSAGE", message });
+    if (cloud && !cloudChat.error) {
+      await cloudChat.send(body).catch(() => {});
+    }
   }, [state, user, cloud, cloudChat, dispatch]);
 
   const remove = useCallback(async (messageId: string) => {
-    if (cloud) return cloudChat.remove(messageId);
-    return dispatch({ type: "DELETE_COUNCIL_MESSAGE", messageId });
-  }, [cloud, cloudChat, dispatch]);
+    const inLocal = state.councilMessages.some((m) => m.id === messageId);
+    if (inLocal) {
+      dispatch({ type: "DELETE_COUNCIL_MESSAGE", messageId });
+    }
+    if (cloud && !cloudChat.error) {
+      await cloudChat.remove(messageId).catch(() => {});
+    }
+  }, [state.councilMessages, cloud, cloudChat, dispatch]);
+
+  const useCloudActive = cloud && !cloudChat.error;
 
   return {
     member,
-    transport: (cloud ? "cloud" : "device") as CouncilChatTransport,
-    messages: cloud ? cloudChat.messages : deviceMessages,
-    loading: cloud ? cloudChat.loading : false,
-    error: cloud ? cloudChat.error : "",
+    transport: (useCloudActive ? "cloud" : "device") as CouncilChatTransport,
+    messages: mergedMessages,
+    loading: useCloudActive && mergedMessages.length === 0 ? cloudChat.loading : false,
+    error: "",
     retry: cloudChat.retry,
     send,
     remove,

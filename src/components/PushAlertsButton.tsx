@@ -17,8 +17,7 @@ export default function PushAlertsButton() {
       announce("Push notifications have been enabled for this device!");
     } catch (err: any) {
       console.error(err);
-      alert(`Failed to enable: ${err.message}`);
-      announce("Failed to enable push notifications", "error");
+      announce(err?.message ? `Failed to enable alerts: ${err.message}` : "Failed to enable push notifications", "error");
     } finally {
       setLoading(false);
     }

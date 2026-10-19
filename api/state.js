@@ -6,6 +6,8 @@ function sanitizeRoster(users) {
     ...user,
     password: '',
     passwordHash: user.passwordHash ? 'managed' : '',
+    aliases: Array.isArray(user.aliases) ? user.aliases : [],
+    verifiedAliases: Array.isArray(user.verifiedAliases) ? user.verifiedAliases : [],
   }));
 }
 
@@ -13,16 +15,17 @@ export default async function handler(req, res) {
   try {
     const db = await getDb();
     const collection = db.collection('hub_state');
+    const query = req.query || {};
 
     // Health / Diagnostics endpoint
-    if (req.method === 'GET' && (req.query.health === '1' || req.query.test === '1')) {
+    if (req.method === 'GET' && (query.health === '1' || query.test === '1')) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       await db.command({ ping: 1 });
       const doc = await collection.findOne({ _id: 'main' });
       return res.status(200).json({
         success: true,
         connected: true,
-        database: db.databaseName,
+        database: db.databaseName || 'shristi_hub',
         hasExistingState: Boolean(doc && doc.state),
         lastSynced: doc?.updatedAt || null,
         version: doc?.version || null,
@@ -31,8 +34,8 @@ export default async function handler(req, res) {
     }
 
     // Ultra-fast dedicated Branding & Identity endpoint (<1KB payload, resolves in ~5ms)
-    if (req.method === 'GET' && req.query.section === 'branding') {
-      if (req.query.fresh === '1') {
+    if (req.method === 'GET' && query.section === 'branding') {
+      if (query.fresh === '1') {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       } else {
         res.setHeader('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=120');
@@ -40,7 +43,7 @@ export default async function handler(req, res) {
 
       const doc = await collection.findOne(
         { _id: 'main' },
-        { projection: { 'state.branding': 1, 'state.houses': 1, 'state.legal': 1, updatedAt: 1, version: 1 } }
+        { projection: { 'state.branding': 1, 'state.houses': 1, 'state.legal': 1, updatedAt: 1, version: 1, lastModified: 1 } }
       );
 
       if (!doc || !doc.state) {
@@ -67,7 +70,7 @@ export default async function handler(req, res) {
 
     if (req.method === 'GET') {
       // Vercel Edge CDN cache: ~20ms response time globally with background revalidation
-      if (req.query.fresh === '1') {
+      if (query.fresh === '1') {
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
       } else {
         res.setHeader('Cache-Control', 'public, s-maxage=2, stale-while-revalidate=120');
@@ -99,9 +102,9 @@ export default async function handler(req, res) {
       const auth = extractAuth(req);
       const body = req.body || {};
 
-      // 1. Student / User Activity Sync (RSVPs, poll votes, ratings, suggestions)
+      // 1. Student / User Activity Sync (RSVPs, poll votes, ratings, suggestions, messages, tasks)
       if (body.action === 'syncActivity') {
-        const { studentId, studentName, studentHouse, studentGrade, activity } = body;
+        const { studentId, studentName, studentHouse, activity } = body;
         if (!studentId || !activity) {
           return res.status(400).json({ error: 'Missing studentId or activity payload' });
         }
@@ -117,11 +120,27 @@ export default async function handler(req, res) {
           tasks: [],
           houseMessages: [],
           councilMessages: [],
+          users: [],
         };
 
-        // Sync RSVPs / Attendees
-        let events = current.events || [];
-        if (Array.isArray(activity.events)) {
+        // Sync RSVPs / Attendees (supports both rsvpEventIds and events array)
+        let events = Array.isArray(current.events) ? [...current.events] : [];
+        if (Array.isArray(activity.rsvpEventIds)) {
+          const rsvpSet = new Set(activity.rsvpEventIds);
+          events = events.map((event) => {
+            const attendees = new Set(Array.isArray(event.attendees) ? event.attendees : []);
+            const attended = new Set(Array.isArray(event.attended) ? event.attended : []);
+            if (rsvpSet.has(event.id)) {
+              if (attendees.size < (event.capacity || 999)) {
+                attendees.add(studentId);
+              }
+            } else {
+              attendees.delete(studentId);
+              attended.delete(studentId);
+            }
+            return { ...event, attendees: Array.from(attendees), attended: Array.from(attended) };
+          });
+        } else if (Array.isArray(activity.events)) {
           const incomingEvents = new Map(activity.events.map((e) => [e.id, e]));
           events = events.map((event) => {
             const candidate = incomingEvents.get(event.id);
@@ -138,19 +157,30 @@ export default async function handler(req, res) {
           });
         }
 
-        // Sync Poll Votes (prevent double voting)
-        let polls = current.polls || [];
+        // Sync Poll Votes (prevent double voting and safely merge concurrent votes/ballots)
+        let polls = Array.isArray(current.polls) ? [...current.polls] : [];
         if (Array.isArray(activity.polls)) {
           const incomingPolls = new Map(activity.polls.map((p) => [p.id, p]));
           polls = polls.map((poll) => {
             const candidate = incomingPolls.get(poll.id);
             if (!candidate || (poll.voters || []).includes(studentId)) return poll;
-            if (Array.isArray(candidate.voters) && candidate.voters.includes(studentId) && Array.isArray(candidate.votes)) {
+            if (Array.isArray(candidate.voters) && candidate.voters.includes(studentId)) {
+              const existingBallots = Array.isArray(poll.ballots) ? poll.ballots.filter((b) => b && b.userId !== studentId) : [];
+              const ownBallot = Array.isArray(candidate.ballots)
+                ? candidate.ballots.find((b) => b && b.userId === studentId)
+                : null;
+              const nextBallots = ownBallot ? [...existingBallots, ownBallot] : (candidate.ballots || existingBallots);
+              let nextVotes = Array.isArray(poll.votes) ? [...poll.votes] : [];
+              if (ownBallot && typeof ownBallot.optionIndex === 'number' && ownBallot.optionIndex >= 0 && ownBallot.optionIndex < nextVotes.length) {
+                nextVotes[ownBallot.optionIndex] = (Number(nextVotes[ownBallot.optionIndex]) || 0) + 1;
+              } else if (Array.isArray(candidate.votes)) {
+                nextVotes = candidate.votes;
+              }
               return {
                 ...poll,
-                votes: candidate.votes,
-                voters: [...(poll.voters || []), studentId],
-                ballots: candidate.ballots || poll.ballots || [],
+                votes: nextVotes,
+                voters: Array.from(new Set([...(poll.voters || []), studentId])),
+                ballots: nextBallots,
               };
             }
             return poll;
@@ -158,7 +188,7 @@ export default async function handler(req, res) {
         }
 
         // Sync Site Rating
-        let siteRatings = current.siteRatings || [];
+        let siteRatings = Array.isArray(current.siteRatings) ? [...current.siteRatings] : [];
         if (activity.rating && typeof activity.rating.value === 'number') {
           const r = activity.rating;
           siteRatings = siteRatings.filter((item) => item.userId !== studentId);
@@ -168,21 +198,23 @@ export default async function handler(req, res) {
             house: studentHouse || r.house || 'Red',
             value: Math.max(1, Math.min(5, Math.round(r.value))),
             comment: String(r.comment || '').slice(0, 300),
-            timestamp: Date.now(),
+            timestamp: r.timestamp || Date.now(),
           });
           siteRatings = siteRatings.slice(0, 500);
         }
 
         // Sync Suggestions
-        let suggestions = current.suggestions || [];
+        let suggestions = Array.isArray(current.suggestions) ? [...current.suggestions] : [];
         if (Array.isArray(activity.suggestions)) {
           const existingIds = new Set(suggestions.map((s) => s.id));
-          const newSuggestions = activity.suggestions.filter((s) => !existingIds.has(s.id)).slice(0, 5);
-          suggestions = [...newSuggestions, ...suggestions].slice(0, 300);
+          const newSuggestions = activity.suggestions.filter((s) => s && s.id && !existingIds.has(s.id)).slice(0, 10);
+          if (newSuggestions.length > 0) {
+            suggestions = [...newSuggestions, ...suggestions].slice(0, 300);
+          }
         }
 
         // Sync Notification Read Status
-        let notifications = current.notifications || [];
+        let notifications = Array.isArray(current.notifications) ? [...current.notifications] : [];
         if (Array.isArray(activity.readNotificationIds)) {
           const readSet = new Set(activity.readNotificationIds);
           notifications = notifications.map((n) => {
@@ -194,38 +226,54 @@ export default async function handler(req, res) {
         }
 
         // Sync Task Statuses (if assigned)
-        let tasks = current.tasks || [];
+        let tasks = Array.isArray(current.tasks) ? [...current.tasks] : [];
         if (activity.taskStatuses && typeof activity.taskStatuses === 'object') {
           tasks = tasks.map((t) => {
             if (t.assigneeId === studentId && activity.taskStatuses[t.id]) {
-              return { ...t, status: activity.taskStatuses[t.id] };
+              const nextStatus = activity.taskStatuses[t.id];
+              return {
+                ...t,
+                status: nextStatus,
+                completedAt: nextStatus === 'done' ? (t.completedAt || Date.now()) : undefined,
+              };
             }
             return t;
           });
         }
 
         // Sync House Messages
-        let houseMessages = current.houseMessages || [];
+        let houseMessages = Array.isArray(current.houseMessages) ? [...current.houseMessages] : [];
         if (Array.isArray(activity.houseMessages)) {
           const existingIds = new Set(houseMessages.map((m) => m.id));
-          const newMessages = activity.houseMessages.filter((m) => !existingIds.has(m.id));
+          const newMessages = activity.houseMessages.filter((m) => m && m.id && !existingIds.has(m.id));
           if (newMessages.length > 0) {
-            houseMessages = [...newMessages, ...houseMessages].slice(0, 500);
+            houseMessages = [...newMessages, ...houseMessages]
+              .sort((a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0))
+              .slice(0, 500);
           }
         }
 
         // Sync Council Messages
-        let councilMessages = current.councilMessages || [];
+        let councilMessages = Array.isArray(current.councilMessages) ? [...current.councilMessages] : [];
         if (Array.isArray(activity.councilMessages)) {
           const existingIds = new Set(councilMessages.map((m) => m.id));
-          const newMessages = activity.councilMessages.filter((m) => !existingIds.has(m.id));
+          const newMessages = activity.councilMessages.filter((m) => m && m.id && !existingIds.has(m.id));
           if (newMessages.length > 0) {
-            councilMessages = [...newMessages, ...councilMessages].slice(0, 500);
+            councilMessages = [...councilMessages, ...newMessages]
+              .sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0))
+              .slice(-500);
           }
         }
 
+        // Update user lastActive and active status
+        const nowTs = Date.now();
+        const users = Array.isArray(current.users)
+          ? current.users.map((u) => (u.id === studentId ? { ...u, status: 'active', lastActive: nowTs } : u))
+          : [];
+
         const updatedState = {
           ...current,
+          users,
           events,
           polls,
           siteRatings,
@@ -234,10 +282,11 @@ export default async function handler(req, res) {
           tasks,
           houseMessages,
           councilMessages,
+          lastModified: nowTs,
         };
 
         const now = new Date();
-        const version = Date.now();
+        const version = nowTs;
 
         await collection.updateOne(
           { _id: 'main' },
@@ -247,6 +296,7 @@ export default async function handler(req, res) {
               updatedAt: now,
               updatedBy: studentName ? `${studentName} (${studentId})` : studentId,
               version,
+              lastModified: version,
             },
           },
           { upsert: true }
@@ -271,7 +321,7 @@ export default async function handler(req, res) {
 
       const rawState = body.state;
       const now = new Date();
-      const version = rawState.lastModified || Date.now();
+      const version = Date.now();
       const sanitizedState = {
         ...rawState,
         lastModified: version,

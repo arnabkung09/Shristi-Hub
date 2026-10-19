@@ -50,6 +50,7 @@ import {
 } from "../lib/firebase-client";
 import {
   fetchRemoteState,
+  mongoStateFingerprint,
   preloadRemoteState,
   saveRemoteState,
   syncRemoteUserActivity,
@@ -452,6 +453,7 @@ export function reducer(state: HubState, action: Action): HubState {
         ),
       };
     case "PUSH_NOTIFICATION":
+      if (state.notifications.some((n) => n.id === action.notification.id)) return state;
       return { ...state, notifications: [action.notification, ...state.notifications].slice(0, 60) };
     case "AWARD_POINTS":
       return {
@@ -945,7 +947,9 @@ export function reducer(state: HubState, action: Action): HubState {
       return {
         ...state,
         broadcastHistory: [action.record, ...state.broadcastHistory].slice(0, 40),
-        notifications: [action.notification, ...state.notifications].slice(0, 60),
+        notifications: state.notifications.some((n) => n.id === action.notification.id)
+          ? state.notifications
+          : [action.notification, ...state.notifications].slice(0, 60),
       };
     default:
       return state;
@@ -1113,6 +1117,12 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     const remoteMapped = remoteUsers.map((cloudUser) => {
       const localUser = local.users.find((student) => student.id === cloudUser.id)
         ?? seedUsers.find((student) => student.id === cloudUser.id);
+      const mergedAliases = Array.from(
+        new Set([...(isLocalNewer ? (localUser?.aliases ?? []) : (cloudUser.aliases ?? [])), ...(cloudUser.aliases ?? []), ...(localUser?.aliases ?? [])])
+      );
+      const mergedVerifiedAliases = Array.from(
+        new Set([...(localUser?.verifiedAliases ?? []), ...(cloudUser.verifiedAliases ?? [])])
+      ).filter((alias) => mergedAliases.some((a) => a.toLowerCase() === alias.toLowerCase()));
       return (isLocalNewer
         ? {
             ...seedUsers.find((su) => su.id === cloudUser.id),
@@ -1121,6 +1131,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
             password: localUser?.password ?? "",
             passwordHash: localUser?.passwordHash ?? "firebase-auth",
             aliases: localUser?.aliases ?? cloudUser.aliases ?? [],
+            verifiedAliases: localUser?.verifiedAliases ?? mergedVerifiedAliases,
+            avatarUrl: localUser?.avatarUrl || cloudUser.avatarUrl,
           }
         : {
             ...seedUsers.find((su) => su.id === cloudUser.id),
@@ -1129,6 +1141,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
             password: localUser?.password ?? "",
             passwordHash: localUser?.passwordHash ?? "firebase-auth",
             aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
+            verifiedAliases: cloudUser.verifiedAliases ?? mergedVerifiedAliases,
+            avatarUrl: cloudUser.avatarUrl || localUser?.avatarUrl,
           }) as Student;
     });
     const remoteIdSet = new Set(remoteMapped.map((u) => u.id));
@@ -1152,7 +1166,7 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   }
   const tasks = taskMap.size ? Array.from(taskMap.values()) : (isLocalNewer ? localTasks : remoteTasks);
 
-  // Polls: merge voters and ballots
+  // Polls: merge voters, ballots, and votes accurately
   const localPolls = Array.isArray(local.polls) ? local.polls : [];
   const remotePolls = Array.isArray(remote.polls) ? remote.polls : [];
   const pollMap = new Map<string, Poll>();
@@ -1166,14 +1180,29 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     } else {
       const allVoters = Array.from(new Set([...(existing.voters || []), ...(rp.voters || [])]));
       const ballotMap = new Map<string, PollBallot>();
-      (existing.ballots || []).forEach((b) => ballotMap.set(b.userId, b));
-      (rp.ballots || []).forEach((b) => ballotMap.set(b.userId, b));
+      (existing.ballots || []).forEach((b) => { if (b && b.userId) ballotMap.set(b.userId, b); });
+      (rp.ballots || []).forEach((b) => { if (b && b.userId) ballotMap.set(b.userId, b); });
+      const mergedBallots = Array.from(ballotMap.values());
+      const optionsLen = (rp.options || existing.options || []).length;
+      const talliedVotes = new Array(optionsLen).fill(0);
+      mergedBallots.forEach((b) => {
+        if (typeof b.optionIndex === "number" && b.optionIndex >= 0 && b.optionIndex < optionsLen) {
+          talliedVotes[b.optionIndex] += 1;
+        }
+      });
+      const mergedVotes = Array.from({ length: optionsLen }, (_, idx) =>
+        Math.max(
+          talliedVotes[idx] || 0,
+          Number(existing.votes?.[idx]) || 0,
+          Number(rp.votes?.[idx]) || 0
+        )
+      );
       pollMap.set(rp.id, {
-        ...existing,
-        ...rp,
+        ...(isLocalNewer ? rp : existing),
+        ...(isLocalNewer ? existing : rp),
         voters: allVoters,
-        ballots: Array.from(ballotMap.values()),
-        votes: rp.votes?.length ? rp.votes : existing.votes,
+        ballots: mergedBallots,
+        votes: mergedVotes,
       });
     }
   }
@@ -1183,7 +1212,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const localSug = Array.isArray(local.suggestions) ? local.suggestions : [];
   const remoteSug = Array.isArray(remote.suggestions) ? remote.suggestions : [];
   const sugMap = new Map<string, Suggestion>();
-  for (const s of [...remoteSug, ...localSug]) {
+  const sugOrder = isLocalNewer ? [...remoteSug, ...localSug] : [...localSug, ...remoteSug];
+  for (const s of sugOrder) {
     if (s && s.id) sugMap.set(s.id, s);
   }
   const suggestions = Array.from(sugMap.values()).sort((a, b) => b.timestamp - a.timestamp);
@@ -1192,10 +1222,33 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const localEvents = Array.isArray(local.events) ? local.events : [];
   const remoteEvents = Array.isArray(remote.events) ? remote.events : [];
   const eventMap = new Map<string, SchoolEvent>();
-  for (const ev of [...remoteEvents, ...localEvents]) {
+  const eventOrder = isLocalNewer ? [...remoteEvents, ...localEvents] : [...localEvents, ...remoteEvents];
+  for (const ev of eventOrder) {
     if (ev && ev.id) eventMap.set(ev.id, ev);
   }
   const events = eventMap.size ? Array.from(eventMap.values()) : seed.events;
+
+  // House Messages:
+  const localHouseMsgs = Array.isArray(local.houseMessages) ? local.houseMessages : [];
+  const remoteHouseMsgs = Array.isArray(remote.houseMessages) ? remote.houseMessages : [];
+  const houseMsgMap = new Map<string, HouseMessage>();
+  for (const hm of [...remoteHouseMsgs, ...localHouseMsgs]) {
+    if (hm && hm.id) houseMsgMap.set(hm.id, hm);
+  }
+  const houseMessages = Array.from(houseMsgMap.values())
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 200);
+
+  // Council Messages (preserve local messages when Firestore sends empty councilMessages):
+  const localCouncilMsgs = Array.isArray(local.councilMessages) ? local.councilMessages : [];
+  const remoteCouncilMsgs = Array.isArray(remote.councilMessages) ? remote.councilMessages : [];
+  const councilMsgMap = new Map<string, CouncilChatMessage>();
+  for (const cm of [...localCouncilMsgs, ...remoteCouncilMsgs]) {
+    if (cm && cm.id) councilMsgMap.set(cm.id, cm);
+  }
+  const councilMessages = Array.from(councilMsgMap.values())
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .slice(-250);
 
   // Gallery:
   const remoteGallery = Array.isArray(remote.gallery) ? remote.gallery : local.gallery;
@@ -1218,6 +1271,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     polls,
     suggestions,
     events,
+    houseMessages,
+    councilMessages,
     gallery,
     lastModified,
     session: local.session,
@@ -1344,8 +1399,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       try {
         const remote = await preloadRemoteState(fresh);
         if (active && remote.exists && remote.state) {
-          const currentHash = cloudStateFingerprint(stateRef.current);
-          const remoteHash = cloudStateFingerprint(remote.state as HubState);
+          const currentHash = mongoStateFingerprint(stateRef.current);
+          const remoteHash = mongoStateFingerprint(remote.state as HubState);
           if (currentHash !== remoteHash) {
             applyingCloudRef.current = true;
             const next = mergeCloudState(stateRef.current, remote.state);
@@ -1354,7 +1409,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
             try {
               persistStateLocally(next);
             } catch {}
-            cloudStateHashRef.current = cloudStateFingerprint(next);
+            cloudStateHashRef.current = mongoStateFingerprint(next);
             baseDispatch({ type: "REPLACE", state: next });
             queueMicrotask(() => { applyingCloudRef.current = false; });
             if (!cloudBootstrappedRef.current) {
@@ -1446,18 +1501,37 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   const connectAuthenticatedUser = async (googleEmail: string) => {
     const normalized = googleEmail.trim().toLowerCase();
-    const student = resolveGoogleStudent(normalized);
+    let student = resolveGoogleStudent(normalized);
+
+    const checkAliasStatus = (candidate: Student | undefined) => {
+      if (!candidate) return { isAlias: false, isVerified: false };
+      const isAlias =
+        candidate.email.toLowerCase() !== normalized &&
+        (candidate.aliases ?? []).some((a) => a.toLowerCase() === normalized);
+      const isVerified = !isAlias || (candidate.verifiedAliases ?? []).some((a) => a.toLowerCase() === normalized);
+      return { isAlias, isVerified };
+    };
+
+    let aliasState = checkAliasStatus(student);
+    if (!student || (aliasState.isAlias && !aliasState.isVerified)) {
+      try {
+        const freshRemote = await fetchRemoteState({ fresh: true });
+        if (freshRemote.exists && freshRemote.state) {
+          const next = mergeCloudState(stateRef.current, freshRemote.state);
+          stateRef.current = next;
+          baseDispatch({ type: "REPLACE", state: next });
+          student = resolveGoogleStudent(normalized);
+          aliasState = checkAliasStatus(student);
+        }
+      } catch {}
+    }
+
     if (!student) {
       await signOutFirebase();
       throw new Error("This Google email is not linked to a student account. Ask an administrator to add it as a school or personal login email.");
     }
 
-    const isAlias =
-      student.email.toLowerCase() !== normalized &&
-      (student.aliases ?? []).some((a) => a.toLowerCase() === normalized);
-    const isVerified = !isAlias || (student.verifiedAliases ?? []).includes(normalized);
-
-    if (isAlias && !isVerified) {
+    if (aliasState.isAlias && !aliasState.isVerified) {
       await signOutFirebase();
       // Aliases are administrator-controlled identities. There is no self-service code
       // (the old 6-digit step was generated on the client, so it protected nothing);
@@ -1624,7 +1698,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     persistBrandingToCache(stateRef.current);
     await saveRemoteState(stateRef.current, current);
-    cloudStateHashRef.current = cloudStateFingerprint(stateRef.current);
+    cloudStateHashRef.current = mongoStateFingerprint(stateRef.current);
 
     // Optional Firestore best-effort sync if signed in with Google
     if (firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
@@ -1652,7 +1726,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     try {
       persistStateLocally(next);
     } catch {}
-    cloudStateHashRef.current = cloudStateFingerprint(next);
+    cloudStateHashRef.current = mongoStateFingerprint(next);
     baseDispatch({ type: "REPLACE", state: next });
     queueMicrotask(() => { applyingCloudRef.current = false; });
     announce("Site data was successfully loaded from MongoDB database.", "success");
@@ -1839,7 +1913,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     const isCouncil = currentUser?.role === "council";
 
     if (isAdmin || isCouncil) {
-      const stateHash = cloudStateFingerprint(state);
+      const stateHash = mongoStateFingerprint(state);
       if (stateHash === cloudStateHashRef.current) return;
       const timer = setTimeout(() => {
         cloudStateHashRef.current = stateHash;

@@ -391,7 +391,9 @@ export default function AdminNotificationsHub() {
       }
 
       const timestamp = Date.now();
+      const notifId = uid();
       const pushResult = await sendFirebaseNotification({
+        id: notifId,
         title: title.trim(),
         body: body.trim(),
         urgent,
@@ -410,10 +412,10 @@ export default function AdminNotificationsHub() {
           audience,
           senderName: user.name,
           timestamp,
-          delivered: matching.length,
+          delivered: Math.max(matching.length, pushResult.targetedUsers),
         },
         notification: {
-          id: uid(),
+          id: notifId,
           title: title.trim(),
           body: body.trim(),
           urgent,

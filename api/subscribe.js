@@ -7,28 +7,34 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { deviceId, subscription, userId, name, role, grade, house } = req.body;
+    const { deviceId, subscription, userId, name, email, role, grade, house } = req.body || {};
 
-    if (!deviceId || !subscription) {
-      return res.status(400).json({ error: 'Missing deviceId or subscription data.' });
+    if (!deviceId) {
+      return res.status(400).json({ error: 'Missing deviceId.' });
     }
+
+    const effectiveSubscription = subscription || {
+      endpoint: `polling://${deviceId}`,
+      pollingOnly: true,
+    };
 
     const db = await getDb();
     const collection = db.collection('devices');
 
     await collection.updateOne(
       { deviceId },
-      { 
+      {
         $set: {
           deviceId,
-          subscription,
+          subscription: effectiveSubscription,
           userId: userId || 'anonymous',
           name: name || 'Anonymous',
+          email: email || '',
           role: role || 'student',
-          grade: grade || null,
+          grade: grade !== undefined ? grade : null,
           house: house || null,
-          updatedAt: new Date()
-        } 
+          updatedAt: new Date(),
+        },
       },
       { upsert: true }
     );

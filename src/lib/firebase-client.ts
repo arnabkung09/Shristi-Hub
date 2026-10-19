@@ -82,9 +82,11 @@ const emailDocId = (email: string) => email.trim().toLowerCase();
 function cloudStudent(student: Student) {
   return {
     id: student.id, name: student.name, email: student.email, aliases: student.aliases ?? [],
+    verifiedAliases: student.verifiedAliases ?? [],
     emails: [student.email, ...(student.aliases ?? [])].map((email) => email.toLowerCase()),
     grade: student.grade, gradeLabel: student.gradeLabel, house: student.house, houseLabel: student.houseLabel,
     role: student.role, status: student.status, councilTitle: student.councilTitle ?? null,
+    councilPost: student.councilPost ?? student.councilTitle ?? null,
     department: student.department ?? null, avatarUrl: student.avatarUrl?.startsWith("data:") ? null : student.avatarUrl ?? null,
     createdAt: student.createdAt,
   };
@@ -274,7 +276,7 @@ export function urlBase64ToUint8Array(base64String: string) {
 }
 
 export async function enableWebPush(student: Student, deviceId: string) {
-  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     throw new Error('Web push is not supported in this browser.');
   }
   const permission = await Notification.requestPermission();
@@ -282,22 +284,30 @@ export async function enableWebPush(student: Student, deviceId: string) {
     throw new Error('Notification permission denied.');
   }
 
-  const reg = await navigator.serviceWorker.ready;
-  
-  const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-  if (!publicKey) throw new Error('VAPID public key is missing from environment variables');
+  let subscription: PushSubscription | { endpoint: string; pollingOnly: boolean } = {
+    endpoint: `polling://${deviceId}`,
+    pollingOnly: true,
+  };
 
-  const applicationServerKey = urlBase64ToUint8Array(publicKey);
-  
-  const existingSub = await reg.pushManager.getSubscription();
-  if (existingSub) {
-    await existingSub.unsubscribe();
+  if ('PushManager' in window) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (publicKey) {
+        const applicationServerKey = urlBase64ToUint8Array(publicKey);
+        const existingSub = await reg.pushManager.getSubscription();
+        if (existingSub) {
+          await existingSub.unsubscribe().catch(() => {});
+        }
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+      }
+    } catch (pushErr) {
+      console.warn('Browser PushManager subscription fallback to real-time polling stream:', pushErr);
+    }
   }
-
-  const subscription = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey
-  });
 
   // Save subscription
   await fetch('/api/subscribe', {
@@ -306,11 +316,13 @@ export async function enableWebPush(student: Student, deviceId: string) {
     body: JSON.stringify({
       deviceId,
       userId: student.id,
+      name: student.name,
+      email: student.email,
       role: student.role,
       house: student.house,
       grade: student.grade,
-      subscription
-    })
+      subscription,
+    }),
   });
 
   return subscription;
@@ -717,6 +729,7 @@ function matchesAudience(student: Record<string, unknown>, audience: Audience) {
 }
 
 export async function sendFirebaseNotification(input: {
+  id?: string;
   title: string;
   body: string;
   urgent: boolean;
@@ -725,7 +738,7 @@ export async function sendFirebaseNotification(input: {
   senderName: string;
   targetDeviceId?: string;
 }) {
-  const notificationId = `cloud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const notificationId = input.id || `cloud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   let targetedUsers = 0;
   let multicastSuccess = 0;
   let multicastFailure = 0;
@@ -797,11 +810,13 @@ export async function sendFirebaseNotification(input: {
         "Authorization": `Bearer ${idToken}`
       },
       body: JSON.stringify({
+        id: notificationId,
         title: input.title,
         body: input.body,
         urgent: input.urgent,
         actionTab: input.actionTab,
         audience: input.audience,
+        senderName: input.senderName,
         targetDeviceId: input.targetDeviceId
       }),
     });
@@ -809,7 +824,7 @@ export async function sendFirebaseNotification(input: {
       const data = await res.json();
       multicastSuccess = data.successCount || 0;
       multicastFailure = data.failureCount || 0;
-      targetedUsers = Math.max(targetedUsers, data.successCount + data.failureCount);
+      targetedUsers = Math.max(targetedUsers, Number(data.targetedDevices) || (multicastSuccess + multicastFailure));
     } else {
       const rawText = await res.text();
       let errData: any = {};

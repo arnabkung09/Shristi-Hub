@@ -17,6 +17,56 @@ export interface RemoteStateResult {
   lastModified?: number;
 }
 
+export function mongoStateFingerprint(state: Partial<HubState>): string {
+  const safeUsers = Array.isArray(state.users)
+    ? state.users.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        aliases: u.aliases ?? [],
+        verifiedAliases: u.verifiedAliases ?? [],
+        grade: u.grade,
+        gradeLabel: u.gradeLabel,
+        house: u.house,
+        houseLabel: u.houseLabel,
+        role: u.role,
+        status: u.status,
+        councilTitle: u.councilTitle ?? null,
+        councilPost: u.councilPost ?? u.councilTitle ?? null,
+        department: u.department ?? null,
+        avatarUrl: u.avatarUrl ?? null,
+      }))
+    : [];
+
+  return JSON.stringify({
+    branding: state.branding ?? null,
+    houses: state.houses ?? null,
+    legal: state.legal ?? null,
+    departments: state.departments ?? [],
+    eventTypes: state.eventTypes ?? [],
+    councilHubMembers: state.councilHubMembers ?? [],
+    houseCaptains: state.houseCaptains ?? {},
+    houseMemberships: state.houseMemberships ?? {},
+    activeImageIds: state.activeImageIds ?? [],
+    permissions: state.permissions ?? {},
+    notificationTemplates: state.notificationTemplates ?? {},
+    users: safeUsers,
+    tasks: state.tasks ?? [],
+    events: state.events ?? [],
+    announcements: state.announcements ?? [],
+    polls: state.polls ?? [],
+    suggestions: state.suggestions ?? [],
+    siteRatings: state.siteRatings ?? [],
+    pointsLedger: state.pointsLedger ?? [],
+    meetings: state.meetings ?? [],
+    finances: state.finances ?? [],
+    gallery: state.gallery ?? [],
+    houseMessages: state.houseMessages ?? [],
+    councilMessages: state.councilMessages ?? [],
+    broadcastHistory: state.broadcastHistory ?? [],
+  });
+}
+
 async function getAuthHeader(user?: Student | null): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -196,6 +246,9 @@ export async function syncRemoteUserActivity(
   const headers = await getAuthHeader(student);
 
   const activityPayload = {
+    rsvpEventIds: state.events
+      .filter((e) => e.attendees.includes(student.id))
+      .map((e) => e.id),
     events: state.events
       .filter((e) => e.attendees.includes(student.id))
       .map((e) => ({ id: e.id, attendees: e.attendees })),

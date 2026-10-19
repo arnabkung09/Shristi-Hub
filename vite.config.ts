@@ -1,6 +1,7 @@
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import fs from "fs";
+import crypto from "crypto";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
@@ -8,6 +9,14 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function getDefaultVapidPublicKey(): string {
+  if (process.env.VAPID_PUBLIC_KEY) return process.env.VAPID_PUBLIC_KEY.trim();
+  const ecdh = crypto.createECDH("prime256v1");
+  const privKey = crypto.createHash("sha256").update("shristi-student-council-vapid-key-v1").digest();
+  ecdh.setPrivateKey(privKey);
+  return ecdh.getPublicKey(null, "uncompressed").toString("base64url");
+}
 
 function shristiApiPlugin(): Plugin {
   const mountMiddleware = (middlewares: any) => {
@@ -21,7 +30,7 @@ function shristiApiPlugin(): Plugin {
 
         req.query = Object.fromEntries(parsedUrl.searchParams.entries());
 
-        if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH") {
+        if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") {
           const chunks: Buffer[] = [];
           for await (const chunk of req) {
             chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
@@ -77,7 +86,7 @@ function shristiApiPlugin(): Plugin {
 export default defineConfig({
   plugins: [shristiApiPlugin(), react(), tailwindcss(), viteSingleFile()],
   define: {
-    "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(process.env.VAPID_PUBLIC_KEY || ""),
+    "import.meta.env.VITE_VAPID_PUBLIC_KEY": JSON.stringify(getDefaultVapidPublicKey()),
   },
   resolve: {
     alias: {
