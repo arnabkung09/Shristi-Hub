@@ -3,31 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Shristi Academy Student Council. A connected workspace for students, council officers, and school administration." />
-    <meta property="og:title" content="Shristi Academy | Student Council" />
-    <meta property="og:description" content="Shristi Academy Student Council. A connected workspace for students, council officers, and school administration." />
+    <meta name="description" content="Shristi Student Council — Shristi Academy (2026-2027)." />
+    <meta property="og:title" content="Shristi Student Council | Shristi Academy" />
+    <meta property="og:description" content="Shristi Student Council — Shristi Academy (2026-2027)." />
     <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Shristi Hub" />
+    <meta name="apple-mobile-web-app-title" content="Shristi Student Council" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7l12-5z' fill='%236366f1'/%3E%3Ctext x='16' y='21' font-size='13' font-family='serif' font-weight='bold' fill='white' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <title>Shristi Academy | Student Council</title>
+    <title>Shristi Student Council | Shristi Academy</title>
     <script>
       (function() {
         try {
+          var legacySchools = { "student council": 1, "shristi academy": 1, "shristi hub": 1, "default": 1 };
+          var legacyBoards = { "shristi academy board": 1, "student council": 1, "neb / cbse affiliated · est. 1998": 1 };
           var keys = [
-            "shristi_hub_canonical_branding_v1",
-            "shristi-council-branding-v6",
-            "shristi-council-branding-v5",
+            "shristi_hub_canonical_branding_v2",
+            "shristi-council-branding-v7",
             "shristi_hub_canonical_state_v1",
-            "shristi-council-school-roster-v5",
-            "shristi-council-school-roster-v4"
+            "shristi-council-school-roster-v5"
           ];
           var raw = null;
           for (var i = 0; i < keys.length; i++) {
@@ -38,7 +38,9 @@
             var d = JSON.parse(raw);
             var b = d.branding || (d.state && d.state.branding) || (d.schoolName ? d : null);
             if (b && b.schoolName) {
-              document.title = b.schoolName + " | " + (b.boardName || "Student Council");
+              var sName = legacySchools[String(b.schoolName).trim().toLowerCase()] ? "Shristi Student Council" : b.schoolName;
+              var bName = legacyBoards[String(b.boardName || "").trim().toLowerCase()] ? "Shristi Academy" : (b.boardName || "Shristi Academy");
+              document.title = sName + " | " + bName;
             }
           }
         } catch (e) {}
