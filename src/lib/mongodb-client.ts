@@ -265,6 +265,10 @@ export async function syncRemoteUserActivity(
     ),
     houseMessages: state.houseMessages.filter((m) => m.authorId === student.id),
     councilMessages: state.councilMessages.filter((m) => m.authorId === student.id),
+    avatarUrl:
+      state.users.find((u) => u.id === student.id)?.avatarUrl ??
+      student.avatarUrl ??
+      undefined,
   };
 
   const res = await fetch("/api/state", {

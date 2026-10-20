@@ -253,9 +253,19 @@ export default async function handler(req, res) {
           }
         }
 
-        // Sync Council Messages
+        // Sync Council Messages (including soft-removals by author)
         let councilMessages = Array.isArray(current.councilMessages) ? [...current.councilMessages] : [];
         if (Array.isArray(activity.councilMessages)) {
+          const incomingById = new Map(
+            activity.councilMessages.filter((m) => m && m.id).map((m) => [m.id, m])
+          );
+          councilMessages = councilMessages.map((existing) => {
+            const incoming = incomingById.get(existing.id);
+            if (incoming && existing.authorId === studentId && incoming.removed) {
+              return { ...existing, removed: true, body: '' };
+            }
+            return existing;
+          });
           const existingIds = new Set(councilMessages.map((m) => m.id));
           const newMessages = activity.councilMessages.filter((m) => m && m.id && !existingIds.has(m.id));
           if (newMessages.length > 0) {
@@ -265,10 +275,26 @@ export default async function handler(req, res) {
           }
         }
 
-        // Update user lastActive and active status
+        // Update user lastActive, active status, and avatarUrl if changed
         const nowTs = Date.now();
+        const validAvatar =
+          typeof activity.avatarUrl === 'string' &&
+          (activity.avatarUrl === '' ||
+            (/^(https:\/\/|data:image\/(jpeg|jpg|png|webp|gif|svg\+xml);base64,)/.test(activity.avatarUrl) &&
+              activity.avatarUrl.length <= 350000))
+            ? activity.avatarUrl
+            : undefined;
         const users = Array.isArray(current.users)
-          ? current.users.map((u) => (u.id === studentId ? { ...u, status: 'active', lastActive: nowTs } : u))
+          ? current.users.map((u) =>
+              u.id === studentId
+                ? {
+                    ...u,
+                    status: 'active',
+                    lastActive: nowTs,
+                    ...(validAvatar !== undefined ? { avatarUrl: validAvatar || undefined } : {}),
+                  }
+                : u
+            )
           : [];
 
         const updatedState = {

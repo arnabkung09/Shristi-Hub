@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   Bold, Italic, LoaderCircle, Lock, LockKeyhole, MessageSquarePlus, MessagesSquare,
-  RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi, WifiOff,
+  RefreshCw, Send, ShieldCheck, Trash2, Underline, UserPlus, Users, Wifi,
 } from "lucide-react";
 import { initials, relativeTime, useHub, uid, formatTemplate, DEFAULT_NOTIFICATION_TEMPLATES } from "../store/hub";
 import {
@@ -97,7 +97,7 @@ export default function CouncilHub() {
       setDraft("");
       announce(chat.transport === "cloud"
         ? "Message posted to the Council Hub and officers notified."
-        : "Message posted to this device's Council Hub thread.");
+        : "Message posted to the Council Hub and synced with MongoDB.");
     } catch (e) {
       announce(e instanceof Error ? e.message : "Unable to post.", "error");
     } finally {
@@ -219,8 +219,8 @@ export default function CouncilHub() {
                   <span className="ml-2 text-[9px] text-[var(--faint)]">**bold** · __underline__ · *italic*</span>
                   <span className="ml-auto inline-flex items-center gap-1.5 text-[9px] text-[var(--faint)]">
                     {chat.transport === "cloud"
-                      ? <><Wifi className="h-3 w-3 text-[var(--green)]" />Live · synced with Firestore</>
-                      : <><WifiOff className="h-3 w-3 text-amber-400" />Saved on this device · sign in with Google to sync</>}
+                      ? <><Wifi className="h-3 w-3 text-[var(--green)]" />Live · synced with Firestore &amp; MongoDB</>
+                      : <><Wifi className="h-3 w-3 text-[var(--green)]" />Live · synced with MongoDB</>}
                   </span>
                 </div>
                 <textarea
@@ -242,27 +242,32 @@ export default function CouncilHub() {
               <div className="mt-5 space-y-3">
                 {chat.loading && <div className="empty-content"><LoaderCircle className="animate-spin" /><strong>Connecting to the council room</strong><p>Loading the live conversation.</p></div>}
                 {!chat.loading && !messages.length && <div className="empty-content"><MessageSquarePlus /><strong>No council messages yet</strong><p>Start the conversation with your first update.</p></div>}
-                {messages.map((message) => (
-                  <article key={message.id} className="rounded-xl border border-indigo-500/20 bg-[var(--surface-inset)] p-4">
-                    <div className="flex items-center gap-2.5">
-                      <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[10px]">{initials(message.authorName)}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold">{message.authorName}
-                          {message.authorRole === "admin" && <span className="ml-1.5 rounded bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-violet-400">Admin</span>}
-                          {message.authorRole === "teacher" && <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-amber-400">Teacher</span>}
-                          {message.authorRole === "council" && <span className="ml-1.5 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-indigo-300">Council</span>}
-                        </p>
-                        <p className="text-[9px] text-[var(--faint)]">{message.authorTitle ?? message.authorRole} · {relativeTime(message.timestamp)}</p>
+                {messages.map((message) => {
+                  const author = state.users.find((u) => u.id === message.authorId);
+                  return (
+                    <article key={message.id} className="rounded-xl border border-indigo-500/20 bg-[var(--surface-inset)] p-4">
+                      <div className="flex items-center gap-2.5">
+                        <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[10px]">
+                          {author?.avatarUrl ? <img src={author.avatarUrl} alt={message.authorName} /> : initials(message.authorName)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold">{message.authorName}
+                            {message.authorRole === "admin" && <span className="ml-1.5 rounded bg-violet-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-violet-400">Admin</span>}
+                            {message.authorRole === "teacher" && <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-amber-400">Teacher</span>}
+                            {message.authorRole === "council" && <span className="ml-1.5 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-indigo-300">Council</span>}
+                          </p>
+                          <p className="text-[9px] text-[var(--faint)]">{message.authorTitle ?? author?.councilTitle ?? message.authorRole} · {relativeTime(message.timestamp)}</p>
+                        </div>
+                        {canRemoveCouncilMessage(user, message) && (
+                          <button className="icon-action red" aria-label="Remove message" title="Remove message" onClick={() => void removeMessage(message.id)}><Trash2 /></button>
+                        )}
                       </div>
-                      {canRemoveCouncilMessage(user, message) && (
-                        <button className="icon-action red" aria-label="Remove message" title="Remove message" onClick={() => void removeMessage(message.id)}><Trash2 /></button>
-                      )}
-                    </div>
-                    <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed">
-                      {message.removed ? <em className="text-[var(--faint)]">This message was removed.</em> : renderBody(message.body)}
-                    </p>
-                  </article>
-                ))}
+                      <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                        {message.removed ? <em className="text-[var(--faint)]">This message was removed.</em> : renderBody(message.body)}
+                      </p>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           </Reveal>
@@ -309,7 +314,7 @@ function MemberList({ members, canManage = false, onRemove }: {
             <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : initials(member.name)}</span>
             <span>
               <strong className="!text-[10px]">{member.name}</strong>
-              <small>{member.councilTitle ?? member.role}{member.role === "teacher" ? " · Teacher" : ""}</small>
+              <small>{member.councilTitle ?? member.role}{member.department ? ` · ${member.department}` : ""}{member.role === "teacher" ? " · Teacher" : ""}</small>
             </span>
           </span>
           <span className="flex items-center gap-2">

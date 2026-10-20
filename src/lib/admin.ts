@@ -1,5 +1,6 @@
 import type { CouncilTask, House, HouseBranding, Role, SiteRating, Student } from "./types";
 import { canonicalGradeFromNumber, normalizeEmail } from "./ssot-auth";
+import { OFFICIAL_COUNCIL_APPOINTMENTS } from "./whitelist-seed";
 
 export const PRIMARY_ADMIN_ID = "shr-085";
 export const DEFAULT_DEPARTMENTS = [
@@ -12,39 +13,90 @@ export const DEFAULT_DEPARTMENTS = [
   "Sports Management",
 ];
 export const FEATURE_PERMISSIONS = [
-  { id: "events", name: "Events & News", description: "Create events and publish announcements." },
-  { id: "voice", name: "Polls & Feedback", description: "Publish polls and respond to suggestions." },
-  { id: "tasks", name: "Task Management", description: "Create tasks and update assigned work." },
-  { id: "houses", name: "House Points", description: "Award points and record deductions." },
-  { id: "meetings", name: "Meetings & Files", description: "Schedule meetings and record minutes." },
-  { id: "finances", name: "Finance", description: "Record council income and expenditure." },
-  { id: "gallery", name: "Gallery", description: "Manage event photos and active images." },
-  { id: "broadcast", name: "Push Notifications", description: "Send announcements to selected audiences." },
+  { id: "events", name: "Events & News", label: "Events & News", description: "Create events and publish announcements.", detail: "Create events and publish announcements." },
+  { id: "voice", name: "Polls & Feedback", label: "Polls & Feedback", description: "Publish polls and respond to suggestions.", detail: "Publish polls and respond to suggestions." },
+  { id: "tasks", name: "Task Management", label: "Task Management", description: "Create tasks and update assigned work.", detail: "Create tasks and update assigned work." },
+  { id: "houses", name: "House Points", label: "House Points", description: "Award points and record deductions.", detail: "Award points and record deductions." },
+  { id: "meetings", name: "Meetings & Files", label: "Meetings & Files", description: "Schedule meetings and record minutes.", detail: "Schedule meetings and record minutes." },
+  { id: "finances", name: "Finance", label: "Finance", description: "Record council income and expenditure.", detail: "Record council income and expenditure." },
+  { id: "gallery", name: "Gallery", label: "Gallery", description: "Manage event photos and active images.", detail: "Manage event photos and active images." },
+  { id: "broadcast", name: "Push Notifications", label: "Push Notifications", description: "Send announcements to selected audiences.", detail: "Send announcements to selected audiences." },
 ];
 
+export const COUNCIL_TITLES = [
+  "President",
+  "Vice President",
+  "Secretary",
+  "Treasurer",
+  "Cultural Secretary",
+  "Sports Captain",
+  "Discipline Incharge",
+  "Public Relations Officer",
+  "Event Coordinator",
+  "Council Representative",
+];
+
+export const DEFAULT_PERMISSIONS = ["events", "voice", "tasks"];
+
+export function visiblePermissions(
+  student: Student | undefined,
+  permissions: Record<string, string[] | undefined>
+): string[] {
+  if (!student) return [];
+  if (student.role === "admin") return FEATURE_PERMISSIONS.map((f) => f.id);
+  return permissions[student.id] ?? DEFAULT_PERMISSIONS;
+}
+
+function matchDepartment(candidate: string | undefined | null, departments: string[]): string | null {
+  if (!candidate) return null;
+  const trimmed = candidate.trim();
+  if (!trimmed) return null;
+  const exact = departments.find((d) => d === trimmed);
+  if (exact) return exact;
+  const lower = trimmed.toLowerCase();
+  const ci = departments.find((d) => d.toLowerCase() === lower);
+  if (ci) return ci;
+  if (lower === "sports") return departments.find((d) => d.toLowerCase().includes("sport")) ?? null;
+  if (lower === "cultural" || lower === "events") return departments.find((d) => d.toLowerCase().includes("event") || d.toLowerCase().includes("design")) ?? null;
+  if (lower === "finance" || lower === "finances") return departments.find((d) => d.toLowerCase().includes("monetary")) ?? null;
+  return null;
+}
+
 export function departmentFor(student: Student, departments: string[] = DEFAULT_DEPARTMENTS) {
-  if (student.department && departments.includes(student.department)) return student.department;
-  const title = (student.councilTitle ?? "").toLowerCase();
+  const direct = matchDepartment(student.department, departments);
+  if (direct) return direct;
+
+  const emailKey = (student.email ?? "").trim().toLowerCase();
+  const official = OFFICIAL_COUNCIL_APPOINTMENTS[emailKey];
+  if (official?.department) {
+    const matchedOfficial = matchDepartment(official.department, departments);
+    if (matchedOfficial) return matchedOfficial;
+  }
+
+  const title = (student.councilTitle ?? student.councilPost ?? "").toLowerCase();
   const inferred =
     title.includes("sports") || title.includes("game") || title.includes("captain") ? "Sports Management" :
-    title.includes("design") || title.includes("art") ? "Creative Design" :
+    title.includes("design") || title.includes("art") || title.includes("creative") ? "Creative Design" :
     title.includes("audio") || title.includes("speech") ? "Audio & Speech" :
-    title.includes("monetary") || title.includes("finance") ? "Monetary Fund" :
-    title.includes("discipline") ? "Discipline" :
-    title.includes("event") ? "Event Management" :
+    title.includes("monetary") || title.includes("finance") || title.includes("treasur") ? "Monetary Fund" :
+    title.includes("discipline") || title.includes("vice-president") || title.includes("secretary") ? "Discipline" :
+    title.includes("event") || title.includes("president") ? "Event Management" :
     "General";
-  if (departments.includes(inferred)) return inferred;
+  const matchedInferred = matchDepartment(inferred, departments);
+  if (matchedInferred) return matchedInferred;
   return departments.includes("General") ? "General" : (departments[0] ?? "General");
 }
 
 export function taskDepartment(task: CouncilTask, students: Student[], departments: string[] = DEFAULT_DEPARTMENTS) {
-  if (task.department && departments.includes(task.department)) return task.department;
+  const direct = matchDepartment(task.department, departments);
+  if (direct) return direct;
   const assignee = students.find((s) => s.id === task.assigneeId);
   return assignee ? departmentFor(assignee, departments) : (departments.includes("General") ? "General" : departments[0] ?? "General");
 }
 
 export function tasksForDepartment(department: string, tasks: CouncilTask[], students: Student[], departments: string[] = DEFAULT_DEPARTMENTS) {
-  return tasks.filter((task) => taskDepartment(task, students, departments) === department);
+  const target = matchDepartment(department, departments) ?? department;
+  return tasks.filter((task) => taskDepartment(task, students, departments) === target);
 }
 
 export function houseShortName(houses: Record<House, HouseBranding> | undefined, house: House): string {

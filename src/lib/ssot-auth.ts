@@ -34,6 +34,7 @@ export interface WhitelistedStudent {
   house: CanonicalHouse | null;
   role: CanonicalRole;
   councilTitle?: string;
+  department?: string;
   status: CanonicalStatus;
   createdAt: string;
 }

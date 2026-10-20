@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Award, Bell, Building2, CheckSquare, CirclePlus, Database, DatabaseZap, FileText, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
+import { Award, Bell, Building2, Camera, CheckSquare, CirclePlus, Database, DatabaseZap, FileText, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
-import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, ratingStats, taskDepartment } from "../lib/admin";
+import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, ratingStats, taskDepartment, tasksForDepartment } from "../lib/admin";
 import { renderRichText } from "../lib/content";
 
 import { Modal } from "./ui";
@@ -22,7 +22,7 @@ export default function AdminPanel() {
   useEffect(() => {
     document.getElementById(`admin-tab-${section}`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [section]);
-  const officerCount = state.users.filter((u) => u.role !== "student" && (u.status === "active" || state.permissions[u.id])).length;
+  const officerCount = state.users.filter((u) => u.role === "council" || u.role === "admin").length;
   const tabs = [
     { id: "roster", label: `Databases (${state.users.length})`, icon: Database },
     { id: "officers", label: `Council Officers (${officerCount})`, icon: Users },
@@ -60,7 +60,7 @@ function OfficerPanel() {
   const [section, setSection] = useState("officers");
   const [query, setQuery] = useState("");
   const [action, setAction] = useState<CouncilAction | null>(null);
-  const officers = state.users.filter((u) => u.role !== "student" && (u.status === "active" || state.permissions[u.id]) && `${u.name} ${u.email} ${u.councilTitle}`.toLowerCase().includes(query.toLowerCase()));
+  const officers = state.users.filter((u) => (u.role === "council" || u.role === "admin") && `${u.name} ${u.email} ${u.councilTitle ?? ""}`.toLowerCase().includes(query.toLowerCase()));
   const changeDepartment = (userId: string, department: string) => {
     try { dispatch({ type: "SET_DEPARTMENT", userId, department }); announce("Officer department updated."); }
     catch (e) { announce(e instanceof Error ? e.message : "Unable to update department.", "error"); }
@@ -73,7 +73,7 @@ function OfficerPanel() {
         <td className="!py-5"><div className="member-inline"><span className="mini-avatar">{officer.avatarUrl ? <img src={officer.avatarUrl} alt="" /> : initials(officer.name)}</span><div><strong>{officer.name}</strong><span className="ml-2 text-[8px] text-[var(--green)]">{officer.status === "active" ? "Verified" : "Pending"}</span><small>{officer.email}</small><em>{officer.councilTitle === "President" ? "Council President" : officer.councilTitle}</em></div></div></td>
         <td><div className="officer-selects"><select className="control !w-[79px]" aria-label={`Role for ${officer.name}`} value={officer.role} disabled={officer.id === PRIMARY_ADMIN_ID} onChange={(e) => { if (e.target.value === "student") setAction({ kind: "remove", userId: officer.id }); }}><option value={officer.role}>{officer.role.toUpperCase()}</option><option value="student">STUDENT</option></select><select className="control" aria-label={`Department for ${officer.name}`} value={departmentFor(officer, state.departments)} onChange={(e) => changeDepartment(officer.id, e.target.value)}>{state.departments.map((d) => <option key={d}>{d}</option>)}</select></div></td>
         <td><span className="clearance"><Shield className="h-3 w-3" />{officer.role === "admin" ? "Full Administrator Clearance" : `${state.permissions[officer.id]?.length ?? 0} / ${FEATURE_PERMISSIONS.length} Features Enabled`}</span></td>
-        <td><div className="flex justify-end gap-4"><button className="text-action" onClick={() => setAction({ kind: "permissions", userId: officer.id })}><SlidersHorizontal />Permissions</button><button className="text-action green" onClick={() => setAction({ kind: "delegate", userId: officer.id })}><CheckSquare />Delegate</button></div></td>
+        <td><div className="flex justify-end gap-3"><button className="text-action" onClick={() => setAction({ kind: "photo", userId: officer.id })}><Camera />Photo</button><button className="text-action" onClick={() => setAction({ kind: "permissions", userId: officer.id })}><SlidersHorizontal />Permissions</button><button className="text-action green" onClick={() => setAction({ kind: "delegate", userId: officer.id })}><CheckSquare />Delegate</button></div></td>
       </tr>)}</tbody></table></div>{!officers.length && <div className="empty-content m-5"><Users /><strong>No council members match this search</strong><p>Search by name, school email, or council title.</p></div>}</section>
     </> : <section className="panel panel-pad"><div className="panel-heading"><div><h2><CheckSquare />Task Delegation & Verification</h2><p>Assign work, then mark it complete so it appears under that department's completed milestones.</p></div><button className="btn btn-secondary" onClick={() => setActiveTab("directory")}>View department milestones</button></div><div className="table-scroll"><table className="data-table !min-w-[780px]"><thead><tr><th>Task</th><th>Officer</th><th>Department</th><th>Status</th><th className="actions-heading">Actions</th></tr></thead><tbody>{state.tasks.map((task) => {
       const officer = state.users.find((u) => u.id === task.assigneeId);
@@ -85,7 +85,7 @@ function OfficerPanel() {
 }
 
 function DepartmentsPanel() {
-  const { state, dispatch, announce } = useHub();
+  const { state, dispatch, announce, setActiveTab } = useHub();
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [removing, setRemoving] = useState<string | null>(null);
@@ -145,24 +145,52 @@ function DepartmentsPanel() {
       {error && !removing && <p role="alert" className="inline-message error mb-4">{error}</p>}
       <h3 className="eyebrow">Current Active Departments ({state.departments.length})</h3>
       <div className="department-grid">
-        {state.departments.map((department) => (
-          <div key={department} className="department-row">
-            <span><Building2 /></span>
-            <span>{department}</span>
-            {department === "General" ? (
-              <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 bg-slate-100 dark:bg-white/10 px-2.5 py-1 rounded-full">Default</span>
-            ) : (
-              <button
-                className="icon-action red"
-                aria-label={`Remove ${department} department`}
-                title="Remove department"
-                onClick={() => { setRemoving(department); setError(""); }}
-              >
-                <Trash2 />
-              </button>
-            )}
-          </div>
-        ))}
+        {state.departments.map((department) => {
+          const deptOfficers = state.users.filter(
+            (u) => (u.role === "council" || u.role === "admin") && departmentFor(u, state.departments) === department
+          );
+          const deptTasks = tasksForDepartment(department, state.tasks, state.users, state.departments);
+          const deptDone = deptTasks.filter((t) => t.status === "done").length;
+          const deptOpen = deptTasks.filter((t) => t.status !== "done").length;
+
+          return (
+            <div key={department} className="department-row !items-center !justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <span><Building2 /></span>
+                <div>
+                  <strong className="block text-xs font-bold">{department}</strong>
+                  <span className="block text-[10px] text-[var(--faint)]">
+                    {deptOfficers.length} {deptOfficers.length === 1 ? "Officer" : "Officers"} ·{" "}
+                    <span className="text-emerald-500 font-semibold">{deptDone} Done</span>
+                    {deptOpen > 0 ? ` · ${deptOpen} Open` : ""}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  className="btn btn-outline !min-h-6 !px-2 !py-0.5 !text-[9px]"
+                  onClick={() => setActiveTab("directory")}
+                  title={`View ${department} tasks & milestones in Council Directory`}
+                >
+                  <Award className="h-3 w-3" /> Milestones
+                </button>
+                {department === "General" ? (
+                  <span className="text-[9px] uppercase font-bold tracking-wider text-slate-400 bg-slate-100 dark:bg-white/10 px-2 py-0.5 rounded-full">Default</span>
+                ) : (
+                  <button
+                    className="icon-action red"
+                    aria-label={`Remove ${department} department`}
+                    title="Remove department"
+                    onClick={() => { setRemoving(department); setError(""); }}
+                  >
+                    <Trash2 />
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
       <Modal open={!!removing} onClose={() => setRemoving(null)} title="Remove Council Department" icon={<Building2 />}>
         <p className="inline-message">

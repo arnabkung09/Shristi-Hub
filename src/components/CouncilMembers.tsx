@@ -1,11 +1,44 @@
 import { useState } from "react";
-import { Award, Building2, Camera, CheckSquare, CircleCheck, ExternalLink, Mail, Pencil, Plus, Search, Shield, SlidersHorizontal, Tag, Trash2 } from "lucide-react";
+import { Award, Building2, Camera, CheckSquare, CircleCheck, ExternalLink, Mail, Pencil, Plus, Search, Shield, SlidersHorizontal, Tag, Trash2, Users } from "lucide-react";
 import { fmtDate, initials, uid, useHub } from "../store/hub";
 import { departmentFor, FEATURE_PERMISSIONS, tasksForDepartment } from "../lib/admin";
 import { GRADES } from "../lib/seed";
 import { RevealBlocks } from "./Effects";
-import { Modal } from "./ui";
+import { HouseMark, Modal } from "./ui";
 import CouncilControls, { type CouncilAction } from "./admin/CouncilControls";
+
+function OfficerPortrait({
+  name,
+  avatarUrl,
+  canEdit,
+  onClick,
+}: {
+  name: string;
+  avatarUrl?: string;
+  canEdit: boolean;
+  onClick: () => void;
+}) {
+  const [imgErr, setImgErr] = useState(false);
+  return (
+    <button
+      className="member-portrait"
+      aria-label={`Update profile picture for ${name}`}
+      disabled={!canEdit}
+      onClick={onClick}
+    >
+      {avatarUrl && !imgErr ? (
+        <img src={avatarUrl} alt={name} onError={() => setImgErr(true)} />
+      ) : (
+        <span>{initials(name)}</span>
+      )}
+      {canEdit && (
+        <span className="portrait-edit" title="Change profile picture">
+          <Camera className="h-5 w-5" />
+        </span>
+      )}
+    </button>
+  );
+}
 
 export default function CouncilMembers() {
   const { state, user, setActiveTab, dispatch, announce, hasPermission } = useHub();
@@ -27,8 +60,16 @@ export default function CouncilMembers() {
 
   const admin = user?.role === "admin";
   const canManage = admin || hasPermission("tasks");
-  const officers = state.users.filter((u) => (u.role === "council" || u.role === "admin") && (u.status === "active" || state.permissions[u.id]));
-  const filtered = officers.filter((u) => `${u.name} ${u.email} ${u.councilTitle} ${u.houseLabel} ${u.id}`.toLowerCase().includes(query.toLowerCase()) && (grade === "all" || u.grade === Number(grade)) && (role === "all" || u.role === role) && (area === "all" || departmentFor(u, state.departments) === area));
+  const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
+  const filtered = officers.filter(
+    (u) =>
+      `${u.name} ${u.email} ${u.councilTitle ?? ""} ${u.houseLabel ?? ""} ${u.id} ${departmentFor(u, state.departments)}`
+        .toLowerCase()
+        .includes(query.toLowerCase()) &&
+      (grade === "all" || u.grade === Number(grade)) &&
+      (role === "all" || u.role === role) &&
+      (area === "all" || departmentFor(u, state.departments) === area)
+  );
   const departmentTasks = milestone ? tasksForDepartment(milestone, state.tasks, state.users, state.departments) : [];
   const completed = departmentTasks.filter((t) => t.status === "done");
   const openWork = departmentTasks.filter((t) => t.status !== "done");
@@ -89,25 +130,325 @@ export default function CouncilMembers() {
       announce(err instanceof Error ? err.message : "Unable to remove task.", "error");
     }
   };
+
+  const totalCompletedAcrossDepts = state.tasks.filter((t) => t.status === "done").length;
+
   return (
     <RevealBlocks>
-      <div className="directory-heading"><div><h1>Shristi Student Council Members <span className="outline-count">{officers.length} Executive {officers.length === 1 ? "Member" : "Members"}</span></h1><p>Meet the student council officers, manage council members, or click a department badge to explore completed milestones.</p></div>{admin && <button className="btn btn-primary mt-1" onClick={() => setAction({ kind: "appoint", source: "directory" })}><Shield />Add Member to Directory</button>}</div>
+      <div className="directory-heading">
+        <div>
+          <h1>
+            Shristi Student Council Members{" "}
+            <span className="outline-count">
+              {officers.length} Executive {officers.length === 1 ? "Member" : "Members"}
+            </span>
+          </h1>
+          <p>
+            Meet the student council officers, manage council members &amp; portraits, or inspect tasks completed by each council department.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canManage && (
+            <button
+              className="btn btn-outline mt-1"
+              onClick={() => setAction({ kind: "delegate" })}
+            >
+              <CheckSquare /> Delegate Task
+            </button>
+          )}
+          {admin && (
+            <button
+              className="btn btn-primary mt-1"
+              onClick={() => setAction({ kind: "appoint", source: "directory" })}
+            >
+              <Shield /> Add Member to Directory
+            </button>
+          )}
+        </div>
+      </div>
 
-      <section className="panel department-explorer"><h2 className="eyebrow">Explore Completed Tasks by Council Department</h2><p className="small-note mb-2">Departments match the Admin Panel list. Completed delegated work is archived here.</p><div className="department-chips">{state.departments.map((department) => <button key={department} onClick={() => setMilestone(department)}><Building2 />{department}<span>{tasksForDepartment(department, state.tasks, state.users, state.departments).filter((t) => t.status === "done").length} Done</span></button>)}</div></section>
+      <section className="panel department-explorer">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div>
+            <h2 className="eyebrow">Tasks Done by Council Departments ({totalCompletedAcrossDepts} Total Completed)</h2>
+            <p className="small-note mt-0.5">
+              Departments match the Admin Panel &amp; Task Board. Click any department to view, log, or edit completed milestones.
+            </p>
+          </div>
+          <button className="btn btn-secondary !min-h-7 !px-3 !text-[10px]" onClick={() => setActiveTab("tasks")}>
+            <CheckSquare className="h-3.5 w-3.5" /> Open Full Task Board
+          </button>
+        </div>
 
-      <div className="panel directory-filters"><div className="search-control"><Search /><input className="control" aria-label="Search council directory" placeholder="Search students by name, email, class, position, ID, or house..." value={query} onChange={(e) => setQuery(e.target.value)} /></div><select className="control" aria-label="Filter council by class" value={grade} onChange={(e) => setGrade(e.target.value)}><option value="all">All Classes</option>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</select><select className="control" aria-label="Filter council by role" value={role} onChange={(e) => setRole(e.target.value)}><option value="all">All Roles</option><option value="admin">Admin</option><option value="council">Council</option></select><select className="control" aria-label="Filter council by department" value={area} onChange={(e) => setArea(e.target.value)}><option value="all">All Areas</option>{state.departments.map((d) => <option key={d}>{d}</option>)}</select></div>
+        <div className="department-chips">
+          {state.departments.map((department) => {
+            const deptAll = tasksForDepartment(department, state.tasks, state.users, state.departments);
+            const deptDone = deptAll.filter((t) => t.status === "done").length;
+            return (
+              <button key={department} onClick={() => setMilestone(department)}>
+                <Building2 />
+                {department}
+                <span>{deptDone} Done</span>
+              </button>
+            );
+          })}
+        </div>
 
-      <section className="executive-section"><div className="panel-heading"><h2><Award />Student Council Executive Body</h2><span className="rounded-full bg-indigo-500/10 px-3 py-1 text-[10px] font-semibold text-[var(--purple)]">{filtered.length} {filtered.length === 1 ? "Member" : "Members"} Listed</span></div>
-        <div className="member-grid">{filtered.map((officer) => {
-          const clearance = officer.role === "admin" ? FEATURE_PERMISSIONS.length : (state.permissions[officer.id]?.length ?? 0);
-          return <article key={officer.id} className="executive-member">
-            <button className="member-portrait" aria-label={`Update profile picture for ${officer.name}`} disabled={!admin && user?.id !== officer.id} onClick={() => setAction({ kind: "photo", userId: officer.id })}>{officer.avatarUrl ? <img src={officer.avatarUrl} alt={officer.name} /> : <span>{initials(officer.name)}</span>}{(admin || user?.id === officer.id) && <span className="portrait-edit"><Camera className="h-5 w-5" /></span>}</button>
-            <div className="member-info"><h3>{officer.name}<CircleCheck className="verified-icon" /></h3><span className="council-title">{officer.councilTitle === "President" ? "Council President" : officer.councilTitle ?? "Council Officer"}</span><p className="member-email"><Mail /><span title={officer.email}>{officer.email}</span></p><button className="member-department" onClick={() => setMilestone(departmentFor(officer, state.departments))}><Tag />{departmentFor(officer, state.departments)} Department <ExternalLink /></button><p className="member-department !text-[var(--muted)]"><Shield className="!text-[var(--purple)]" />Clearances: <strong className="text-[var(--purple)]">{clearance}/{FEATURE_PERMISSIONS.length} Active</strong></p>
-              {admin && <><div className="member-action-row"><button className="btn btn-outline" onClick={() => setAction({ kind: "permissions", userId: officer.id })}><SlidersHorizontal />Permissions</button><button className="btn border-emerald-500/20 bg-emerald-500/5 text-[var(--green)]" onClick={() => setAction({ kind: "delegate", userId: officer.id })}><CheckSquare />Delegate</button></div><button className="member-remove" onClick={() => setAction({ kind: "remove", userId: officer.id, source: "directory" })}>Remove from Directory</button></>}
-            </div>
-          </article>;
-        })}</div>
-        {!filtered.length && <div className="empty-content"><Search /><strong>No council members match your filters</strong><p>Try another name, class, role, or department.</p><button className="btn btn-secondary" onClick={() => { setQuery(""); setGrade("all"); setRole("all"); setArea("all"); }}>Clear filters</button></div>}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {state.departments.map((department) => {
+            const deptTasks = tasksForDepartment(department, state.tasks, state.users, state.departments);
+            const deptDone = deptTasks.filter((t) => t.status === "done");
+            const deptOpen = deptTasks.filter((t) => t.status !== "done");
+            const deptOfficers = officers.filter((o) => departmentFor(o, state.departments) === department);
+            return (
+              <div
+                key={department}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-3.5 flex flex-col justify-between gap-2.5"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMilestone(department)}
+                      className="font-display text-xs font-bold hover:text-[var(--purple)] flex items-center gap-1.5 text-left"
+                    >
+                      <Building2 className="h-3.5 w-3.5 text-[var(--purple)] shrink-0" />
+                      <span>{department} Department</span>
+                    </button>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[9px] font-bold text-emerald-500">
+                      {deptDone.length} Done · {deptOpen.length} Open
+                    </span>
+                  </div>
+
+                  <p className="mt-1 text-[10px] text-[var(--faint)] flex items-center gap-1">
+                    <Users className="h-3 w-3 shrink-0" />
+                    {deptOfficers.length
+                      ? deptOfficers.map((o) => o.name).join(", ")
+                      : "General Council Team"}
+                  </p>
+
+                  {deptDone.length > 0 ? (
+                    <ul className="mt-2.5 space-y-1.5 border-t border-[var(--border)] pt-2">
+                      {deptDone.slice(0, 3).map((t) => {
+                        const assignee = state.users.find((u) => u.id === t.assigneeId);
+                        return (
+                          <li key={t.id} className="flex items-start gap-1.5 text-[11px] leading-snug">
+                            <CircleCheck className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <span className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-1">
+                                {t.title}
+                              </span>
+                              <span className="block text-[9px] text-[var(--faint)]">
+                                {assignee ? assignee.name : "Department Team"} · {fmtDate(t.due)}
+                              </span>
+                            </div>
+                          </li>
+                        );
+                      })}
+                      {deptDone.length > 3 && (
+                        <li className="text-[10px] font-semibold text-[var(--purple)]">
+                          +{deptDone.length - 3} more completed {deptDone.length - 3 === 1 ? "task" : "tasks"}
+                        </li>
+                      )}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 border-t border-[var(--border)] pt-2 text-[10px] italic text-[var(--faint)]">
+                      No completed tasks logged yet.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="btn btn-outline !min-h-7 !px-2.5 !py-1 !text-[10px] w-full justify-center"
+                    onClick={() => setMilestone(department)}
+                  >
+                    <Award className="h-3 w-3" /> {canManage ? "View & Log Milestones" : "View Completed Log"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="panel directory-filters">
+        <div className="search-control">
+          <Search />
+          <input
+            className="control"
+            aria-label="Search council directory"
+            placeholder="Search council members by name, email, class, position, department, ID, or house..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <select
+          className="control"
+          aria-label="Filter council by class"
+          value={grade}
+          onChange={(e) => setGrade(e.target.value)}
+        >
+          <option value="all">All Classes</option>
+          {GRADES.map((g) => (
+            <option key={g} value={g}>
+              Grade {g}
+            </option>
+          ))}
+        </select>
+        <select
+          className="control"
+          aria-label="Filter council by role"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+        >
+          <option value="all">All Roles</option>
+          <option value="admin">Admin</option>
+          <option value="council">Council</option>
+        </select>
+        <select
+          className="control"
+          aria-label="Filter council by department"
+          value={area}
+          onChange={(e) => setArea(e.target.value)}
+        >
+          <option value="all">All Departments</option>
+          {state.departments.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <section className="executive-section">
+        <div className="panel-heading">
+          <h2>
+            <Award />
+            Student Council Executive Body
+          </h2>
+          <span className="rounded-full bg-indigo-500/10 px-3 py-1 text-[10px] font-semibold text-[var(--purple)]">
+            {filtered.length} {filtered.length === 1 ? "Member" : "Members"} Listed
+          </span>
+        </div>
+        <div className="member-grid">
+          {filtered.map((officer) => {
+            const clearance =
+              officer.role === "admin"
+                ? FEATURE_PERMISSIONS.length
+                : (state.permissions[officer.id]?.length ?? 0);
+            const officerDept = departmentFor(officer, state.departments);
+            const officerTasks = state.tasks.filter((t) => t.assigneeId === officer.id);
+            const officerDoneCount = officerTasks.filter((t) => t.status === "done").length;
+            const officerOpenCount = officerTasks.filter((t) => t.status !== "done").length;
+            const canEditPhoto = Boolean(admin || user?.id === officer.id);
+
+            return (
+              <article key={officer.id} className="executive-member">
+                <OfficerPortrait
+                  name={officer.name}
+                  avatarUrl={officer.avatarUrl}
+                  canEdit={canEditPhoto}
+                  onClick={() => setAction({ kind: "photo", userId: officer.id })}
+                />
+                <div className="member-info">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3>
+                      {officer.name}
+                      <CircleCheck className="verified-icon" />
+                    </h3>
+                    {officer.house && <HouseMark house={officer.house} className="h-5 w-5 text-[8px] shrink-0" />}
+                  </div>
+                  <span className="council-title">
+                    {officer.councilTitle === "President"
+                      ? "Council President"
+                      : (officer.councilTitle ?? "Council Officer")}
+                    {officer.gradeLabel ? ` · ${officer.gradeLabel}` : ""}
+                  </span>
+                  <p className="member-email">
+                    <Mail />
+                    <span title={officer.email}>{officer.email}</span>
+                  </p>
+                  <button
+                    className="member-department"
+                    onClick={() => setMilestone(officerDept)}
+                  >
+                    <Tag />
+                    {officerDept} Department <ExternalLink />
+                  </button>
+                  <p className="member-department !text-[var(--muted)]">
+                    <Shield className="!text-[var(--purple)]" />
+                    Clearances:{" "}
+                    <strong className="text-[var(--purple)]">
+                      {clearance}/{FEATURE_PERMISSIONS.length} Active
+                    </strong>
+                    {" · "}
+                    <span className="text-emerald-500 font-semibold">
+                      {officerDoneCount} Done
+                    </span>
+                    {officerOpenCount > 0 ? ` (${officerOpenCount} active)` : ""}
+                  </p>
+                  {(admin || user?.id === officer.id) && (
+                    <>
+                      <div className="member-action-row">
+                        <button
+                          className="btn btn-outline"
+                          onClick={() => setAction({ kind: "photo", userId: officer.id })}
+                          title="Upload or change portrait photo"
+                        >
+                          <Camera /> Photo
+                        </button>
+                        {admin && (
+                          <>
+                            <button
+                              className="btn btn-outline"
+                              onClick={() => setAction({ kind: "permissions", userId: officer.id })}
+                            >
+                              <SlidersHorizontal /> Permissions
+                            </button>
+                            <button
+                              className="btn border-emerald-500/20 bg-emerald-500/5 text-[var(--green)]"
+                              onClick={() => setAction({ kind: "delegate", userId: officer.id })}
+                            >
+                              <CheckSquare /> Delegate
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      {admin && (
+                        <button
+                          className="member-remove"
+                          onClick={() => setAction({ kind: "remove", userId: officer.id, source: "directory" })}
+                        >
+                          Remove from Directory
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {!filtered.length && (
+          <div className="empty-content">
+            <Search />
+            <strong>No council members match your filters</strong>
+            <p>Try another name, class, role, or department.</p>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setQuery("");
+                setGrade("all");
+                setRole("all");
+                setArea("all");
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
       </section>
 
       <Modal
@@ -168,7 +509,7 @@ export default function CouncilMembers() {
                 <option value="">Department Team (Unassigned)</option>
                 {officers.map((o) => (
                   <option key={o.id} value={o.id}>
-                    {o.name}
+                    {o.name} ({departmentFor(o, state.departments)})
                   </option>
                 ))}
               </select>
@@ -183,15 +524,16 @@ export default function CouncilMembers() {
             </form>
           )}
 
-          {openWork.length > 0 && admin && (
+          {openWork.length > 0 && canManage && (
             <div>
-              <p className="eyebrow mb-2">Open delegated work</p>
+              <p className="eyebrow mb-2">Open delegated work in {milestone}</p>
               {openWork.map((task) => (
                 <div key={task.id} className="mb-2 flex items-start justify-between gap-3 rounded-xl border border-[var(--border)] p-4">
                   <div className="min-w-0">
                     <h3 className="text-xs font-semibold">{task.title}</h3>
+                    {task.details && <p className="small-note mt-1">{task.details}</p>}
                     <p className="small-note mt-1">
-                      {state.users.find((s) => s.id === task.assigneeId)?.name || "Department Team"} / {fmtDate(task.due)}
+                      {state.users.find((s) => s.id === task.assigneeId)?.name || "Department Team"} / Due {fmtDate(task.due)}
                     </p>
                   </div>
                   <button

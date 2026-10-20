@@ -1672,7 +1672,7 @@ export default function AdminNotificationsHub() {
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ${
                           device.pushStatus === "enabled"
                             ? "bg-emerald-500/20 text-emerald-400"
-                            : device.pushStatus === "blocked"
+                            : device.pushStatus === "denied"
                             ? "bg-rose-500/20 text-rose-400"
                             : "bg-slate-500/20 text-slate-400"
                         }`}
@@ -1685,7 +1685,7 @@ export default function AdminNotificationsHub() {
                         <Bell className="h-2.5 w-2.5" />
                         {device.pushStatus === "enabled"
                           ? "Push Ready"
-                          : device.pushStatus === "blocked"
+                          : device.pushStatus === "denied"
                           ? "Blocked"
                           : "In-App"}
                       </span>

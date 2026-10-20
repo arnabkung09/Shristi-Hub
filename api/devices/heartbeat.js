@@ -1,5 +1,28 @@
 import { getDb } from '../_db.js';
 
+function deduplicateDevices(devices) {
+  if (!Array.isArray(devices) || devices.length === 0) return [];
+  const sorted = [...devices].sort((a, b) => Number(b.lastPing || b.lastSeen || 0) - Number(a.lastPing || a.lastSeen || 0));
+  const seen = new Set();
+  const out = [];
+  for (const d of sorted) {
+    if (!d || !d.id) continue;
+    const idKey = `id:${d.id}`;
+    if (seen.has(idKey)) continue;
+    const uid = d.userId || d.user || 'guest';
+    const identityKey = !d.isGuest && uid && uid !== 'guest'
+      ? `user:${uid}:${d.kind || 'desktop'}`
+      : !d.isGuest && d.email && d.email !== 'Anonymous'
+        ? `email:${String(d.email).toLowerCase()}:${d.kind || 'desktop'}`
+        : `guest:${d.kind || 'desktop'}:${d.model || 'Desktop'}:${d.browser || 'Browser'}`;
+    if (seen.has(identityKey)) continue;
+    seen.add(idKey);
+    seen.add(identityKey);
+    out.push(d);
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'DELETE') {
     res.setHeader('Allow', 'POST, DELETE');
@@ -22,23 +45,40 @@ export default async function handler(req, res) {
     }
 
     const now = Date.now();
+    const userId = dev.userId || dev.user || 'guest';
+    const isGuest = Boolean(dev.isGuest || userId === 'guest');
+    const kind = dev.kind || dev.deviceType || 'desktop';
+    const model = dev.model || dev.name || 'Desktop PC';
+    const browser = dev.browser || 'Browser';
+
+    // Clean up older duplicate rows from the same user or same guest browser profile
+    try {
+      if (!isGuest && userId !== 'guest') {
+        await collection.deleteMany({ userId, kind, id: { $ne: deviceId } });
+      } else {
+        await collection.deleteMany({ isGuest: true, kind, model, browser, id: { $ne: deviceId } });
+      }
+    } catch {
+      // Ignore cleanup errors on fallback stores
+    }
+
     await collection.updateOne(
       { id: deviceId },
       {
         $set: {
           id: deviceId,
-          userId: dev.userId || dev.user || 'guest',
-          name: dev.name || dev.userName || dev.model || 'Connected Device',
+          userId,
+          name: dev.name || dev.userName || model || 'Connected Device',
           email: dev.email || '',
           house: dev.house || null,
           grade: dev.grade !== undefined ? dev.grade : null,
           role: dev.role || 'student',
-          kind: dev.kind || dev.deviceType || 'desktop',
-          model: dev.model || dev.name || 'Desktop Workstation',
-          browser: dev.browser || 'Browser',
+          kind,
+          model,
+          browser,
           isStandalone: Boolean(dev.isStandalone),
           pushStatus: dev.pushStatus || 'not-enabled',
-          isGuest: Boolean(dev.isGuest),
+          isGuest,
           connectedAt: dev.connectedAt || now,
           online: true,
           lastPing: now,
@@ -50,10 +90,12 @@ export default async function handler(req, res) {
 
     // Retrieve active devices in last 90 seconds (accommodates 60s background tab heartbeat)
     const activeCutoff = now - 90000;
-    const activeDevices = await collection
+    const rawActiveDevices = await collection
       .find({ lastPing: { $gte: activeCutoff } })
       .limit(100)
       .toArray();
+
+    const activeDevices = deduplicateDevices(rawActiveDevices);
 
     return res.status(200).json({
       success: true,
@@ -66,7 +108,7 @@ export default async function handler(req, res) {
         house: d.house || null,
         grade: d.grade !== undefined ? d.grade : null,
         kind: d.kind || d.deviceType || 'desktop',
-        model: d.model || d.name || 'Desktop Workstation',
+        model: d.model || d.name || 'Desktop PC',
         browser: d.browser || 'Browser',
         isStandalone: Boolean(d.isStandalone),
         pushStatus: d.pushStatus || 'not-enabled',

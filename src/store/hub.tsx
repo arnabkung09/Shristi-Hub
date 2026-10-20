@@ -14,7 +14,8 @@ import {
   adminUpdateRosterRecord,
   canonicalGradeFromNumber,
 } from "../lib/ssot-auth";
-import { FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID } from "../lib/admin";
+import { DEFAULT_DEPARTMENTS, departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, taskDepartment } from "../lib/admin";
+import { belongsToHouse } from "../lib/accounts";
 import {
   addCouncilMember,
   addCouncilMessage,
@@ -371,7 +372,7 @@ type Action =
   | { type: "RECORD_ACTIVITY"; userId: string; timestamp?: number }
   | { type: "BROADCAST"; record: BroadcastRecord; notification: AppNotification };
 
-const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "DELEGATE_TASK", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER", "UPDATE_NOTIFICATION_TEMPLATES"]);
+const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER", "UPDATE_NOTIFICATION_TEMPLATES"]);
 /**
  * Actions whose data lives in a Google Sheet. The spreadsheet is the single source of
  * truth for House Points, while Calendar and Finances are managed directly within the hub.
@@ -382,7 +383,8 @@ const SHEET_OWNED_ACTIONS: Record<string, { section: SheetSection; label: string
 const ACTION_FEATURES: Record<string, string> = {
   AWARD_POINTS: "houses", ADD_EVENT: "events", TOGGLE_ATTENDANCE: "events", ADD_ANNOUNCEMENT: "events",
   UPDATE_EVENT: "events", DELETE_EVENT: "events",
-  ADD_TASK: "tasks", MOVE_TASK: "tasks", EDIT_TASK: "tasks", DELETE_TASK: "tasks", REVIEW_SUGGESTION: "voice", ADD_POLL: "voice",
+  ADD_TASK: "tasks", MOVE_TASK: "tasks", EDIT_TASK: "tasks", DELETE_TASK: "tasks", DELEGATE_TASK: "tasks",
+  REVIEW_SUGGESTION: "voice", ADD_POLL: "voice",
   ADD_MEETING: "meetings", SAVE_MINUTES: "meetings", ADD_TRANSACTION: "finances",
   ADD_PHOTO: "gallery", SET_ACTIVE_IMAGE: "gallery", BROADCAST: "broadcast",
 };
@@ -405,14 +407,47 @@ function toSsotUser(student: Student) {
 }
 
 export function reducer(state: HubState, action: Action): HubState {
+  const next = applyAction(state, action);
+  if (
+    next === state ||
+    action.type === "REPLACE" ||
+    action.type === "LOGIN" ||
+    action.type === "LOGOUT" ||
+    action.type === "SET_THEME"
+  ) {
+    return next;
+  }
+  return { ...next, lastModified: Date.now() };
+}
+
+function applyAction(state: HubState, action: Action): HubState {
   const actor = state.users.find((u) => u.id === state.session?.userId);
   if (ADMIN_ACTIONS.has(action.type) && actor?.role !== "admin") throw new Error("Only an administrator can make this change.");
   const feature = ACTION_FEATURES[action.type];
-  if (feature && actor?.role !== "admin" && !(actor?.role === "council" && state.permissions[actor.id]?.includes(feature))) {
+  const isAssignedTaskAction =
+    (action.type === "MOVE_TASK" && state.tasks.some((t) => t.id === action.taskId && t.assigneeId === actor?.id)) ||
+    (action.type === "EDIT_TASK" && state.tasks.some((t) => t.id === action.task.id && t.assigneeId === actor?.id));
+  if (
+    feature &&
+    !isAssignedTaskAction &&
+    actor?.role !== "admin" &&
+    !(actor?.role === "council" && state.permissions[actor.id]?.includes(feature))
+  ) {
     throw new Error("Your council account does not have permission for this action.");
   }
-  if (action.type === "POST_HOUSE_MESSAGE" && actor?.role !== "admin" && state.houseCaptains[action.message.house] !== actor?.id) {
-    throw new Error("Only the house captain or an administrator can post to this house hub.");
+  if (action.type === "POST_HOUSE_MESSAGE") {
+    const targetHouse = action.message.house;
+    const isHouseCaptainOrAdmin = actor?.role === "admin" || state.houseCaptains[targetHouse] === actor?.id;
+    const isHouseOfficerOrTeacher =
+      (actor?.role === "council" || actor?.role === "teacher") &&
+      belongsToHouse(actor, targetHouse, state.houseMemberships);
+    const isHouseMember = belongsToHouse(actor, targetHouse, state.houseMemberships);
+    if (action.message.kind === "instruction" && !isHouseCaptainOrAdmin && !isHouseOfficerOrTeacher) {
+      throw new Error("Only the house captain, a house council officer, or an administrator can post official instructions.");
+    }
+    if (!isHouseCaptainOrAdmin && !isHouseMember) {
+      throw new Error("Only members of this house or an administrator can post to this house hub.");
+    }
   }
   if (action.type === "DELETE_HOUSE_MESSAGE") {
     const message = state.houseMessages.find((m) => m.id === action.messageId);
@@ -660,7 +695,7 @@ export function reducer(state: HubState, action: Action): HubState {
         ...state,
         permissions: { ...state.permissions, [action.userId]: state.permissions[action.userId] ?? FEATURE_PERMISSIONS.map((p) => p.id) },
         users: state.users.map((u) =>
-          u.id === action.userId ? { ...u, role: "council" as Role, councilPost: action.post, councilTitle: action.post, department: action.department } : u
+          u.id === action.userId ? { ...u, role: "council" as Role, status: "active", councilPost: action.post, councilTitle: action.post, department: action.department } : u
         ),
       };
     case "REMOVE_COUNCIL":
@@ -934,8 +969,8 @@ export function reducer(state: HubState, action: Action): HubState {
     }
     case "SET_AVATAR":
       if (actor?.role !== "admin" && actor?.id !== action.userId) throw new Error("You can only change your own profile picture.");
-      if (!/^(https:\/\/|data:image\/(jpeg|png|webp);base64,)/.test(action.url)) throw new Error("Use a valid HTTPS image or uploaded photo.");
-      return { ...state, users: state.users.map((u) => u.id === action.userId ? { ...u, avatarUrl: action.url } : u) };
+      if (action.url !== "" && !/^(https:\/\/|data:image\/(jpeg|jpg|png|webp|gif|svg\+xml);base64,)/.test(action.url)) throw new Error("Use a valid HTTPS image or uploaded photo.");
+      return { ...state, users: state.users.map((u) => u.id === action.userId ? { ...u, avatarUrl: action.url || undefined } : u) };
     case "SET_ACTIVE_IMAGE":
       if (action.active && !state.activeImageIds.includes(action.imageId) && state.activeImageIds.length >= 5) throw new Error("At most five images can be active. Disable one first.");
       return { ...state, activeImageIds: action.active ? Array.from(new Set([...state.activeImageIds, action.imageId])) : state.activeImageIds.filter((id) => id !== action.imageId) };
@@ -1009,28 +1044,111 @@ function validRoster(users: Student[]): boolean {
   return true;
 }
 
+const LEGACY_DEPARTMENT_ALIASES = new Set(["cultural", "sports", "academic", "outreach", "events", "finance", "finances"]);
+
+function normalizeDepartmentsList(candidates: string[] | undefined | null, seedDepts: string[]): string[] {
+  const base = Array.isArray(candidates) && candidates.length > 0 ? candidates : seedDepts;
+  const result = new Set<string>(DEFAULT_DEPARTMENTS);
+  for (const d of base) {
+    const trimmed = typeof d === "string" ? d.trim() : "";
+    if (!trimmed) continue;
+    if (!LEGACY_DEPARTMENT_ALIASES.has(trimmed.toLowerCase())) {
+      result.add(trimmed);
+    }
+  }
+  const arr = Array.from(result);
+  if (!arr.includes("General")) return ["General", ...arr];
+  return ["General", ...arr.filter((d) => d !== "General")];
+}
+
+function normalizeUserRecord(u: Student, seedUser: Student | undefined, departments: string[]): Student {
+  const isOfficer = u.role === "council" || u.role === "admin";
+  const resolvedTitle = u.councilTitle || u.councilPost || (isOfficer ? seedUser?.councilTitle : undefined);
+  const resolvedDept = isOfficer
+    ? departmentFor({ ...seedUser, ...u, councilTitle: resolvedTitle, councilPost: resolvedTitle }, departments)
+    : (u.department || undefined);
+  return {
+    ...(seedUser || {}),
+    ...u,
+    status: isOfficer ? "active" : (u.status || seedUser?.status || "pending"),
+    councilTitle: resolvedTitle,
+    councilPost: resolvedTitle,
+    department: resolvedDept,
+    avatarUrl: u.avatarUrl || seedUser?.avatarUrl || undefined,
+  };
+}
+
+function normalizeTasksList(
+  tasks: CouncilTask[] | undefined | null,
+  seedTasks: CouncilTask[],
+  users: Student[],
+  departments: string[]
+): CouncilTask[] {
+  const base = Array.isArray(tasks) && tasks.length > 0 ? [...tasks] : [...seedTasks];
+  const existingIds = new Set(base.map((t) => t.id));
+  // If state still has the original 4-task seed (tk-1 present, tk-5 missing), backfill tk-5..tk-12
+  if (existingIds.has("tk-1") && !existingIds.has("tk-5")) {
+    for (const st of seedTasks) {
+      if (!existingIds.has(st.id)) {
+        base.push(st);
+        existingIds.add(st.id);
+      }
+    }
+  }
+  return base.map((t) => {
+    const dept = taskDepartment(t, users, departments);
+    return {
+      ...t,
+      department: dept,
+      completedAt: t.status === "done" ? (t.completedAt ?? Date.now()) : undefined,
+    };
+  });
+}
+
 function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
+  const departments = normalizeDepartmentsList(parsed.departments, seed.departments);
   const parsedUsers = Array.isArray(parsed.users) ? parsed.users : seed.users;
   const parsedIds = new Set(parsedUsers.map((u) => u.id));
   const missingFromSeed = seed.users.filter((su) => !parsedIds.has(su.id));
-  const mergedUsers = [...parsedUsers, ...missingFromSeed];
+  const seedById = new Map(seed.users.map((su) => [su.id, su]));
+  const rawMergedUsers = [...parsedUsers, ...missingFromSeed];
+  const officerCount = rawMergedUsers.filter((u) => u.role === "council" || u.role === "admin").length;
+  const mergedUsers = rawMergedUsers.map((u) => {
+    const seedUser = seedById.get(u.id);
+    const baseUser =
+      officerCount < 5 && seedUser && (seedUser.role === "council" || seedUser.role === "admin")
+        ? { ...u, role: seedUser.role, councilTitle: seedUser.councilTitle, councilPost: seedUser.councilPost, department: seedUser.department, status: "active" as const }
+        : u;
+    return normalizeUserRecord(baseUser, seedUser, departments);
+  });
 
-  let departments = Array.isArray(parsed.departments) && parsed.departments.length > 0
-    ? parsed.departments
-    : seed.departments;
-  if (!departments.includes("General")) {
-    departments = ["General", ...departments];
-  }
+  const parsedHubMembers = Array.isArray(parsed.councilHubMembers) ? parsed.councilHubMembers : [];
+  const councilHubMembers =
+    parsedHubMembers.length <= 1
+      ? Array.from(new Set([...parsedHubMembers, ...seed.councilHubMembers]))
+      : parsedHubMembers;
+
+  const parsedCaptains = parsed.houseCaptains ?? {};
+  const hasAnyCaptain = Boolean(parsedCaptains.Blue || parsedCaptains.Red || parsedCaptains.Green);
+  const houseCaptains = hasAnyCaptain ? { ...seed.houseCaptains, ...parsedCaptains } : seed.houseCaptains;
+
+  const houseMessages =
+    Array.isArray(parsed.houseMessages) && parsed.houseMessages.length > 0
+      ? parsed.houseMessages
+      : seed.houseMessages;
+
+  const tasks = normalizeTasksList(parsed.tasks, seed.tasks, mergedUsers, departments);
 
   return {
     ...seed,
     ...parsed,
     users: mergedUsers,
+    tasks,
     pointsLedger: Array.isArray(parsed.pointsLedger) ? parsed.pointsLedger : seed.pointsLedger,
-    councilHubMembers: parsed.councilHubMembers ?? seed.councilHubMembers,
+    councilHubMembers,
     councilMessages: parsed.councilMessages ?? seed.councilMessages,
     departments,
-    permissions: parsed.permissions ?? seed.permissions,
+    permissions: { ...seed.permissions, ...(parsed.permissions ?? {}) },
     activeImageIds: parsed.activeImageIds ?? seed.activeImageIds,
     audit: parsed.audit ?? [],
     branding: parsed.branding
@@ -1047,7 +1165,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
         }
       : seed.legal,
     eventTypes: parsed.eventTypes?.length ? parsed.eventTypes : seed.eventTypes,
-    houseCaptains: parsed.houseCaptains ?? seed.houseCaptains,
+    houseCaptains,
     houseMemberships: parsed.houseMemberships
       ? {
           Blue: [...(parsed.houseMemberships.Blue ?? [])],
@@ -1055,7 +1173,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
           Green: [...(parsed.houseMemberships.Green ?? [])],
         }
       : seed.houseMemberships,
-    houseMessages: Array.isArray(parsed.houseMessages) ? parsed.houseMessages : seed.houseMessages,
+    houseMessages,
     houses: parsed.houses
       ? {
           Blue: { ...seed.houses.Blue, ...parsed.houses.Blue, logoUrl: parsed.houses.Blue?.logoUrl !== undefined ? parsed.houses.Blue.logoUrl : seed.houses.Blue.logoUrl },
@@ -1065,7 +1183,7 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
       : seed.houses,
     siteRatings: Array.isArray(parsed.siteRatings) ? parsed.siteRatings : seed.siteRatings,
     notificationTemplates: parsed.notificationTemplates ?? seed.notificationTemplates ?? DEFAULT_NOTIFICATION_TEMPLATES,
-    lastModified: parsed.lastModified || Date.now(),
+    lastModified: Number(parsed.lastModified || 0),
   };
 }
 
@@ -1076,22 +1194,12 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const isLocalNewer = localTime > remoteTime;
 
   // Departments:
-  let departments: string[];
   const remoteDepts = Array.isArray(remote.departments) && remote.departments.length > 0 ? remote.departments : null;
   const localDepts = Array.isArray(local.departments) && local.departments.length > 0 ? local.departments : null;
-
-  if (remoteDepts && localDepts) {
-    departments = isLocalNewer ? localDepts : remoteDepts;
-  } else if (remoteDepts) {
-    departments = remoteDepts;
-  } else if (localDepts) {
-    departments = localDepts;
-  } else {
-    departments = [...seed.departments];
-  }
-  if (!departments.includes("General")) {
-    departments = ["General", ...departments];
-  }
+  const candidateDepts = remoteDepts && localDepts
+    ? (isLocalNewer ? [...remoteDepts, ...localDepts] : [...localDepts, ...remoteDepts])
+    : (remoteDepts || localDepts || seed.departments);
+  const departments = normalizeDepartmentsList(candidateDepts, seed.departments);
 
   // Branding:
   const remoteBranding = remote.branding && typeof remote.branding.schoolName === "string" && remote.branding.schoolName.trim() ? remote.branding : null;
@@ -1112,51 +1220,57 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   // Users:
   const remoteUsers = Array.isArray(remote.users) ? remote.users : [];
   const seedUsers = seed.users;
+  const seedById = new Map(seedUsers.map((su) => [su.id, su]));
   let users: Student[];
   if (remoteUsers.length) {
     const remoteMapped = remoteUsers.map((cloudUser) => {
-      const localUser = local.users.find((student) => student.id === cloudUser.id)
-        ?? seedUsers.find((student) => student.id === cloudUser.id);
+      const seedUser = seedById.get(cloudUser.id);
+      const localUser = local.users.find((student) => student.id === cloudUser.id) ?? seedUser;
       const mergedAliases = Array.from(
         new Set([...(isLocalNewer ? (localUser?.aliases ?? []) : (cloudUser.aliases ?? [])), ...(cloudUser.aliases ?? []), ...(localUser?.aliases ?? [])])
       );
       const mergedVerifiedAliases = Array.from(
         new Set([...(localUser?.verifiedAliases ?? []), ...(cloudUser.verifiedAliases ?? [])])
       ).filter((alias) => mergedAliases.some((a) => a.toLowerCase() === alias.toLowerCase()));
-      return (isLocalNewer
+      const mergedRaw = (isLocalNewer
         ? {
-            ...seedUsers.find((su) => su.id === cloudUser.id),
+            ...seedUser,
             ...cloudUser,
             ...localUser,
             password: localUser?.password ?? "",
             passwordHash: localUser?.passwordHash ?? "firebase-auth",
             aliases: localUser?.aliases ?? cloudUser.aliases ?? [],
             verifiedAliases: localUser?.verifiedAliases ?? mergedVerifiedAliases,
-            avatarUrl: localUser?.avatarUrl || cloudUser.avatarUrl,
+            avatarUrl: localUser?.avatarUrl || cloudUser.avatarUrl || undefined,
           }
         : {
-            ...seedUsers.find((su) => su.id === cloudUser.id),
+            ...seedUser,
             ...localUser,
             ...cloudUser,
             password: localUser?.password ?? "",
             passwordHash: localUser?.passwordHash ?? "firebase-auth",
             aliases: cloudUser.aliases ?? localUser?.aliases ?? [],
             verifiedAliases: cloudUser.verifiedAliases ?? mergedVerifiedAliases,
-            avatarUrl: cloudUser.avatarUrl || localUser?.avatarUrl,
+            avatarUrl: cloudUser.avatarUrl || localUser?.avatarUrl || undefined,
           }) as Student;
+      return normalizeUserRecord(mergedRaw, seedUser, departments);
     });
     const remoteIdSet = new Set(remoteMapped.map((u) => u.id));
-    const localRemaining = local.users.filter((u) => !remoteIdSet.has(u.id));
+    const localRemaining = local.users
+      .filter((u) => !remoteIdSet.has(u.id))
+      .map((u) => normalizeUserRecord(u, seedById.get(u.id), departments));
     const mergedIdSet = new Set([...remoteIdSet, ...localRemaining.map((u) => u.id)]);
-    const seedRemaining = seedUsers.filter((u) => !mergedIdSet.has(u.id));
+    const seedRemaining = seedUsers
+      .filter((u) => !mergedIdSet.has(u.id))
+      .map((u) => normalizeUserRecord(u, u, departments));
     users = [...remoteMapped, ...localRemaining, ...seedRemaining];
   } else {
     const localIdSet = new Set(local.users.map((u) => u.id));
     const seedMissing = seedUsers.filter((u) => !localIdSet.has(u.id));
-    users = [...local.users, ...seedMissing];
+    users = [...local.users, ...seedMissing].map((u) => normalizeUserRecord(u, seedById.get(u.id), departments));
   }
 
-  // Tasks: merge by ID
+  // Tasks: merge by ID and normalize departments
   const localTasks = Array.isArray(local.tasks) ? local.tasks : [];
   const remoteTasks = Array.isArray(remote.tasks) ? remote.tasks : [];
   const taskMap = new Map<string, CouncilTask>();
@@ -1164,7 +1278,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   for (const t of taskOrder) {
     if (t && t.id) taskMap.set(t.id, t);
   }
-  const tasks = taskMap.size ? Array.from(taskMap.values()) : (isLocalNewer ? localTasks : remoteTasks);
+  const rawTasks = taskMap.size ? Array.from(taskMap.values()) : (isLocalNewer ? localTasks : remoteTasks);
+  const tasks = normalizeTasksList(rawTasks, seed.tasks, users, departments);
 
   // Polls: merge voters, ballots, and votes accurately
   const localPolls = Array.isArray(local.polls) ? local.polls : [];
@@ -1232,23 +1347,42 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const localHouseMsgs = Array.isArray(local.houseMessages) ? local.houseMessages : [];
   const remoteHouseMsgs = Array.isArray(remote.houseMessages) ? remote.houseMessages : [];
   const houseMsgMap = new Map<string, HouseMessage>();
-  for (const hm of [...remoteHouseMsgs, ...localHouseMsgs]) {
+  const houseMsgOrder = isLocalNewer ? [...remoteHouseMsgs, ...localHouseMsgs] : [...localHouseMsgs, ...remoteHouseMsgs];
+  for (const hm of houseMsgOrder) {
     if (hm && hm.id) houseMsgMap.set(hm.id, hm);
   }
-  const houseMessages = Array.from(houseMsgMap.values())
+  const rawHouseMessages = Array.from(houseMsgMap.values())
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, 200);
+  const houseMessages = rawHouseMessages.length > 0 ? rawHouseMessages : seed.houseMessages;
 
-  // Council Messages (preserve local messages when Firestore sends empty councilMessages):
+  // Council Messages (preserve local messages and soft-removals):
   const localCouncilMsgs = Array.isArray(local.councilMessages) ? local.councilMessages : [];
   const remoteCouncilMsgs = Array.isArray(remote.councilMessages) ? remote.councilMessages : [];
   const councilMsgMap = new Map<string, CouncilChatMessage>();
   for (const cm of [...localCouncilMsgs, ...remoteCouncilMsgs]) {
-    if (cm && cm.id) councilMsgMap.set(cm.id, cm);
+    if (!cm || !cm.id) continue;
+    const prev = councilMsgMap.get(cm.id);
+    if (prev && (prev.removed || cm.removed)) {
+      councilMsgMap.set(cm.id, { ...prev, ...cm, removed: true, body: "" });
+    } else {
+      councilMsgMap.set(cm.id, cm);
+    }
   }
   const councilMessages = Array.from(councilMsgMap.values())
     .sort((a, b) => a.timestamp - b.timestamp)
     .slice(-250);
+
+  // Council Hub Members:
+  const remoteHubMembers = Array.isArray(remote.councilHubMembers) ? remote.councilHubMembers : [];
+  const localHubMembers = Array.isArray(local.councilHubMembers) ? local.councilHubMembers : [];
+  const chosenHubMembers = isLocalNewer
+    ? (localHubMembers.length ? localHubMembers : remoteHubMembers)
+    : (remoteHubMembers.length ? remoteHubMembers : localHubMembers);
+  const councilHubMembers =
+    chosenHubMembers.length <= 1
+      ? Array.from(new Set([...chosenHubMembers, ...seed.councilHubMembers]))
+      : chosenHubMembers;
 
   // Gallery:
   const remoteGallery = Array.isArray(remote.gallery) ? remote.gallery : local.gallery;
@@ -1257,7 +1391,7 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     return { ...localItem, ...cloudItem, image: cloudItem.image || localItem?.image } as GalleryItem;
   });
 
-  const lastModified = Math.max(localTime, remoteTime, Date.now());
+  const lastModified = Math.max(localTime, remoteTime);
 
   return withFallbackSlices({
     ...local,
@@ -1272,6 +1406,7 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     suggestions,
     events,
     houseMessages,
+    councilHubMembers,
     councilMessages,
     gallery,
     lastModified,
@@ -1937,7 +2072,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         read: state.notifications.filter((notification) => notification.readBy.includes(currentUser.id)).map((notification) => notification.id),
         tasks: state.tasks.filter((task) => task.assigneeId === currentUser.id).map((task) => [task.id, task.status]),
         houseMessages: state.houseMessages.filter((m) => m.authorId === currentUser.id).map((m) => [m.id, m.body]),
-        councilMessages: state.councilMessages.filter((m) => m.authorId === currentUser.id).map((m) => [m.id, m.body]),
+        councilMessages: state.councilMessages.filter((m) => m.authorId === currentUser.id).map((m) => [m.id, m.body, m.removed]),
+        avatarUrl: currentUser.avatarUrl ?? null,
       });
       if (activityHash === activityHashRef.current) return;
       activityHashRef.current = activityHash;

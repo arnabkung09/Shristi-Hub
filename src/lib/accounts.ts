@@ -116,3 +116,8 @@ export function belongsToHouse(account: Student | null | undefined, house: House
   if (!account || account.role === "grade") return false;
   return account.role === "admin" || account.house === house || memberships[house]?.includes(account.id);
 }
+
+export function isExtraHouseMember(account: Student | null | undefined, house: House, memberships: Record<House, string[]>): boolean {
+  if (!account) return false;
+  return account.house !== house && Boolean(memberships[house]?.includes(account.id));
+}

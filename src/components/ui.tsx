@@ -1,4 +1,4 @@
-import { type HTMLAttributes, type ReactNode, useEffect, useId, useRef } from "react";
+import { type HTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -178,16 +178,96 @@ export function RoleBadge({ role }: { role: Role }) {
 
 /* ---------------- avatar ---------------- */
 
-export function Avatar({ name, house, size = "md", ring = false, className }: { name: string; house: House | null; size?: "sm" | "md" | "lg"; ring?: boolean; className?: string }) {
+export async function compressAvatarImage(file: File, maxDim = 240, quality = 0.84): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read image file."));
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      if (typeof document === "undefined" || typeof Image === "undefined") {
+        resolve(dataUrl);
+        return;
+      }
+      const img = new Image();
+      img.onerror = () => reject(new Error("Unable to decode image."));
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+          const w = Math.max(1, Math.round((img.width || maxDim) * scale));
+          const h = Math.max(1, Math.round((img.height || maxDim) * scale));
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressed = canvas.toDataURL("image/jpeg", quality);
+          resolve(compressed.length < dataUrl.length ? compressed : dataUrl);
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+export function Avatar({
+  name,
+  house,
+  size = "md",
+  ring = false,
+  avatarUrl,
+  userId,
+  className,
+}: {
+  name: string;
+  house: House | null;
+  size?: "sm" | "md" | "lg";
+  ring?: boolean;
+  avatarUrl?: string | null;
+  userId?: string;
+  className?: string;
+}) {
+  const { state } = useHub();
+  const [imgError, setImgError] = useState(false);
+
+  const resolvedUrl =
+    avatarUrl ??
+    state.users.find(
+      (u) => (userId && u.id === userId) || u.name.trim().toLowerCase() === (name || "").trim().toLowerCase()
+    )?.avatarUrl ??
+    null;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [resolvedUrl]);
+
   const sizes = { sm: "h-7 w-7 text-[10px]", md: "h-9 w-9 text-xs", lg: "h-14 w-14 text-base" };
   return (
-    <span className={cn(
-      "grid shrink-0 place-items-center rounded-full font-bold text-white",
-      house ? avatarHue(house) : "bg-slate-400", sizes[size],
-      ring && "ring-2 ring-white/70 dark:ring-ink-900",
-      className
-    )}>
-      {initials(name)}
+    <span
+      className={cn(
+        "grid shrink-0 place-items-center overflow-hidden rounded-full font-bold text-white",
+        house ? avatarHue(house) : "bg-slate-400",
+        sizes[size],
+        ring && "ring-2 ring-white/70 dark:ring-ink-900",
+        className
+      )}
+    >
+      {resolvedUrl && !imgError ? (
+        <img
+          src={resolvedUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        initials(name)
+      )}
     </span>
   );
 }

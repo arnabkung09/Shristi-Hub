@@ -1,74 +1,157 @@
 import { useMemo, useState } from "react";
-import { Crown, Medal, Megaphone, MessageSquare, Pin, Send, ShieldCheck, Trash2, Trophy, Users } from "lucide-react";
+import {
+  Award, Crown, LockKeyhole, Megaphone, MessageSquarePlus, MessagesSquare,
+  Pin, Search, Send, Shield, Trash2, Trophy, UserPlus, Users, Wifi,
+} from "lucide-react";
 import { initials, relativeTime, uid, useHub, formatTemplate, DEFAULT_NOTIFICATION_TEMPLATES } from "../store/hub";
-import { houseFullName, houseLogo, houseStandings, rankLabel } from "../lib/admin";
 import { HOUSES } from "../lib/seed";
-import { Modal, HouseMark } from "./ui";
-import { Reveal } from "./Effects";
-import type { House, HouseMessage } from "../lib/types";
+import { houseFullName, houseShortName, houseStandings, rankLabel } from "../lib/admin";
+import { belongsToHouse, isExtraHouseMember } from "../lib/accounts";
+import type { House, HouseMessage, Audience } from "../lib/types";
 import { sendFirebaseNotification } from "../lib/firebase-client";
-
-const HOUSE_THEME: Record<House, { bg: string; text: string; ring: string }> = {
-  Blue: { bg: "linear-gradient(125deg,#1d3f8f,#16233f)", text: "#7fb0ff", ring: "#3b82f6" },
-  Red: { bg: "linear-gradient(125deg,#8e2036,#331624)", text: "#ff9aae", ring: "#ef4444" },
-  Green: { bg: "linear-gradient(125deg,#116446,#12291f)", text: "#6fe0b0", ring: "#22c55e" },
-};
+import { HouseMark } from "./ui";
+import { Reveal } from "./Effects";
+import HouseMembersDialog from "./HouseMembersDialog";
 
 export default function HouseHub() {
-  const { state, user, dispatch, announce, houseTotals, setActiveTab } = useHub();
+  const { state, user, dispatch, houseTotals, announce } = useHub();
   const admin = user?.role === "admin";
-  const [active, setActive] = useState<House>(user && !admin && user.house ? user.house : "Blue");
-  const [composer, setComposer] = useState(false);
-  const [captainPicker, setCaptainPicker] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState<HouseMessage | null>(null);
+  const accessibleHouses: House[] = useMemo(() => {
+    if (!user) return [];
+    if (admin) return [...HOUSES];
+    return HOUSES.filter((h) => belongsToHouse(user, h, state.houseMemberships));
+  }, [user, admin, state.houseMemberships]);
+
+  const [selectedHouse, setSelectedHouse] = useState<House>(
+    user?.house ?? accessibleHouses[0] ?? "Blue"
+  );
+  const [kind, setKind] = useState<"message" | "instruction">("message");
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [kind, setKind] = useState<"instruction" | "message">("instruction");
-  const [captainId, setCaptainId] = useState("");
-  const [error, setError] = useState("");
-
-  const houses = admin ? HOUSES : ([user?.house ?? "Blue"] as House[]);
-  const house = houses.includes(active) ? active : houses[0];
-  const members = useMemo(() => state.users.filter((u) => u.house === house), [state.users, house]);
-  const captainId_ = state.houseCaptains[house];
-  const captain = state.users.find((u) => u.id === captainId_);
-  const messages = state.houseMessages.filter((m) => m.house === house).sort((a, b) => b.timestamp - a.timestamp);
-  const canPost = admin || captainId_ === user?.id;
-  const label = houseFullName(state.houses, house);
-
-  const standings = useMemo(() => houseStandings(houseTotals), [houseTotals]);
-  const position = standings.find((s) => s.house === house) ?? { rank: 3, points: 0 };
-  const leader = standings[0];
-  const behind = leader.points - position.points;
+  const [draft, setDraft] = useState("");
+  const [feedFilter, setFeedFilter] = useState<"all" | "instruction" | "message">("all");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [membersOpen, setMembersOpen] = useState(false);
 
   if (!user) return null;
 
-  if (user.role === "grade") {
+  const activeHouse: House | null = accessibleHouses.includes(selectedHouse)
+    ? selectedHouse
+    : (accessibleHouses[0] ?? null);
+  const house: House = activeHouse ?? "Blue";
+
+  const standings = houseStandings(houseTotals);
+  const rank = standings.find((s) => s.house === house)?.rank ?? 1;
+  const points = houseTotals[house] ?? 0;
+
+  const captainId = state.houseCaptains[house];
+  const captain = state.users.find((u) => u.id === captainId);
+  const isHouseCaptain = Boolean(captainId && captainId === user.id);
+  const canPostInstruction =
+    admin ||
+    isHouseCaptain ||
+    ((user.role === "council" || user.role === "teacher") && belongsToHouse(user, house, state.houseMemberships));
+
+  const members = useMemo(
+    () =>
+      state.users
+        .filter((u) => belongsToHouse(u, house, state.houseMemberships))
+        .sort((a, b) => {
+          const aCap = a.id === captainId ? 0 : 1;
+          const bCap = b.id === captainId ? 0 : 1;
+          if (aCap !== bCap) return aCap - bCap;
+          const aRole = a.role === "admin" ? 0 : a.role === "council" ? 1 : a.role === "teacher" ? 2 : 3;
+          const bRole = b.role === "admin" ? 0 : b.role === "council" ? 1 : b.role === "teacher" ? 2 : 3;
+          if (aRole !== bRole) return aRole - bRole;
+          return a.name.localeCompare(b.name);
+        }),
+    [state.users, house, state.houseMemberships, captainId]
+  );
+
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return members;
+    return members.filter((m) =>
+      `${m.name} ${m.email} ${m.gradeLabel ?? ""} ${m.councilTitle ?? ""} ${m.role}`.toLowerCase().includes(q)
+    );
+  }, [members, memberSearch]);
+
+  const houseMessages = useMemo(() => {
+    return (state.houseMessages || [])
+      .filter((m) => m.house === house)
+      .filter((m) => (feedFilter === "all" ? true : m.kind === feedFilter))
+      .sort((a, b) => {
+        if (a.kind === "instruction" && b.kind !== "instruction" && feedFilter === "all") return -1;
+        if (b.kind === "instruction" && a.kind !== "instruction" && feedFilter === "all") return 1;
+        return b.timestamp - a.timestamp;
+      });
+  }, [state.houseMessages, house, feedFilter]);
+
+  const recentPoints = useMemo(
+    () => state.pointsLedger.filter((p) => p.house === house).slice(0, 4),
+    [state.pointsLedger, house]
+  );
+
+  if (!activeHouse) {
     return (
-      <div className="empty-content py-16">
-        <ShieldCheck className="h-10 w-10 text-slate-400" />
-        <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">House Neutral Account</h2>
-        <p className="max-w-md text-xs text-slate-400">Class accounts are neutral administrative logins and are not assigned to a house. House Hub discussions and captain notices are reserved for house members.</p>
-        <button className="btn btn-primary mt-4" onClick={() => setActiveTab("houses")}>
-          View House Points & Standings
-        </button>
-      </div>
+      <Reveal>
+        <div className="empty-content">
+          <LockKeyhole />
+          <strong>No house assigned</strong>
+          <p>
+            {user.name} does not belong to a school house yet. Ask an administrator to assign this account to Blue,
+            Red, or Green House in Admin Panel / House Hub.
+          </p>
+        </div>
+      </Reveal>
     );
   }
 
-  const post = () => {
-    try {
-      const message: HouseMessage = {
-        id: uid(), house, title: title.trim(), body: body.trim(), kind,
-        authorId: user.id, authorName: user.name,
-        authorRole: admin ? "Administrator" : `${label} Captain`,
-        timestamp: Date.now(),
-      };
-      dispatch({ type: "POST_HOUSE_MESSAGE", message });
+  const send = () => {
+    const bodyText = draft.trim();
+    if (!bodyText) {
+      announce("Write a message before posting.", "error");
+      return;
+    }
+    const effectiveKind = canPostInstruction ? kind : "message";
+    const resolvedTitle =
+      effectiveKind === "instruction"
+        ? title.trim() || `${houseShortName(state.houses, house)} House Official Instruction`
+        : title.trim() || (bodyText.length > 56 ? `${bodyText.slice(0, 56)}…` : bodyText);
 
+    const authorRoleLabel = isHouseCaptain
+      ? `${houseShortName(state.houses, house)} House Captain`
+      : user.councilTitle
+      ? `${user.councilTitle}${user.department ? ` · ${user.department}` : ""}`
+      : user.role === "admin"
+      ? "Council Administrator"
+      : user.role === "teacher"
+      ? "House Teacher / Advisor"
+      : `Grade ${user.grade ?? "—"} Member`;
+
+    const msg: HouseMessage = {
+      id: uid(),
+      house,
+      title: resolvedTitle,
+      body: bodyText,
+      kind: effectiveKind,
+      authorId: user.id,
+      authorName: user.name,
+      authorRole: authorRoleLabel,
+      timestamp: Date.now(),
+    };
+
+    try {
+      dispatch({ type: "POST_HOUSE_MESSAGE", message: msg });
+
+      // Notify members of this house
       const tmpl = state.notificationTemplates?.house_message || DEFAULT_NOTIFICATION_TEMPLATES.house_message;
-      const notifTitle = formatTemplate(tmpl.title, { house: label, title: message.title, message: message.body, author: user.name });
-      const notifBody = formatTemplate(tmpl.body, { house: label, title: message.title, message: message.body, author: user.name });
+      const houseName = houseFullName(state.houses, house);
+      const notifTitle =
+        effectiveKind === "instruction"
+          ? `📌 ${houseName}: ${resolvedTitle}`
+          : formatTemplate(tmpl.title, { house: houseName, author: user.name, message: bodyText });
+      const notifBody = formatTemplate(tmpl.body, { house: houseName, author: user.name, message: bodyText });
+      const houseAudience: Audience = { kind: "house", house };
 
       dispatch({
         type: "PUSH_NOTIFICATION",
@@ -77,170 +160,454 @@ export default function HouseHub() {
           title: notifTitle,
           body: notifBody,
           timestamp: Date.now(),
-          urgent: false,
+          urgent: effectiveKind === "instruction",
           senderName: user.name,
           senderRole: user.role,
-          audience: { kind: "house", house },
-          actionTab: "house",
-          readBy: [],
-          kind: "broadcast",
+          audience: houseAudience,
+          actionTab: "house-hub",
+          readBy: [user.id],
+          kind: "system",
         },
       });
 
       void sendFirebaseNotification({
         title: notifTitle,
         body: notifBody,
-        urgent: false,
-        audience: { kind: "house", house },
-        actionTab: "house",
+        urgent: effectiveKind === "instruction",
+        audience: houseAudience,
+        actionTab: "house-hub",
         senderName: user.name,
       }).catch(() => undefined);
 
-      announce(`Posted to the ${label} hub and notified its members.`);
-      setComposer(false); setTitle(""); setBody(""); setError("");
-    } catch (e) { setError(e instanceof Error ? e.message : "Unable to post."); }
+      setTitle("");
+      setDraft("");
+      announce(
+        effectiveKind === "instruction"
+          ? `Official instruction posted to ${houseName} and members notified.`
+          : `Message posted to ${houseName} Hub.`
+      );
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to post message.", "error");
+    }
   };
+
+  const removeMessage = (messageId: string) => {
+    try {
+      dispatch({ type: "DELETE_HOUSE_MESSAGE", messageId });
+      announce("House post removed.");
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to remove post.", "error");
+    }
+  };
+
+  const handleAssignCaptain = (userId: string) => {
+    try {
+      dispatch({ type: "SET_HOUSE_CAPTAIN", house, userId });
+      const chosen = state.users.find((u) => u.id === userId);
+      announce(
+        chosen
+          ? `${chosen.name} appointed as ${houseFullName(state.houses, house)} Captain.`
+          : `${houseFullName(state.houses, house)} Captain cleared.`
+      );
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to update house captain.", "error");
+    }
+  };
+
+  const primaryHouseCandidates = state.users.filter((u) => u.house === house && u.role !== "grade");
 
   return (
     <div>
-      <div className="directory-heading">
-        <div>
-          <h1>House Hub <span className="outline-count">{admin ? "All houses" : label}</span></h1>
-          <p>{admin ? "Administrators belong to every house hub. Appoint captains and post instructions to any house." : captainId_ === user.id ? "You are the house captain. Share instructions and messages with your house members." : "Instructions and messages from your house captain and the council administration."}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {admin && <button className="btn btn-secondary" onClick={() => { setCaptainPicker(true); setCaptainId(captainId_ ?? ""); setError(""); }}><Crown />Set House Captain</button>}
-          {canPost && <button className="btn btn-primary" onClick={() => { setComposer(true); setError(""); }}><Megaphone />Post to {houseFullName(state.houses, house).split(" ")[0]} House</button>}
-        </div>
-      </div>
-
-      {houses.length > 1 && (
-        <div className="compact-tabs mb-5" role="tablist" aria-label="House hubs">
-          {houses.map((h) => {
-            const logo = houseLogo(state.houses, h);
-            const rank = standings.find((s) => s.house === h)?.rank ?? 3;
-            return (
-              <button key={h} role="tab" aria-selected={house === h} className={house === h ? "active" : ""} onClick={() => setActive(h)}>
-                {logo ? <img src={logo} alt="" className="h-4 w-4 rounded-full object-cover" /> : <span className="h-2 w-2 rounded-full" style={{ background: HOUSE_THEME[h].ring }} />}
+      {accessibleHouses.length > 1 && (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="pill-tabs">
+            {accessibleHouses.map((h) => (
+              <button
+                key={h}
+                className={house === h ? "active" : ""}
+                onClick={() => setSelectedHouse(h)}
+              >
+                <HouseMark house={h} className="h-4 w-4 text-[8px]" />
                 {houseFullName(state.houses, h)}
-                <span className="ml-1 text-[8px] font-bold text-[var(--faint)]">#{rank}</span>
               </button>
-            );
-          })}
+            ))}
+          </div>
+          {admin && (
+            <button className="btn btn-primary" onClick={() => setMembersOpen(true)}>
+              <UserPlus /> Manage {houseShortName(state.houses, house)} Hub Members
+            </button>
+          )}
         </div>
       )}
 
       <Reveal>
-        <section className="house-banner hover-lift" style={{ background: HOUSE_THEME[house].bg }}>
+        <section className={`house-banner ${house.toLowerCase()}`}>
           <div className="flex items-center gap-4">
-            <HouseMark house={house} className="h-16 w-16 !rounded-2xl text-xl ring-2 ring-white/20" />
+            <HouseMark house={house} className="h-16 w-16 text-xl shadow-lg" />
             <div>
-              <p className="eyebrow !text-white/60">{label} Hub</p>
-              <h2 style={{ color: HOUSE_THEME[house].text }}>{label}</h2>
-              <p className="house-banner-meta">{members.length} members / {houseTotals[house].toLocaleString()} championship points</p>
-              <span className={`house-position mt-2 ${position.rank === 1 ? "first" : position.rank === 2 ? "second" : "third"}`}>
-                {position.rank === 1 ? <Crown className="h-3.5 w-3.5" /> : <Medal className="h-3.5 w-3.5" />}
-                {rankLabel(position.rank)} of 3{position.rank > 1 && behind > 0 ? ` · ${behind.toLocaleString()} pts behind` : position.rank === 1 ? " · leading the cup" : ""}
+              <span className="eyebrow">
+                {rankLabel(rank)} · {members.length} {members.length === 1 ? "Member" : "Members"}
               </span>
+              <h1 className="mt-1 font-display text-3xl font-bold">{houseFullName(state.houses, house)} Hub</h1>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                {captain
+                  ? `House Captain: ${captain.name} (${captain.gradeLabel ?? "Council"})`
+                  : "Official house instructions, team coordination, and house member chat."}
+              </p>
             </div>
           </div>
-          <div className="house-banner-cards">
-            <div className="stream-control"><Crown className="!text-amber-300" /><div><strong>HOUSE CAPTAIN</strong><span>{captain ? captain.name : "Not appointed"}</span></div></div>
-            <div className="stream-control"><Users /><div><strong>MEMBERS</strong><span>{members.length} students</span></div></div>
-            <div className="stream-control"><Trophy /><div><strong>POSITION</strong><span>#{position.rank} · {houseTotals[house].toLocaleString()} pts</span></div></div>
-          </div>
-        </section>
-      </Reveal>
-
-      <Reveal delay={100}>
-        <section className="panel mt-5 overflow-hidden">
-          <div className="panel-caption"><h2 className="eyebrow">Championship standings</h2><span className="small-note !text-[9px]">Live across all hubs</span></div>
-          <div className="table-scroll">
-            <table className="data-table !min-w-[480px]">
-              <thead><tr><th>Position</th><th>House</th><th>Members</th><th className="actions-heading">Points</th></tr></thead>
-              <tbody>
-                {standings.map((s) => (
-                  <tr key={s.house} className={s.house === house ? "bg-indigo-500/[0.06]" : ""}>
-                    <td><span className={`house-position ${s.rank === 1 ? "first" : s.rank === 2 ? "second" : "third"}`}>#{s.rank}</span></td>
-                    <td><span className="flex items-center gap-2 font-semibold"><HouseMark house={s.house} className="h-6 w-6 text-[9px]" />{houseFullName(state.houses, s.house)}</span></td>
-                    <td className="text-[var(--muted)]">{state.users.filter((u) => u.house === s.house).length}</td>
-                    <td className="actions-heading font-display font-extrabold tabular-nums">{s.points.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </Reveal>
-
-      <div className="house-columns mt-5">
-        <Reveal>
-          <section className="panel panel-pad">
-            <div className="panel-heading"><div><h2><MessageSquare />House Notice Board</h2><p>Instructions and messages sent to {label} members.</p></div><span className="small-note">{messages.length} posts</span></div>
-            {!messages.length ? (
-              <div className="empty-content"><Megaphone /><strong>No posts yet</strong><p>{canPost ? "Share the first instruction with your house." : "Your captain has not posted anything yet."}</p></div>
-            ) : (
-              <div className="form-stack">
-                {messages.map((message) => (
-                  <article key={message.id} className="house-message" style={{ borderLeftColor: HOUSE_THEME[house].ring }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`status-label ${message.kind === "instruction" ? "" : "active"}`}>{message.kind === "instruction" ? <><Pin className="h-3 w-3" />Instruction</> : <><MessageSquare className="h-3 w-3" />Message</>}</span>
-                      <span className="ml-auto text-[9px] text-[var(--faint)]">{relativeTime(message.timestamp)}</span>
-                      {(admin || message.authorId === user.id) && <button className="icon-action red" aria-label={`Delete ${message.title}`} onClick={() => setConfirmDelete(message)}><Trash2 /></button>}
-                    </div>
-                    <h3 className="mt-2 font-display text-sm font-bold">{message.title}</h3>
-                    <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-[var(--muted)]">{message.body}</p>
-                    <p className="mt-3 flex items-center gap-2 border-t border-[var(--border)] pt-2.5 text-[9px] text-[var(--faint)]"><span className="mini-avatar !h-6 !w-6 !text-[8px]">{initials(message.authorName)}</span>{message.authorName} / {message.authorRole}</p>
-                  </article>
-                ))}
-              </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="house-points-box">
+              <strong>{points.toLocaleString()}</strong>
+              <span>Total Points</span>
+            </div>
+            {admin && accessibleHouses.length <= 1 && (
+              <button className="btn btn-secondary !min-h-8 !text-xs" onClick={() => setMembersOpen(true)}>
+                <UserPlus /> Manage Members
+              </button>
             )}
+          </div>
+        </section>
+      </Reveal>
+
+      <div className="house-columns">
+        <Reveal delay={80}>
+          <section className="panel panel-pad">
+            <div className="panel-heading">
+              <div>
+                <h2>
+                  <MessagesSquare /> {houseShortName(state.houses, house)} House Feed &amp; Chat
+                </h2>
+                <p>
+                  Official instructions from house leadership are pinned at the top. All {houseFullName(state.houses, house)} members can participate.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-emerald-500">
+                <Wifi className="h-3 w-3" /> Synced with MongoDB
+              </span>
+            </div>
+
+            {/* Composer */}
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
+              {canPostInstruction && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="compact-tabs">
+                    <button
+                      type="button"
+                      className={kind === "message" ? "active" : ""}
+                      onClick={() => setKind("message")}
+                    >
+                      <MessagesSquare className="h-3.5 w-3.5" /> House Chat Message
+                    </button>
+                    <button
+                      type="button"
+                      className={kind === "instruction" ? "active" : ""}
+                      onClick={() => setKind("instruction")}
+                    >
+                      <Megaphone className="h-3.5 w-3.5" /> Official House Instruction
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-[var(--faint)]">
+                    {kind === "instruction" ? "Pinned for all house members" : "Standard house discussion post"}
+                  </span>
+                </div>
+              )}
+
+              {(kind === "instruction" || title.trim().length > 0) && (
+                <input
+                  className="control mb-2.5"
+                  maxLength={100}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={`Headline for ${houseShortName(state.houses, house)} House instruction (e.g., Friday Relay Practice)...`}
+                />
+              )}
+
+              <textarea
+                rows={3}
+                maxLength={800}
+                className="control resize-y"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={
+                  kind === "instruction"
+                    ? `Write an official instruction or rally briefing for ${houseFullName(state.houses, house)}...`
+                    : `Share an update, cheer, or question with ${houseFullName(state.houses, house)}...`
+                }
+              />
+
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[10px] text-[var(--faint)]">
+                  {draft.length}/800 · Posting as <strong>{user.name}</strong> · Ctrl/⌘ + Enter to send
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!draft.trim()}
+                  onClick={send}
+                >
+                  <Send /> {kind === "instruction" && canPostInstruction ? "Publish Instruction" : "Post to House Hub"}
+                </button>
+              </div>
+            </div>
+
+            {/* Feed Filter Tabs */}
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+              <div className="compact-tabs">
+                <button
+                  type="button"
+                  className={feedFilter === "all" ? "active" : ""}
+                  onClick={() => setFeedFilter("all")}
+                >
+                  All Posts ({(state.houseMessages || []).filter((m) => m.house === house).length})
+                </button>
+                <button
+                  type="button"
+                  className={feedFilter === "instruction" ? "active" : ""}
+                  onClick={() => setFeedFilter("instruction")}
+                >
+                  <Pin className="h-3 w-3" /> Instructions (
+                  {(state.houseMessages || []).filter((m) => m.house === house && m.kind === "instruction").length})
+                </button>
+                <button
+                  type="button"
+                  className={feedFilter === "message" ? "active" : ""}
+                  onClick={() => setFeedFilter("message")}
+                >
+                  House Chat (
+                  {(state.houseMessages || []).filter((m) => m.house === house && m.kind === "message").length})
+                </button>
+              </div>
+              <span className="small-note">{houseMessages.length} shown</span>
+            </div>
+
+            {/* Messages List */}
+            <div className="mt-4 space-y-3">
+              {!houseMessages.length && (
+                <div className="empty-content">
+                  <MessageSquarePlus />
+                  <strong>No posts in this view yet</strong>
+                  <p>Start the {houseFullName(state.houses, house)} conversation above.</p>
+                </div>
+              )}
+
+              {houseMessages.map((m) => {
+                const author = state.users.find((u) => u.id === m.authorId);
+                const isInstruction = m.kind === "instruction";
+                const canDelete = admin || m.authorId === user.id;
+
+                return (
+                  <article
+                    key={m.id}
+                    className={`rounded-2xl border p-4 transition-all ${
+                      isInstruction
+                        ? "border-amber-500/35 bg-amber-500/[0.06]"
+                        : "border-[var(--border)] bg-[var(--surface-inset)]"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="mini-avatar !h-9 !w-9 !rounded-full !text-[10px]">
+                          {author?.avatarUrl ? (
+                            <img src={author.avatarUrl} alt={m.authorName} />
+                          ) : (
+                            initials(m.authorName)
+                          )}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <strong className="text-xs font-bold">{m.authorName}</strong>
+                            {isInstruction && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-400">
+                                <Pin className="h-2.5 w-2.5" /> Official Instruction
+                              </span>
+                            )}
+                            {m.authorId === captainId && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2 py-0.5 text-[9px] font-bold uppercase text-indigo-300">
+                                <Crown className="h-2.5 w-2.5" /> Captain
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-[var(--faint)]">
+                            {m.authorRole} · {relativeTime(m.timestamp)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {canDelete && (
+                        <button
+                          type="button"
+                          className="icon-action red"
+                          aria-label="Delete message"
+                          title="Delete message"
+                          onClick={() => removeMessage(m.id)}
+                        >
+                          <Trash2 />
+                        </button>
+                      )}
+                    </div>
+
+                    {isInstruction && m.title && (
+                      <h4 className="mt-3 font-display text-sm font-bold text-slate-900 dark:text-white">
+                        {m.title}
+                      </h4>
+                    )}
+                    <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-relaxed">
+                      {m.body}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
           </section>
         </Reveal>
 
+        {/* Sidebar: Leadership, Recent Points, and House Roster */}
         <Reveal delay={140}>
-          <aside className="panel panel-pad">
-            <div className="panel-heading"><h3><Users />House Members</h3><span className="small-note">{members.length}</span></div>
-            <div className="max-h-[430px] overflow-y-auto pr-1">
-              {members.map((member) => (
-                <div key={member.id} className="integration-row !py-2.5">
-                  <span className="member-inline"><span className="mini-avatar !h-8 !w-8 !text-[9px]">{member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : initials(member.name)}</span><span><strong className="!text-[10px]">{member.name}</strong><small>{member.gradeLabel}</small></span></span>
-                  {member.id === captainId_ ? <span className="clearance !text-[8px]"><Crown className="h-3 w-3" />Captain</span> : member.role === "admin" ? <span className="clearance !text-[8px]"><ShieldCheck className="h-3 w-3" />Admin</span> : null}
+          <div className="space-y-5">
+            {/* House Captain & Leadership Card */}
+            <aside className="panel panel-pad">
+              <div className="panel-heading">
+                <h3>
+                  <Crown className="!text-amber-400" /> House Leadership
+                </h3>
+                <span className="small-note">{houseShortName(state.houses, house)}</span>
+              </div>
+
+              {captain ? (
+                <div className="integration-row !py-3">
+                  <span className="member-inline">
+                    <span className="mini-avatar !h-10 !w-10 !rounded-full !text-xs">
+                      {captain.avatarUrl ? (
+                        <img src={captain.avatarUrl} alt={captain.name} />
+                      ) : (
+                        initials(captain.name)
+                      )}
+                    </span>
+                    <span>
+                      <strong className="text-xs">{captain.name}</strong>
+                      <small>
+                        {houseShortName(state.houses, house)} House Captain · {captain.gradeLabel ?? "Council"}
+                        {captain.councilTitle ? ` · ${captain.councilTitle}` : ""}
+                      </small>
+                    </span>
+                  </span>
+                  <span className="clearance !text-[9px]">
+                    <Award className="h-3 w-3" /> Captain
+                  </span>
                 </div>
-              ))}
-            </div>
-          </aside>
+              ) : (
+                <p className="small-note">No house captain has been appointed yet.</p>
+              )}
+
+              {admin && (
+                <label className="form-field mt-3">
+                  <span>Appoint or change {houseShortName(state.houses, house)} House Captain</span>
+                  <select
+                    className="control !text-xs"
+                    value={captainId ?? ""}
+                    onChange={(e) => handleAssignCaptain(e.target.value)}
+                  >
+                    <option value="">— Select student from {houseFullName(state.houses, house)} —</option>
+                    {primaryHouseCandidates.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.gradeLabel ?? "Staff"}{s.councilTitle ? ` · ${s.councilTitle}` : ""})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {recentPoints.length > 0 && (
+                <div className="mt-4 border-t border-[var(--border)] pt-3">
+                  <p className="eyebrow mb-2 flex items-center gap-1.5">
+                    <Trophy className="h-3.5 w-3.5 text-amber-400" /> Recent {houseShortName(state.houses, house)} Point Awards
+                  </p>
+                  <div className="space-y-1.5">
+                    {recentPoints.map((pt) => (
+                      <div key={pt.id} className="integration-row !py-2 text-xs">
+                        <span>
+                          <strong className="!text-[11px]">{pt.reason}</strong>
+                          <small>{pt.category} · {pt.position ?? "Award"}</small>
+                        </span>
+                        <span className="font-display text-xs font-extrabold text-emerald-500">
+                          +{pt.delta} pts
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </aside>
+
+            {/* House Roster Card */}
+            <aside className="panel panel-pad">
+              <div className="panel-heading">
+                <h3>
+                  <Users /> House Members
+                </h3>
+                <span className="small-note">{members.length}</span>
+              </div>
+
+              <div className="search-control mb-3">
+                <Search />
+                <input
+                  className="control !text-xs"
+                  placeholder={`Search ${houseShortName(state.houses, house)} members...`}
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                />
+              </div>
+
+              <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+                {filteredMembers.map((m) => (
+                  <div key={m.id} className="integration-row !py-2.5">
+                    <span className="member-inline">
+                      <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">
+                        {m.avatarUrl ? <img src={m.avatarUrl} alt={m.name} /> : initials(m.name)}
+                      </span>
+                      <span>
+                        <strong className="!text-[10px]">{m.name}</strong>
+                        <small>
+                          {m.role === "teacher" ? "Teacher" : `Grade ${m.grade}`}
+                          {m.councilTitle ? ` · ${m.councilTitle}` : ""}
+                          {isExtraHouseMember(m, house, state.houseMemberships) ? " · Added member" : ""}
+                        </small>
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      {m.id === captainId && (
+                        <span className="clearance !text-[8px]">
+                          <Crown className="h-3 w-3 text-amber-400" /> Captain
+                        </span>
+                      )}
+                      {m.id !== captainId && (m.role === "council" || m.role === "admin") && (
+                        <span className="clearance !text-[8px]">
+                          <Shield className="h-3 w-3" /> {m.role}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {admin && (
+                <button className="btn btn-secondary mt-4 w-full" onClick={() => setMembersOpen(true)}>
+                  <UserPlus /> Add or remove house hub members
+                </button>
+              )}
+            </aside>
+          </div>
         </Reveal>
       </div>
 
-      <Modal open={composer} onClose={() => setComposer(false)} title={`Post to ${label}`} icon={<Megaphone />} subtitle="Members of this house receive an in-app notification.">
-        <form onSubmit={(e) => { e.preventDefault(); post(); }}>
-          <div className="form-stack">
-            <label className="form-field"><span>Post type</span><select className="control" value={kind} onChange={(e) => setKind(e.target.value as "instruction" | "message")}><option value="instruction">Instruction</option><option value="message">Message</option></select></label>
-            <label className="form-field"><span>Title</span><input required maxLength={90} className="control" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Sports Day march-past practice" /></label>
-            <label className="form-field"><span>Details</span><textarea required rows={5} maxLength={1200} className="control resize-y" value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should your house members do, and when?" /></label>
-            {error && <p role="alert" className="inline-message error">{error}</p>}
-          </div>
-          <div className="dialog-actions"><button type="button" className="btn btn-secondary" onClick={() => setComposer(false)}>Cancel</button><button type="submit" className="btn btn-primary"><Send />Post to house</button></div>
-        </form>
-      </Modal>
-
-      <Modal open={captainPicker} onClose={() => setCaptainPicker(false)} title={`${label} Captain`} icon={<Crown />} subtitle="Captains can post instructions and messages to their own house.">
-        <div className="form-stack">
-          <label className="form-field"><span>Select a {label} student</span><select className="control" value={captainId} onChange={(e) => setCaptainId(e.target.value)}><option value="">No captain appointed</option>{members.filter((m) => m.role !== "admin").map((m) => <option key={m.id} value={m.id}>{m.name} / {m.gradeLabel}</option>)}</select></label>
-          <p className="inline-message">Only students already in {label} can be appointed. Administrators keep posting rights in every house.</p>
-          {error && <p role="alert" className="inline-message error">{error}</p>}
-        </div>
-        <div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setCaptainPicker(false)}>Cancel</button><button className="btn btn-primary" onClick={() => {
-          try { dispatch({ type: "SET_HOUSE_CAPTAIN", house, userId: captainId }); announce(captainId ? "House captain updated." : "House captain removed."); setCaptainPicker(false); setError(""); }
-          catch (e) { setError(e instanceof Error ? e.message : "Unable to save."); }
-        }}><Crown />Save captain</button></div>
-      </Modal>
-
-      <Modal open={!!confirmDelete} onClose={() => setConfirmDelete(null)} title="Remove house post" icon={<Trash2 />}>
-        <p className="inline-message">Remove <strong>{confirmDelete?.title}</strong> from the {label} notice board?</p>
-        <div className="dialog-actions"><button className="btn btn-secondary" onClick={() => setConfirmDelete(null)}>Cancel</button><button className="btn btn-danger" onClick={() => { dispatch({ type: "DELETE_HOUSE_MESSAGE", messageId: confirmDelete!.id }); announce("House post removed."); setConfirmDelete(null); }}><Trash2 />Remove post</button></div>
-      </Modal>
+      {membersOpen && <HouseMembersDialog house={house} onClose={() => setMembersOpen(false)} />}
     </div>
   );
 }

@@ -80,6 +80,10 @@ export async function testFirebaseConnection() {
 const emailDocId = (email: string) => email.trim().toLowerCase();
 
 function cloudStudent(student: Student) {
+  const safeAvatar =
+    student.avatarUrl && student.avatarUrl.length <= 180_000
+      ? student.avatarUrl
+      : null;
   return {
     id: student.id, name: student.name, email: student.email, aliases: student.aliases ?? [],
     verifiedAliases: student.verifiedAliases ?? [],
@@ -87,7 +91,7 @@ function cloudStudent(student: Student) {
     grade: student.grade, gradeLabel: student.gradeLabel, house: student.house, houseLabel: student.houseLabel,
     role: student.role, status: student.status, councilTitle: student.councilTitle ?? null,
     councilPost: student.councilPost ?? student.councilTitle ?? null,
-    department: student.department ?? null, avatarUrl: student.avatarUrl?.startsWith("data:") ? null : student.avatarUrl ?? null,
+    department: student.department ?? null, avatarUrl: safeAvatar,
     createdAt: student.createdAt,
   };
 }

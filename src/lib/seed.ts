@@ -341,11 +341,34 @@ export function buildSeedState(): HubState {
     { id: "an-4", title: "Blue House practice — Friday 4 PM", body: "All Blue House athletes: mandatory relay practice this Friday at the main track.", priority: "important", audience: { kind: "house", house: "Blue" }, authorName: "Arnab Shrestha", authorPost: "President", timestamp: ts(-3, 9, 0) },
   ];
 
+  const byEmail = (email: string) =>
+    students.find((s) => s.email.toLowerCase() === email.toLowerCase())?.id ?? "shr-085";
+
+  const arnabId = byEmail("72019arnab@shristiacademy.edu.np");
+  const aadeeshId = byEmail("72005aadeesh@shristiacademy.edu.np");
+  const praneshId = byEmail("73005pranesh@shristiacademy.edu.np");
+  const sarbagyaId = byEmail("72029sarbagya@shristiacademy.edu.np");
+  const sanobarId = byEmail("sanobar@shristiacademy.edu.np");
+  const pralavId = byEmail("72081pralav@shristiacademy.edu.np");
+  const yahosuId = byEmail("yahosurai@shristiacademy.edu.np");
+  const theiaId = byEmail("theia@shristiacademy.edu.np");
+  const viaanId = byEmail("74022vian@shristiacademy.edu.np");
+  const avikId = byEmail("75028avik@shristiacademy.edu.np");
+  const aadyaId = byEmail("76009aadya@shristiacademy.edu.np");
+
   const tasks: CouncilTask[] = [
-    { id: "tk-1", title: "Organize Annual Sports & Event Schedule", details: "Coordinate grounds, equipment, and house fixture timetables.", due: dateStr(1), priority: "High", assigneeId: "shr-085", status: "progress", department: "Event Management", createdBy: "Arnab Shrestha", createdAt: ts(-3) },
-    { id: "tk-2", title: "Consolidate Student Council Budget", details: "Review semester allocation quotes and monetary fund balance.", due: dateStr(3), priority: "Urgent", assigneeId: "shr-085", status: "progress", department: "Monetary Fund", createdBy: "Arnab Shrestha", createdAt: ts(-4) },
-    { id: "tk-3", title: "Assembly Protocol & Discipline Guidelines", details: "Draft standard assembly line protocols and house monitoring duties.", due: dateStr(-1), priority: "Medium", assigneeId: "shr-085", status: "review", department: "Discipline", createdBy: "Arnab Shrestha", createdAt: ts(-6) },
-    { id: "tk-4", title: "Audio & Speech Equipment Inspection", details: "Microphones, PA systems, and stage speakers serviced for upcoming assembly.", due: dateStr(-2), priority: "Medium", assigneeId: "shr-085", status: "done", department: "Audio & Speech", createdBy: "Arnab Shrestha", createdAt: ts(-10) },
+    { id: "tk-1", title: "Organize Annual Sports & Event Schedule", details: "Coordinate grounds, equipment, and house fixture timetables.", due: dateStr(1), priority: "High", assigneeId: arnabId, status: "progress", department: "Event Management", createdBy: "Arnab Shrestha", createdAt: ts(-3) },
+    { id: "tk-2", title: "Consolidate Student Council Budget", details: "Review semester allocation quotes and monetary fund balance.", due: dateStr(3), priority: "Urgent", assigneeId: sarbagyaId, status: "progress", department: "Monetary Fund", createdBy: "Arnab Shrestha", createdAt: ts(-4) },
+    { id: "tk-3", title: "Assembly Protocol & Discipline Guidelines", details: "Draft standard assembly line protocols and house monitoring duties.", due: dateStr(-1), priority: "Medium", assigneeId: aadeeshId, status: "review", department: "Discipline", createdBy: "Arnab Shrestha", createdAt: ts(-6) },
+    { id: "tk-4", title: "Audio & Speech Equipment Inspection", details: "Microphones, PA systems, and stage speakers serviced for upcoming assembly.", due: dateStr(-2), priority: "Medium", assigneeId: sanobarId, status: "done", department: "Audio & Speech", createdBy: "Arnab Shrestha", createdAt: ts(-10), completedAt: ts(-2) },
+    { id: "tk-5", title: "Investiture Ceremony Stage & Logistics", details: "Completed full auditorium seating plan, badge trays, and oath podium setup.", due: dateStr(-7), priority: "High", assigneeId: avikId, status: "done", department: "Event Management", createdBy: "Arnab Shrestha", createdAt: ts(-14), completedAt: ts(-7) },
+    { id: "tk-6", title: "Morning Assembly Prefect Roster", details: "Published corridor and gate prefect duty chart for Grades 1–10.", due: dateStr(-5), priority: "High", assigneeId: praneshId, status: "done", department: "Discipline", createdBy: "Arnab Shrestha", createdAt: ts(-12), completedAt: ts(-5) },
+    { id: "tk-7", title: "Winter Term Council Ledger Audit", details: "Reconciled all council receipts and verified opening balance with school office.", due: dateStr(-6), priority: "Medium", assigneeId: sarbagyaId, status: "done", department: "Monetary Fund", createdBy: "Arnab Shrestha", createdAt: ts(-11), completedAt: ts(-6) },
+    { id: "tk-8", title: "House Championship Banners & Noticeboard", details: "Designed and mounted new Blue, Red, and Green House standings boards.", due: dateStr(-4), priority: "Medium", assigneeId: yahosuId, status: "done", department: "Creative Design", createdBy: "Arnab Shrestha", createdAt: ts(-9), completedAt: ts(-4) },
+    { id: "tk-9", title: "Inter-House Basketball Bracket & Referees", details: "Finalized court bookings, match balls, and scorekeepers for all houses.", due: dateStr(-3), priority: "High", assigneeId: pralavId, status: "done", department: "Sports Management", createdBy: "Arnab Shrestha", createdAt: ts(-8), completedAt: ts(-3) },
+    { id: "tk-10", title: "Class Representative Suggestion Box Rollout", details: "Briefed all class representatives on weekly student feedback collection.", due: dateStr(-4), priority: "Medium", assigneeId: aadyaId, status: "done", department: "General", createdBy: "Arnab Shrestha", createdAt: ts(-9), completedAt: ts(-4) },
+    { id: "tk-11", title: "Science Exhibition Poster Series", details: "Prepare hall directional signage and project booth number cards.", due: dateStr(4), priority: "Medium", assigneeId: theiaId, status: "todo", department: "Creative Design", createdBy: "Arnab Shrestha", createdAt: ts(-2) },
+    { id: "tk-12", title: "Track & Field Relay Team Trials", details: "Coordinate house captains for 4x100m relay qualifying heats.", due: dateStr(2), priority: "High", assigneeId: viaanId, status: "todo", department: "Sports Management", createdBy: "Arnab Shrestha", createdAt: ts(-1) },
   ];
 
   const suggestions: Suggestion[] = [];
@@ -393,7 +416,7 @@ export function buildSeedState(): HubState {
     gallery,
     broadcastHistory,
     departments: [...DEFAULT_DEPARTMENTS],
-    permissions: Object.fromEntries(students.filter((s) => s.role !== "student" && s.status === "active").map((s) => [s.id, FEATURE_PERMISSIONS.map((p) => p.id)])),
+    permissions: Object.fromEntries(students.filter((s) => s.role !== "student").map((s) => [s.id, FEATURE_PERMISSIONS.map((p) => p.id)])),
     activeImageIds: gallery.filter((g) => g.image).map((g) => g.id).slice(0, 5),
     audit: [],
     branding: { ...DEFAULT_BRANDING },
@@ -405,9 +428,47 @@ export function buildSeedState(): HubState {
       Green: { ...DEFAULT_HOUSES.Green },
     },
     siteRatings: [],
-    houseCaptains: {},
+    houseCaptains: {
+      Blue: sarbagyaId,
+      Red: pralavId,
+      Green: aadeeshId,
+    },
     houseMemberships: { Blue: [], Red: [], Green: [] },
-    houseMessages: [],
+    houseMessages: [
+      {
+        id: "hm-blue-1",
+        house: "Blue",
+        title: "Blue House Basketball & Debate Prep",
+        body: "All Blue House squad members and speakers please meet at the main court Friday at 3:45 PM for kit distribution and final lineups.",
+        kind: "instruction",
+        authorId: sarbagyaId,
+        authorName: "Sarbagya Adhikari",
+        authorRole: "Blue House Captain",
+        timestamp: ts(-2, 15, 0),
+      },
+      {
+        id: "hm-red-1",
+        house: "Red",
+        title: "Red House Championship Rally",
+        body: "Great job on the Senior & Junior Spelling Bee points! Let's bring full house attendance for the Inter-House Basketball Finals.",
+        kind: "instruction",
+        authorId: pralavId,
+        authorName: "Pralav Dhakal",
+        authorRole: "Red House Captain",
+        timestamp: ts(-1, 14, 30),
+      },
+      {
+        id: "hm-green-1",
+        house: "Green",
+        title: "Green House Semi-Final Debate Briefing",
+        body: "Our semi-final debate team meets in Seminar Hall 2 tomorrow at 1:30 PM. House members are encouraged to attend and support!",
+        kind: "instruction",
+        authorId: aadeeshId,
+        authorName: "Aadeesh Bista",
+        authorRole: "Green House Captain",
+        timestamp: ts(-1, 11, 15),
+      },
+    ],
     councilHubMembers: councilIds,
     councilMessages: [],
     notificationTemplates: { ...DEFAULT_NOTIFICATION_TEMPLATES },

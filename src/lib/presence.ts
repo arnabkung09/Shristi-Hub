@@ -1,516 +1,492 @@
-import { useEffect, useRef, useState } from "react";
-import type { House, Role, Student } from "./types";
-import { firebaseDb } from "./firebase-client";
-import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+} from "firebase/firestore";
+import { firebaseAuth, firebaseDb, triggerOSNotification } from "./firebase-client";
 import { chime, postBus } from "./realtime";
+import type { House, Role, Student } from "./types";
 
 export interface ConnectedDevice {
   id: string;
   userId: string;
   name: string;
   email?: string;
-  house: House | null;
-  grade: number | null;
   role: Role;
-  kind: "mobile" | "desktop" | "tablet";
+  house?: House | null;
+  grade?: number | null;
+  kind: "mobile" | "tablet" | "desktop";
   model: string;
   browser: string;
   isStandalone: boolean;
-  pushStatus: "enabled" | "blocked" | "unsupported" | "not-enabled";
+  pushStatus: "enabled" | "denied" | "prompt" | "unsupported";
   online: boolean;
-  connectedAt?: number;
+  connectedAt: number;
   lastPing: number;
   isCurrent?: boolean;
   isGuest?: boolean;
 }
 
-export function detectDeviceMetadata() {
-  if (typeof window === "undefined") {
-    return { kind: "desktop" as const, model: "Desktop Device", browser: "Unknown", isStandalone: false };
-  }
-  const ua = navigator.userAgent || "";
-  const isTouch = "maxTouchPoints" in navigator && navigator.maxTouchPoints > 0;
-  const isTablet = /(ipad|tablet|(android(?!.*mobile))|(windows(?!.*phone)(.*touch))|kindle|playbook|silk|(puffin(?!.*(IP|AP|WP))))/i.test(ua);
-  const isMobile = !isTablet && (/mobile|iphone|ipod|android|blackberry|opera mini|windows phone/i.test(ua) || (matchMedia("(pointer: coarse)").matches && window.innerWidth < 768));
-  const kind: "mobile" | "desktop" | "tablet" = isTablet ? "tablet" : isMobile ? "mobile" : "desktop";
+const REGISTRY_KEY = "shristi_connected_devices_v5";
+const DEVICE_ID_STORAGE_KEY = "shristi_registered_device_id_v6";
+const LEGACY_DEVICE_ID_KEY = "shristi_registered_device_id_v5";
+const SESSION_DEVICE_ID_KEY = "shristi_device_session_id_v4";
+const ACTIVE_THRESHOLD_MS = 90_000;
 
-  let model = "Desktop Workstation";
-  if (/iPad/i.test(ua)) model = "Apple iPad";
-  else if (/iPhone/i.test(ua)) model = "Apple iPhone";
-  else if (/Macintosh|Mac OS X/i.test(ua)) model = isTouch ? "Apple iPad Pro" : "Apple Mac";
-  else if (/Samsung|SM-[A-Z0-9]+/i.test(ua)) model = "Samsung Galaxy Smartphone";
-  else if (/Redmi|POCO|Xiaomi|MI\s|Miui/i.test(ua)) model = "Xiaomi / Redmi Smartphone";
-  else if (/Pixel/i.test(ua)) model = "Google Pixel Smartphone";
-  else if (/OnePlus/i.test(ua)) model = "OnePlus Smartphone";
-  else if (/OPPO|CPH[0-9]+/i.test(ua)) model = "Oppo Smartphone";
-  else if (/vivo|V[0-9]{4}/i.test(ua)) model = "Vivo Smartphone";
-  else if (/Android/i.test(ua)) model = isTablet ? "Android Tablet" : "Android Smartphone";
-  else if (/Windows/i.test(ua)) model = "Windows PC";
-  else if (/Linux/i.test(ua)) model = "Linux Workstation";
+let cachedDeviceId: string | null = null;
 
-  let browser = "Browser";
-  if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
-  else if (/SamsungBrowser/i.test(ua)) browser = "Samsung Internet";
-  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = isMobile ? "Chrome Mobile" : "Google Chrome";
-  else if (/CriOS/i.test(ua)) browser = "Chrome iOS";
-  else if (/FxiOS/i.test(ua)) browser = "Firefox iOS";
-  else if (/Version\/.*Safari/i.test(ua)) browser = isMobile ? "Mobile Safari" : "Safari";
-  else if (/Firefox/i.test(ua)) browser = "Firefox";
+/**
+ * Returns a stable device ID persisted in localStorage so reloads or multiple tabs
+ * on the same browser reuse a single device record instead of spawning duplicates.
+ */
+export function getDeviceId(): string {
+  if (cachedDeviceId) return cachedDeviceId;
+  if (typeof window === "undefined") return "server-device";
 
-  const isStandalone =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-
-  return { kind, model, browser, isStandalone };
-}
-
-export function getPushStatus(): "enabled" | "blocked" | "unsupported" | "not-enabled" {
-  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
-  if (Notification.permission === "granted") return "enabled";
-  if (Notification.permission === "denied") return "blocked";
-  return "not-enabled";
-}
-
-export function getOrGenerateDeviceId(): string {
-  if (typeof window === "undefined") return `dev-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    const PERSISTENT_KEY = "shristi_registered_device_id_v5";
-    const SESSION_KEY = "shristi_device_session_id_v4";
-    let stored = localStorage.getItem(PERSISTENT_KEY);
-    if (!stored) {
-      stored = sessionStorage.getItem(SESSION_KEY);
+    let existing =
+      localStorage.getItem(DEVICE_ID_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_DEVICE_ID_KEY) ||
+      sessionStorage.getItem(SESSION_DEVICE_ID_KEY);
+
+    if (!existing) {
+      const rand =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID().slice(0, 8)
+          : Math.random().toString(36).slice(2, 10);
+      existing = `dev-${rand}`;
     }
-    if (!stored) {
-      stored = `dev-${Date.now().toString(36).slice(-4)}-${Math.random().toString(36).slice(2, 8)}`;
-      try {
-        localStorage.setItem(PERSISTENT_KEY, stored);
-      } catch {}
-      try {
-        sessionStorage.setItem(SESSION_KEY, stored);
-      } catch {}
-    }
-    return stored;
+
+    localStorage.setItem(DEVICE_ID_STORAGE_KEY, existing);
+    localStorage.setItem(LEGACY_DEVICE_ID_KEY, existing);
+    sessionStorage.setItem(SESSION_DEVICE_ID_KEY, existing);
+    cachedDeviceId = existing;
+    return existing;
   } catch {
-    return `dev-${Math.random().toString(36).slice(2, 8)}`;
+    cachedDeviceId = `dev-${Math.random().toString(36).slice(2, 10)}`;
+    return cachedDeviceId;
   }
 }
 
-export function getDeviceConnectedTimestamp(): number {
-  if (typeof window === "undefined") return Date.now();
-  try {
-    const KEY = "shristi_device_connected_at_v5";
-    const existing = localStorage.getItem(KEY);
-    if (existing) {
-      const num = Number(existing);
-      if (!Number.isNaN(num) && num > 0) return num;
-    }
-    const now = Date.now();
-    localStorage.setItem(KEY, String(now));
-    return now;
-  } catch {
-    return Date.now();
-  }
-}
+export const getOrGenerateDeviceId = getDeviceId;
 
-/**
- * Builds the ConnectedDevice object for the current host device.
- */
-export function buildCurrentDevice(user: Student | null): ConnectedDevice {
-  const devId = getOrGenerateDeviceId();
-  const meta = detectDeviceMetadata();
-  const pushStatus = getPushStatus();
-  const connectedAt = getDeviceConnectedTimestamp();
-  const isGuest = !user;
-
-  return {
-    id: devId,
-    userId: user ? user.id : "guest",
-    name: user ? user.name : `${meta.model} (Visitor)`,
-    email: user?.email,
-    house: user ? user.house : null,
-    grade: user ? user.grade : null,
-    role: user ? user.role : "student",
-    kind: meta.kind,
-    model: meta.model,
-    browser: meta.browser,
-    isStandalone: meta.isStandalone,
-    pushStatus,
-    online: true,
-    connectedAt,
-    lastPing: Date.now(),
-    isCurrent: true,
-    isGuest,
-  };
-}
-
-/**
- * Immediately synchronizes the current connected device to both the server live registry
- * and Cloud Firestore `/onlineDevices/{deviceId}`.
- */
-export async function syncCurrentDeviceToRegistry(user: Student | null): Promise<ConnectedDevice[]> {
-  if (typeof window === "undefined") return [];
-  const dev = buildCurrentDevice(user);
-  let livePeers: ConnectedDevice[] = [];
-
-  // 1. Dual-channel server heartbeat (guaranteed cross-device sync)
-  try {
-    const res = await fetch("/api/devices/heartbeat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(dev),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.devices)) {
-        livePeers = data.devices as ConnectedDevice[];
-      }
-    }
-  } catch {}
-
-  // 2. Cloud Firestore synchronization (when reachable)
-  try {
-    const docRef = doc(firebaseDb, "onlineDevices", dev.id);
-    await setDoc(
-      docRef,
-      {
-        id: dev.id,
-        userId: dev.userId,
-        name: dev.name,
-        email: dev.email || "",
-        house: dev.house || "",
-        grade: dev.grade ?? null,
-        role: dev.role,
-        kind: dev.kind,
-        model: dev.model,
-        browser: dev.browser,
-        isStandalone: dev.isStandalone,
-        pushStatus: dev.pushStatus,
-        online: true,
-        isGuest: Boolean(dev.isGuest),
-        connectedAt: dev.connectedAt || Date.now(),
-        lastPing: Date.now(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  } catch {}
-
-  return livePeers;
-}
-
-/**
- * React hook that connects the current device to the registry upon visiting the site,
- * maintaining local BroadcastChannel sync, live API server sync, and Firestore cloud synchronization.
- */
-export function useLocalPresence(user: Student | null) {
-  const deviceIdRef = useRef<string>(getOrGenerateDeviceId());
-  const [devices, setDevices] = useState<ConnectedDevice[]>([]);
+export function useLocalPresence(user?: Student | null): ConnectedDevice[] {
+  const [devices, setDevices] = useState<ConnectedDevice[]>(() => readConnectedDevices());
 
   useEffect(() => {
-    const devId = deviceIdRef.current;
-    const ownDevice = buildCurrentDevice(user);
-    const peers = new Map<string, ConnectedDevice>([[devId, ownDevice]]);
-
-    const updateDevicesState = () => {
-      const now = Date.now();
-      const list = Array.from(peers.values())
-        .filter((d) => d.online !== false && (d.id === devId || now - d.lastPing < 300000))
-        .map((d) => ({ ...d, isCurrent: d.id === devId }))
-        .sort((a, b) => {
-          if (a.isCurrent) return -1;
-          if (b.isCurrent) return 1;
-          return a.name.localeCompare(b.name);
-        });
-      setDevices(list);
-    };
-
-    // 1. BroadcastChannel (Same-device / multi-tab synchronization)
-    let channel: BroadcastChannel | null = null;
-    try {
-      channel = new BroadcastChannel("shristi-device-presence-v4");
-      channel.onmessage = (event) => {
-        const message = event.data as {
-          type: string;
-          device?: ConnectedDevice;
-          id?: string;
-          senderName?: string;
-          urgent?: boolean;
-          targetDeviceId?: string;
-        };
-        if (message.type === "leave" && message.id) {
-          peers.delete(message.id);
-          updateDevicesState();
-        } else if (message.type === "ping") {
-          if (!message.targetDeviceId || message.targetDeviceId === devId) {
-            chime(Boolean(message.urgent));
-          }
-        } else if (message.device?.id) {
-          peers.set(message.device.id, {
-            ...message.device,
-            lastPing: Date.now(),
-            isCurrent: message.device.id === devId,
-          });
-          if (message.type === "hello") {
-            channel?.postMessage({ type: "heartbeat", device: buildCurrentDevice(user) });
-          }
-          updateDevicesState();
-        }
-      };
-      channel.postMessage({ type: "hello", device: ownDevice });
-    } catch {
-      channel = null;
-    }
-
-    // 2. Poll & Heartbeat with Server Live Registry
-    const pollServerDevices = async () => {
-      const serverDevices = await syncCurrentDeviceToRegistry(user);
-      if (serverDevices && serverDevices.length) {
-        serverDevices.forEach((d) => {
-          if (d.id !== devId) {
-            peers.set(d.id, {
-              ...d,
-              lastPing: Date.now(),
-              isCurrent: false,
-            });
-          }
-        });
-        updateDevicesState();
-      }
-    };
-    void pollServerDevices();
-
-    // 3. Listen to Firestore onlineDevices collection when accessible
-    let unsubscribeFirestore: (() => void) | null = null;
-    try {
-      unsubscribeFirestore = onSnapshot(
-        collection(firebaseDb, "onlineDevices"),
-        (snapshot) => {
-          const now = Date.now();
-          snapshot.docs.forEach((docSnapshot) => {
-            const data = docSnapshot.data();
-            const id = docSnapshot.id;
-            if (id === devId) return; // Keep our own local instance authoritative
-            const lastPing = Number(data.lastPing) || 0;
-            const isOnline = data.online !== false && (now - lastPing < 300000 || lastPing > now - 300000);
-            if (isOnline && (data.id || data.model)) {
-              peers.set(id, {
-                id,
-                userId: String(data.userId || "guest"),
-                name: String(data.name || data.model || "Connected Device"),
-                email: data.email ? String(data.email) : undefined,
-                house: (data.house as House) || null,
-                grade: data.grade !== undefined && data.grade !== null ? Number(data.grade) : null,
-                role: (data.role as Role) || "student",
-                kind: (data.kind as "mobile" | "desktop" | "tablet") || "desktop",
-                model: String(data.model || "Connected Device"),
-                browser: String(data.browser || "Web Browser"),
-                isStandalone: Boolean(data.isStandalone),
-                pushStatus: (data.pushStatus as ConnectedDevice["pushStatus"]) || "not-enabled",
-                online: true,
-                connectedAt: Number(data.connectedAt) || lastPing,
-                lastPing: Date.now(),
-                isCurrent: false,
-                isGuest: Boolean(data.isGuest),
-              });
-            } else {
-              peers.delete(id);
-            }
-          });
-          updateDevicesState();
-        },
-        () => undefined
-      );
-    } catch {}
-
-    updateDevicesState();
-
-    // 4. Heartbeat loop (every 25 seconds when visible, 60 seconds in background)
-    let tick: ReturnType<typeof setTimeout>;
-    const runTick = () => {
-      const own = buildCurrentDevice(user);
-      peers.set(devId, own);
-      const now = Date.now();
-      for (const [peerId, peer] of peers) {
-        if (peerId !== devId && now - peer.lastPing > 300000) {
-          peers.delete(peerId);
-        }
-      }
-      channel?.postMessage({ type: "heartbeat", device: own });
-      void pollServerDevices();
-      updateDevicesState();
-
-      const isVisible = document.visibilityState === "visible" || document.hasFocus();
-      const tickDelay = isVisible ? 25000 : 60000;
-      tick = setTimeout(runTick, tickDelay);
-    };
-    tick = setTimeout(runTick, document.visibilityState === "visible" ? 25000 : 60000);
-
-    // 5. Active triggers on window focus, visibility change, and custom event
-    const handleActivity = () => {
-      void pollServerDevices();
-    };
-    window.addEventListener("focus", handleActivity);
-    document.addEventListener("visibilitychange", handleActivity);
-    window.addEventListener("shristi-refresh-devices", handleActivity);
-
-    // 6. Graceful offline cleanup on unload/pagehide ONLY (never on React effect re-renders)
-    const handleLeave = () => {
-      channel?.postMessage({ type: "leave", id: devId });
-      try {
-        deleteDoc(doc(firebaseDb, "onlineDevices", devId)).catch(() => {
-          setDoc(doc(firebaseDb, "onlineDevices", devId), { online: false, lastPing: Date.now() }, { merge: true }).catch(() => undefined);
-        });
-      } catch {}
-    };
-
-    window.addEventListener("pagehide", handleLeave);
-    window.addEventListener("beforeunload", handleLeave);
-
+    void syncCurrentDeviceToRegistry(user ?? null);
+    const unsub = subscribeConnectedDevices(setDevices);
     return () => {
-      clearTimeout(tick);
-      window.removeEventListener("focus", handleActivity);
-      document.removeEventListener("visibilitychange", handleActivity);
-      window.removeEventListener("shristi-refresh-devices", handleActivity);
-      window.removeEventListener("pagehide", handleLeave);
-      window.removeEventListener("beforeunload", handleLeave);
-      channel?.close();
-      unsubscribeFirestore?.();
+      unsub();
     };
-  }, [user?.id, user?.name, user?.role, user?.grade, user?.house, user?.email]);
+  }, [user]);
 
   return devices;
 }
 
+export function detectDeviceDetails(): {
+  kind: "mobile" | "tablet" | "desktop";
+  model: string;
+  browser: string;
+  isStandalone: boolean;
+  pushStatus: "enabled" | "denied" | "prompt" | "unsupported";
+} {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return {
+      kind: "desktop",
+      model: "Desktop Browser",
+      browser: "Browser",
+      isStandalone: false,
+      pushStatus: "unsupported",
+    };
+  }
+
+  const ua = navigator.userAgent || "";
+  const isStandalone =
+    window.matchMedia?.("(display-mode: standalone)")?.matches ||
+    (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+
+  let browser = "Browser";
+  if (/Edg\//i.test(ua)) browser = "Edge";
+  else if (/OPR\//i.test(ua) || /Opera/i.test(ua)) browser = "Opera";
+  else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) browser = "Chrome";
+  else if (/Firefox\//i.test(ua)) browser = "Firefox";
+  else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser = "Safari";
+
+  let kind: "mobile" | "tablet" | "desktop" = "desktop";
+  let model = "Desktop Browser";
+
+  if (/iPad/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+    kind = "tablet";
+    model = "Apple iPad";
+  } else if (/iPhone/i.test(ua)) {
+    kind = "mobile";
+    model = "Apple iPhone";
+  } else if (/Android/i.test(ua)) {
+    kind = /Mobile/i.test(ua) ? "mobile" : "tablet";
+    const match = ua.match(/Android\s+[\d.]+;\s*([^;)]+)/i);
+    if (match && match[1]) {
+      const raw = match[1].replace(/Build\/.*$/i, "").trim();
+      if (/SM-[A-Z0-9]+/i.test(raw)) model = `Samsung (${raw})`;
+      else if (/Pixel/i.test(raw)) model = `Google ${raw}`;
+      else if (raw.length > 2 && raw.length < 28) model = raw;
+      else model = kind === "tablet" ? "Android Tablet" : "Android Phone";
+    } else {
+      model = kind === "tablet" ? "Android Tablet" : "Android Phone";
+    }
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    kind = "desktop";
+    model = "Mac Desktop";
+  } else if (/Windows NT/i.test(ua)) {
+    kind = "desktop";
+    model = "Windows PC";
+  } else if (/CrOS/i.test(ua)) {
+    kind = "desktop";
+    model = "Chromebook";
+  } else if (/Linux/i.test(ua)) {
+    kind = "desktop";
+    model = "Desktop Browser";
+  }
+
+  let pushStatus: "enabled" | "denied" | "prompt" | "unsupported" = "unsupported";
+  if ("Notification" in window) {
+    if (Notification.permission === "granted") pushStatus = "enabled";
+    else if (Notification.permission === "denied") pushStatus = "denied";
+    else pushStatus = "prompt";
+  }
+
+  return { kind, model, browser, isStandalone, pushStatus };
+}
+
 /**
- * Triggers a real-time diagnostic chime and visual pulse to all online devices.
+ * Deduplicates a list of devices so the same user or same browser session never shows
+ * up as dozens of identical workstation cards.
  */
+function deduplicateDevices(devices: ConnectedDevice[], currentDeviceId: string): ConnectedDevice[] {
+  const now = Date.now();
+  const valid = devices
+    .filter((d) => d && d.id && d.online !== false && now - Number(d.lastPing || 0) <= ACTIVE_THRESHOLD_MS)
+    .map((d) => ({
+      ...d,
+      model: d.model === "Linux Workstation" ? "Desktop Browser" : d.model,
+      isCurrent: d.id === currentDeviceId,
+    }))
+    .sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      return Number(b.lastPing || 0) - Number(a.lastPing || 0);
+    });
+
+  const seenKeys = new Set<string>();
+  const result: ConnectedDevice[] = [];
+
+  for (const dev of valid) {
+    const idKey = `id:${dev.id}`;
+    if (seenKeys.has(idKey)) continue;
+
+    // Collapse multiple sessions from the same user on the same device kind + browser,
+    // and collapse duplicate anonymous guest sessions.
+    const isGuest = Boolean(dev.isGuest || !dev.userId || dev.userId.startsWith("guest"));
+    const identityKey = !isGuest
+      ? `user:${dev.userId}:${dev.kind}:${dev.browser}`
+      : `guest:${dev.kind}:${dev.model}:${dev.browser}`;
+
+    if (seenKeys.has(identityKey)) continue;
+    seenKeys.add(idKey);
+    seenKeys.add(identityKey);
+    result.push(dev);
+  }
+
+  return result;
+}
+
+export function readConnectedDevices(): ConnectedDevice[] {
+  if (typeof window === "undefined") return [];
+  const currentId = getDeviceId();
+  try {
+    const raw = localStorage.getItem(REGISTRY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ConnectedDevice[];
+    if (!Array.isArray(parsed)) return [];
+    return deduplicateDevices(parsed, currentId);
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalRegistry(devices: ConnectedDevice[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const deduped = deduplicateDevices(devices, getDeviceId());
+    localStorage.setItem(REGISTRY_KEY, JSON.stringify(deduped));
+  } catch {}
+}
+
+export async function syncCurrentDeviceToRegistry(user: Student | null): Promise<ConnectedDevice> {
+  const deviceId = getDeviceId();
+  const details = detectDeviceDetails();
+  const now = Date.now();
+  const existing = readConnectedDevices();
+  const prev = existing.find((d) => d.id === deviceId);
+
+  const entry: ConnectedDevice = {
+    id: deviceId,
+    userId: user?.id ?? `guest-${deviceId}`,
+    name: user?.name ?? "Guest Visitor",
+    email: user?.email ?? undefined,
+    role: user?.role ?? "student",
+    house: user?.house ?? null,
+    grade: user?.grade ?? null,
+    kind: details.kind,
+    model: details.model,
+    browser: details.browser,
+    isStandalone: details.isStandalone,
+    pushStatus: details.pushStatus,
+    online: true,
+    connectedAt: prev?.connectedAt ?? now,
+    lastPing: now,
+    isCurrent: true,
+    isGuest: !user,
+  };
+
+  const updated = [entry, ...existing.filter((d) => d.id !== deviceId)];
+  writeLocalRegistry(updated);
+
+  // Sync to MongoDB API
+  try {
+    await fetch("/api/devices/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry),
+    });
+  } catch {}
+
+  // Sync to Firestore if signed in with Firebase Auth
+  if (firebaseAuth.currentUser) {
+    try {
+      await setDoc(
+        doc(firebaseDb, "connectedDevices", deviceId),
+        {
+          ...entry,
+          uid: firebaseAuth.currentUser.uid,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    } catch {}
+  }
+
+  return entry;
+}
+
+export async function removeCurrentDeviceFromRegistry(): Promise<void> {
+  const deviceId = getDeviceId();
+  const existing = readConnectedDevices().filter((d) => d.id !== deviceId);
+  writeLocalRegistry(existing);
+
+  try {
+    await fetch("/api/devices/heartbeat", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: deviceId, online: false }),
+    });
+  } catch {}
+
+  if (firebaseAuth.currentUser) {
+    try {
+      await deleteDoc(doc(firebaseDb, "connectedDevices", deviceId));
+    } catch {}
+  }
+}
+
+export function subscribeConnectedDevices(
+  onUpdate: (devices: ConnectedDevice[]) => void
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  const currentId = getDeviceId();
+  let firestoreDevices: ConnectedDevice[] = [];
+  let mongoDevices: ConnectedDevice[] = [];
+
+  const emitMerged = () => {
+    const localDevices = readConnectedDevices();
+    const combined = [...localDevices, ...mongoDevices, ...firestoreDevices];
+    const deduped = deduplicateDevices(combined, currentId);
+    onUpdate(deduped);
+  };
+
+  const pollMongoDevices = async () => {
+    try {
+      const localCurrent = readConnectedDevices().find((d) => d.id === currentId);
+      if (localCurrent) {
+        const res = await fetch("/api/devices/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(localCurrent),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.devices)) {
+            mongoDevices = data.devices;
+            emitMerged();
+          }
+        }
+      }
+    } catch {}
+  };
+
+  void pollMongoDevices();
+  const pollInterval = window.setInterval(pollMongoDevices, 15_000);
+
+  let unsubFirestore = () => {};
+  try {
+    unsubFirestore = onSnapshot(
+      collection(firebaseDb, "connectedDevices"),
+      (snapshot) => {
+        const now = Date.now();
+        const freshDocs: ConnectedDevice[] = [];
+        const staleDocIds: string[] = [];
+
+        snapshot.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          const lastPing = Number(data.lastPing) || 0;
+          if (data.online === false || now - lastPing > ACTIVE_THRESHOLD_MS) {
+            staleDocIds.push(docSnap.id);
+            return;
+          }
+          freshDocs.push({
+            id: docSnap.id,
+            userId: String(data.userId || "guest"),
+            name: String(data.name || "Connected Device"),
+            email: data.email ? String(data.email) : undefined,
+            role: (data.role as Role) || "student",
+            house: (data.house as House) || null,
+            grade: typeof data.grade === "number" ? data.grade : null,
+            kind: (data.kind as "mobile" | "tablet" | "desktop") || "desktop",
+            model: String(data.model || "Desktop Browser"),
+            browser: String(data.browser || "Browser"),
+            isStandalone: Boolean(data.isStandalone),
+            pushStatus: (data.pushStatus as ConnectedDevice["pushStatus"]) || "prompt",
+            online: true,
+            connectedAt: Number(data.connectedAt) || lastPing,
+            lastPing,
+            isCurrent: docSnap.id === currentId,
+            isGuest: Boolean(data.isGuest),
+          });
+        });
+
+        // Proactively delete stale or duplicate Firestore docs if authenticated
+        if (firebaseAuth.currentUser && staleDocIds.length > 0) {
+          staleDocIds.slice(0, 20).forEach((staleId) => {
+            deleteDoc(doc(firebaseDb, "connectedDevices", staleId)).catch(() => {});
+          });
+        }
+
+        firestoreDevices = deduplicateDevices(freshDocs, currentId);
+        emitMerged();
+      },
+      () => {
+        emitMerged();
+      }
+    );
+  } catch {
+    emitMerged();
+  }
+
+  const onRefreshEvent = () => {
+    emitMerged();
+  };
+  window.addEventListener("shristi-refresh-devices", onRefreshEvent);
+  window.addEventListener("storage", onRefreshEvent);
+
+  emitMerged();
+
+  return () => {
+    window.clearInterval(pollInterval);
+    unsubFirestore();
+    window.removeEventListener("shristi-refresh-devices", onRefreshEvent);
+    window.removeEventListener("storage", onRefreshEvent);
+  };
+}
+
+export async function pingSingleDevice(targetDeviceId: string, senderName: string): Promise<void> {
+  const currentId = getDeviceId();
+  if (targetDeviceId === currentId) {
+    chime(true);
+    await triggerOSNotification({
+      title: "Device Diagnostic Ping",
+      body: `Direct ping from ${senderName} received on this device.`,
+      urgent: true,
+      actionTab: "broadcast",
+    });
+  }
+  postBus({ type: "ping", senderName, urgent: true });
+}
+
 export async function pingAllDevices(senderName: string, urgent = true): Promise<void> {
   chime(urgent);
   postBus({ type: "ping", senderName, urgent });
-  const devId = getOrGenerateDeviceId();
-  try {
-    const channel = new BroadcastChannel("shristi-device-presence-v4");
-    channel.postMessage({ type: "ping", senderName, urgent, fromDeviceId: devId });
-    setTimeout(() => channel.close(), 1000);
-  } catch {}
-
-  // Broadcast to server API
-  try {
-    const { firebaseAuth } = await import("./firebase-client");
-    const currentUser = firebaseAuth.currentUser;
-    const idToken = currentUser ? await currentUser.getIdToken() : "";
-    await fetch("/api/send", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
-      },
-      body: JSON.stringify({
-        title: `Diagnostic Ping from ${senderName}`,
-        body: `Test signal delivered across connected devices at ${new Date().toLocaleTimeString()}.`,
-        urgent,
-        senderName,
-        actionTab: "dashboard",
-        audience: { kind: "all" },
-      }),
-    });
-  } catch {}
-
-  // Also post to Firestore so devices across separate networks / physical phones chime
-  try {
-    const pingDocId = `ping-${Date.now()}`;
-    await setDoc(doc(firebaseDb, "broadcasts", pingDocId), {
-      id: pingDocId,
-      title: `Diagnostic Ping from ${senderName}`,
-      body: `Test signal delivered across connected devices at ${new Date().toLocaleTimeString()}.`,
-      urgent,
-      senderName,
-      actionTab: "dashboard",
-      audience: { kind: "all" },
-      timestamp: Date.now(),
-      isPing: true,
-    });
-  } catch {}
+  await triggerOSNotification({
+    title: "System-Wide Diagnostic Ping",
+    body: `Broadcast ping initiated by ${senderName}.`,
+    urgent,
+    actionTab: "broadcast",
+  });
 }
 
-/**
- * Sends a targeted ping to a single device.
- */
-export async function pingSingleDevice(targetDeviceId: string, senderName: string, urgent = true): Promise<void> {
-  postBus({ type: "ping", senderName, urgent, targetDeviceId });
-  try {
-    const channel = new BroadcastChannel("shristi-device-presence-v4");
-    channel.postMessage({ type: "ping", senderName, urgent, targetDeviceId });
-    setTimeout(() => channel.close(), 1000);
-  } catch {}
-
-  try {
-    const { firebaseAuth } = await import("./firebase-client");
-    const currentUser = firebaseAuth.currentUser;
-    const idToken = currentUser ? await currentUser.getIdToken() : "";
-    await fetch("/api/send", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        ...(idToken ? { "Authorization": `Bearer ${idToken}` } : {})
-      },
-      body: JSON.stringify({
-        title: `Direct Ping from ${senderName}`,
-        body: `Direct ping signal received for your device.`,
-        urgent,
-        senderName,
-        actionTab: "dashboard",
-        audience: { kind: "all" },
-        targetDeviceId,
-      }),
-    });
-  } catch {}
-
-  try {
-    const pingDocId = `ping-${Date.now()}`;
-    await setDoc(doc(firebaseDb, "broadcasts", pingDocId), {
-      id: pingDocId,
-      title: `Direct Ping from ${senderName}`,
-      body: `Direct ping signal received for your device.`,
-      urgent,
-      senderName,
-      actionTab: "dashboard",
-      audience: { kind: "all" },
-      timestamp: Date.now(),
-      targetDeviceId,
-      isPing: true,
-    });
-  } catch {}
-}
-
-/**
- * Removes stale device documents from Server registry and Firestore.
- */
 export async function cleanupStaleDevices(): Promise<number> {
   let removed = 0;
+  const currentId = getDeviceId();
+
+  // 1. Clean local storage
+  const currentLocal = readConnectedDevices();
+  writeLocalRegistry(currentLocal);
+
+  // 2. Clean MongoDB
   try {
     const res = await fetch("/api/devices/clean", { method: "POST" });
     if (res.ok) {
       const data = await res.json();
-      removed += Number(data.removed || 0);
+      removed += Number(data.removedCount || 0);
     }
   } catch {}
 
-  try {
-    const { getDocs } = await import("firebase/firestore");
-    const cutoff = Date.now() - 60000;
-    const snapshot = await getDocs(collection(firebaseDb, "onlineDevices"));
-    const promises = snapshot.docs
-      .filter((d) => {
-        const lastPing = Number(d.data().lastPing) || 0;
-        return lastPing < cutoff || d.data().online === false;
-      })
-      .map((d) => {
-        removed++;
-        return deleteDoc(d.ref);
-      });
-    await Promise.all(promises);
-  } catch {}
+  // 3. Clean Firestore stale and duplicate records
+  if (firebaseAuth.currentUser) {
+    try {
+      const snapshot = await getDocs(collection(firebaseDb, "connectedDevices"));
+      const now = Date.now();
+      const seenIdentity = new Set<string>();
+      const sortedDocs = [...snapshot.docs].sort(
+        (a, b) => Number(b.data().lastPing || 0) - Number(a.data().lastPing || 0)
+      );
 
+      for (const docSnap of sortedDocs) {
+        const data = docSnap.data();
+        const lastPing = Number(data.lastPing) || 0;
+        const isStale = data.online === false || now - lastPing > ACTIVE_THRESHOLD_MS;
+        const isGuest = Boolean(data.isGuest || !data.userId || String(data.userId).startsWith("guest"));
+        const identityKey = !isGuest
+          ? `user:${data.userId}:${data.kind || "desktop"}:${data.browser || "Browser"}`
+          : `guest:${data.kind || "desktop"}:${data.model || "Desktop"}:${data.browser || "Browser"}`;
+
+        if (isStale || (seenIdentity.has(identityKey) && docSnap.id !== currentId)) {
+          await deleteDoc(doc(firebaseDb, "connectedDevices", docSnap.id)).catch(() => {});
+          removed += 1;
+        } else {
+          seenIdentity.add(identityKey);
+        }
+      }
+    } catch {}
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("shristi-refresh-devices"));
+  }
   return removed;
 }

@@ -80,13 +80,41 @@ export function useCouncilHubMembers() {
 
 /** Shared add/remove board used by the Admin Panel section and the hub dialog. */
 function CouncilHubMemberBoard() {
-  const { canManage, members, candidates, query, setQuery, add, remove, pendingRemoval, setPendingRemoval } = useCouncilHubMembers();
-  const { user } = useHub();
+  const { state, canManage, members, candidates, query, setQuery, add, remove, pendingRemoval, setPendingRemoval } = useCouncilHubMembers();
+  const { user, dispatch, announce } = useHub();
   const notAddedYet = candidates.length;
+  const missingOfficers = useMemo(
+    () => state.users.filter((u) => (u.role === "council" || u.role === "admin") && !state.councilHubMembers.includes(u.id)),
+    [state.users, state.councilHubMembers]
+  );
+
+  const addAllOfficers = () => {
+    if (!canManage || !missingOfficers.length) return;
+    let addedCount = 0;
+    for (const officer of missingOfficers) {
+      try {
+        dispatch({ type: "ADD_COUNCIL_HUB_MEMBER", userId: officer.id });
+        addedCount += 1;
+      } catch {}
+    }
+    if (addedCount > 0) {
+      announce(`Added ${addedCount} council ${addedCount === 1 ? "officer" : "officers"} to the Council Hub.`);
+    }
+  };
 
   return (
     <div className="form-stack">
-      <div className="panel-heading"><div><h2><Users />Explicit members <span className="outline-count">{members.length}</span></h2><p>Only accounts on this list can open the Council Hub chat. Administrators manage the list but are not members automatically.</p></div></div>
+      <div className="panel-heading">
+        <div>
+          <h2><Users />Explicit members <span className="outline-count">{members.length}</span></h2>
+          <p>Only accounts on this list can open the Council Hub chat. Administrators manage the list but are not members automatically.</p>
+        </div>
+        {canManage && missingOfficers.length > 0 && (
+          <button type="button" className="btn btn-primary !min-h-[32px] !text-[10px]" onClick={addAllOfficers}>
+            <UserPlus />Add all council officers ({missingOfficers.length})
+          </button>
+        )}
+      </div>
 
       <div className="max-h-[320px] space-y-1.5 overflow-y-auto pr-1">
         {members.map((member) => (
@@ -95,7 +123,7 @@ function CouncilHubMemberBoard() {
               <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{member.avatarUrl ? <img src={member.avatarUrl} alt="" /> : initials(member.name)}</span>
               <span>
                 <strong className="!text-[10px]">{member.name}</strong>
-                <small>{member.councilTitle ?? ROLE_LABEL[member.role]} · {member.gradeLabel ?? "Staff"}</small>
+                <small>{member.councilTitle ?? ROLE_LABEL[member.role]}{member.department ? ` · ${member.department}` : ""} · {member.gradeLabel ?? "Staff"}</small>
               </span>
             </span>
             <span className="flex items-center gap-2">
@@ -119,10 +147,10 @@ function CouncilHubMemberBoard() {
           {candidates.map((candidate) => (
             <div key={candidate.id} className="integration-row !py-2.5">
               <span className="member-inline">
-                <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{initials(candidate.name)}</span>
+                <span className="mini-avatar !h-8 !w-8 !rounded-full !text-[9px]">{candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : initials(candidate.name)}</span>
                 <span>
                   <strong className="!text-[10px]">{candidate.name}</strong>
-                  <small>{candidate.councilTitle ?? ROLE_LABEL[candidate.role]} · {candidate.gradeLabel ?? "Staff"} · {candidate.email}</small>
+                  <small>{candidate.councilTitle ?? ROLE_LABEL[candidate.role]}{candidate.department ? ` · ${candidate.department}` : ""} · {candidate.gradeLabel ?? "Staff"} · {candidate.email}</small>
                 </span>
               </span>
               <span className="flex items-center gap-2">

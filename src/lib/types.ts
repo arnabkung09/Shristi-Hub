@@ -296,6 +296,8 @@ export interface SiteRating {
   timestamp: number;
 }
 
+export type FeaturePermission = string;
+
 export interface CouncilChatMessage {
   id: string;
   authorId: string;

@@ -891,7 +891,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
                       <span className="flex items-center gap-1.5">
                         {assignee ? (
                           <>
-                            <Avatar name={assignee.name} house={assignee.house} size="sm" />
+                            <Avatar name={assignee.name} house={assignee.house} avatarUrl={assignee.avatarUrl} size="sm" />
                             <span className="font-semibold text-slate-600 dark:text-slate-300">{assignee.name}</span>
                           </>
                         ) : (
@@ -1425,7 +1425,7 @@ function TaskCard({
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-black/[0.05] pt-2.5 dark:border-white/[0.06]">
         {assignee ? (
           <span className="flex min-w-0 items-center gap-1.5">
-            <Avatar name={assignee.name} house={assignee.house} size="sm" />
+            <Avatar name={assignee.name} house={assignee.house} avatarUrl={assignee.avatarUrl} size="sm" />
             <span className="truncate text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               {assignee.name.split(" ")[0]}
             </span>
