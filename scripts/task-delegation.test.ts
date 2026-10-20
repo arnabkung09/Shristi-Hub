@@ -247,4 +247,52 @@ describe("Task Delegation & Department Log Workflow", () => {
     });
     assert.ok(state.tasks.some((t) => t.id === "authorized-officer-task"));
   });
+
+  it("allows administrator to prioritize who is shown first in the directory", () => {
+    let state = buildSeedState();
+    const admin = state.users.find((u) => u.role === "admin");
+    assert.ok(admin);
+    state.session = { userId: admin.id, role: admin.role, expiresAt: Date.now() + 3600000 };
+
+    const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
+    const targetOfficer = officers[officers.length - 1];
+    assert.ok(targetOfficer);
+
+    // Prioritize targetOfficer to the top
+    state = reducer(state, {
+      type: "MOVE_DIRECTORY_OFFICER",
+      userId: targetOfficer.id,
+      direction: "top",
+    });
+
+    assert.ok(state.directoryOrder && state.directoryOrder.length > 0);
+    assert.equal(state.directoryOrder[0], targetOfficer.id, "Prioritized officer must be first in directoryOrder");
+
+    const updatedOfficer = state.users.find((u) => u.id === targetOfficer.id);
+    assert.equal(updatedOfficer?.directoryOrder, 0);
+    assert.equal(updatedOfficer?.directoryPinned, true);
+  });
+
+  it("allows administrator to set departments to each member in the directory", () => {
+    let state = buildSeedState();
+    const admin = state.users.find((u) => u.role === "admin");
+    assert.ok(admin);
+    state.session = { userId: admin.id, role: admin.role, expiresAt: Date.now() + 3600000 };
+
+    const officer = state.users.find((u) => u.role === "council");
+    assert.ok(officer);
+
+    const targetDept = state.departments.find((d) => d === "Creative Design") || state.departments[1];
+    assert.ok(targetDept);
+
+    // Set department
+    state = reducer(state, {
+      type: "SET_DEPARTMENT",
+      userId: officer.id,
+      department: targetDept,
+    });
+
+    const updatedOfficer = state.users.find((u) => u.id === officer.id);
+    assert.equal(updatedOfficer?.department, targetDept, "Member department must update");
+  });
 });

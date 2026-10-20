@@ -31,6 +31,10 @@ export interface Student {
   createdAt: string;
   isStaff?: boolean;
   lastActive?: number;
+  /** Admin-defined order in council directory. Lower numbers appear first. */
+  directoryOrder?: number;
+  /** When true, administrator pinned this officer to display first in the directory. */
+  directoryPinned?: boolean;
 }
 
 export type Teacher = Student;
@@ -352,6 +356,8 @@ export interface HubState {
   houses: Record<House, HouseBranding>;
   siteRatings: SiteRating[];
   notificationTemplates?: Record<string, NotificationTemplate>;
+  /** Explicit administrator ordering of council officers by account ID. */
+  directoryOrder?: string[];
   lastModified?: number;
   schemaVersion?: number;
 }

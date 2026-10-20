@@ -472,5 +472,6 @@ export function buildSeedState(): HubState {
     councilHubMembers: councilIds,
     councilMessages: [],
     notificationTemplates: { ...DEFAULT_NOTIFICATION_TEMPLATES },
+    directoryOrder: [...councilIds],
   };
 }

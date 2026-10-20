@@ -365,6 +365,9 @@ type Action =
   | { type: "DELETE_DEPARTMENT"; name: string }
   | { type: "SET_PERMISSIONS"; userId: string; permissions: string[] }
   | { type: "SET_DEPARTMENT"; userId: string; department: string }
+  | { type: "SET_DIRECTORY_ORDER"; order: string[] }
+  | { type: "PIN_DIRECTORY_OFFICER"; userId: string; pinned: boolean }
+  | { type: "MOVE_DIRECTORY_OFFICER"; userId: string; direction: "up" | "down" | "top" }
   | { type: "SET_AVATAR"; userId: string; url: string }
   | { type: "SET_ACTIVE_IMAGE"; imageId: string; active: boolean }
   | { type: "DELEGATE_TASK"; taskId: string; assigneeId: string; department: string }
@@ -372,7 +375,7 @@ type Action =
   | { type: "RECORD_ACTIVITY"; userId: string; timestamp?: number }
   | { type: "BROADCAST"; record: BroadcastRecord; notification: AppNotification };
 
-const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER", "UPDATE_NOTIFICATION_TEMPLATES"]);
+const ADMIN_ACTIONS = new Set(["APPOINT_COUNCIL", "REMOVE_COUNCIL", "EDIT_STUDENT", "RESET_PASSWORD", "RESET_ACTIVATION", "ADD_DEPARTMENT", "DELETE_DEPARTMENT", "SET_PERMISSIONS", "SET_DEPARTMENT", "SET_DIRECTORY_ORDER", "PIN_DIRECTORY_OFFICER", "MOVE_DIRECTORY_OFFICER", "ADD_STUDENT", "DELETE_STUDENT", "ADD_STUDENT_EMAIL", "REMOVE_STUDENT_EMAIL", "SET_BRANDING", "SET_LEGAL", "SET_HOUSE_CAPTAIN", "SET_HOUSE_MEMBERSHIP", "ADD_EVENT_TYPE", "DELETE_EVENT_TYPE", "SET_HOUSE_BRANDING", "ADD_COUNCIL_HUB_MEMBER", "REMOVE_COUNCIL_HUB_MEMBER", "UPDATE_NOTIFICATION_TEMPLATES"]);
 /**
  * Actions whose data lives in a Google Sheet. The spreadsheet is the single source of
  * truth for House Points, while Calendar and Finances are managed directly within the hub.
@@ -967,6 +970,96 @@ function applyAction(state: HubState, action: Action): HubState {
         tasks: state.tasks.map((t) => t.assigneeId === action.userId && (!t.department || t.department === previous) ? { ...t, department: action.department } : t),
       };
     }
+    case "SET_DIRECTORY_ORDER": {
+      const order = Array.isArray(action.order) ? action.order : [];
+      const users = state.users.map((u) => {
+        const idx = order.indexOf(u.id);
+        return idx >= 0 ? { ...u, directoryOrder: idx } : u;
+      });
+      try {
+        localStorage.setItem("shristi_council_directory_order", JSON.stringify(order));
+      } catch {}
+      return {
+        ...state,
+        directoryOrder: order,
+        users,
+      };
+    }
+    case "PIN_DIRECTORY_OFFICER": {
+      const { userId, pinned } = action;
+      const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
+      const currentOrder = state.directoryOrder && state.directoryOrder.length > 0
+        ? [...state.directoryOrder]
+        : officers.map((u) => u.id);
+      let nextOrder = currentOrder.filter((id) => id !== userId);
+      if (pinned) {
+        nextOrder = [userId, ...nextOrder];
+      } else {
+        nextOrder = [...nextOrder, userId];
+      }
+      const users = state.users.map((u) => {
+        if (u.id === userId) {
+          return { ...u, directoryPinned: pinned, directoryOrder: pinned ? 0 : 999 };
+        }
+        return u;
+      });
+      try {
+        localStorage.setItem("shristi_council_directory_order", JSON.stringify(nextOrder));
+      } catch {}
+      return {
+        ...state,
+        directoryOrder: nextOrder,
+        users,
+      };
+    }
+    case "MOVE_DIRECTORY_OFFICER": {
+      const { userId, direction } = action;
+      const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
+      const currentOrder = state.directoryOrder && state.directoryOrder.length > 0
+        ? [...state.directoryOrder]
+        : officers.map((u) => u.id);
+
+      for (const o of officers) {
+        if (!currentOrder.includes(o.id)) currentOrder.push(o.id);
+      }
+
+      const idx = currentOrder.indexOf(userId);
+      if (idx === -1) return state;
+
+      let nextOrder = [...currentOrder];
+      if (direction === "top") {
+        nextOrder = [userId, ...nextOrder.filter((id) => id !== userId)];
+      } else if (direction === "up" && idx > 0) {
+        const temp = nextOrder[idx - 1];
+        nextOrder[idx - 1] = nextOrder[idx];
+        nextOrder[idx] = temp;
+      } else if (direction === "down" && idx < nextOrder.length - 1) {
+        const temp = nextOrder[idx + 1];
+        nextOrder[idx + 1] = nextOrder[idx];
+        nextOrder[idx] = temp;
+      }
+
+      const users = state.users.map((u) => {
+        const orderIdx = nextOrder.indexOf(u.id);
+        const isTarget = u.id === userId;
+        return orderIdx >= 0
+          ? {
+              ...u,
+              directoryOrder: orderIdx,
+              directoryPinned: direction === "top" && isTarget ? true : u.directoryPinned,
+            }
+          : u;
+      });
+
+      try {
+        localStorage.setItem("shristi_council_directory_order", JSON.stringify(nextOrder));
+      } catch {}
+      return {
+        ...state,
+        directoryOrder: nextOrder,
+        users,
+      };
+    }
     case "SET_AVATAR":
       if (actor?.role !== "admin" && actor?.id !== action.userId) throw new Error("You can only change your own profile picture.");
       if (action.url !== "" && !/^(https:\/\/|data:image\/(jpeg|jpg|png|webp|gif|svg\+xml);base64,)/.test(action.url)) throw new Error("Use a valid HTTPS image or uploaded photo.");
@@ -1065,7 +1158,7 @@ function normalizeUserRecord(u: Student, seedUser: Student | undefined, departme
   const isOfficer = u.role === "council" || u.role === "admin";
   const resolvedTitle = u.councilTitle || u.councilPost || (isOfficer ? seedUser?.councilTitle : undefined);
   const resolvedDept = isOfficer
-    ? departmentFor({ ...seedUser, ...u, councilTitle: resolvedTitle, councilPost: resolvedTitle }, departments)
+    ? (u.department || departmentFor({ ...seedUser, ...u, councilTitle: resolvedTitle, councilPost: resolvedTitle }, departments))
     : (u.department || undefined);
   return {
     ...(seedUser || {}),
@@ -1075,6 +1168,8 @@ function normalizeUserRecord(u: Student, seedUser: Student | undefined, departme
     councilPost: resolvedTitle,
     department: resolvedDept,
     avatarUrl: u.avatarUrl || seedUser?.avatarUrl || undefined,
+    directoryOrder: u.directoryOrder !== undefined ? u.directoryOrder : seedUser?.directoryOrder,
+    directoryPinned: u.directoryPinned !== undefined ? u.directoryPinned : seedUser?.directoryPinned,
   };
 }
 
@@ -1183,6 +1278,18 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
       : seed.houses,
     siteRatings: Array.isArray(parsed.siteRatings) ? parsed.siteRatings : seed.siteRatings,
     notificationTemplates: parsed.notificationTemplates ?? seed.notificationTemplates ?? DEFAULT_NOTIFICATION_TEMPLATES,
+    directoryOrder: Array.isArray(parsed.directoryOrder) && parsed.directoryOrder.length > 0
+      ? parsed.directoryOrder
+      : (() => {
+          try {
+            const stored = localStorage.getItem("shristi_council_directory_order");
+            if (stored) {
+              const parsedStored = JSON.parse(stored);
+              if (Array.isArray(parsedStored) && parsedStored.length > 0) return parsedStored;
+            }
+          } catch {}
+          return seed.directoryOrder ?? [];
+        })(),
     lastModified: Number(parsed.lastModified || 0),
   };
 }
