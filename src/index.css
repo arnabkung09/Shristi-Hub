@@ -603,7 +603,18 @@ select.control { appearance: none; background-image: url("data:image/svg+xml,%3C
   .day-event-actions .btn { flex: 1; }
   .footer-inner { justify-content: center; text-align: center; gap: 15px; }
   .footer-inner > :first-child, .footer-inner > :last-child { width: 100%; }
-  .nav-popover { position: fixed; top: 123px; right: 14px; }
+  .nav-popover { position: fixed; top: 68px; left: 12px; right: 12px; width: auto !important; max-width: calc(100vw - 24px); }
+  .split-grid { grid-template-columns: 1fr !important; gap: 20px; }
+  .resource-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .resource-meta { width: 100%; }
+  .section-head, .row-between { flex-wrap: wrap; gap: 10px; }
+  .integration-row { flex-wrap: wrap; gap: 6px; }
+  .pill-tabs, .compact-tabs { flex-wrap: wrap; width: 100%; }
+  .pill-tabs button, .compact-tabs button { flex: 1 1 auto; justify-content: center; }
+  .executive-member { grid-template-columns: 1fr !important; }
+  .member-portrait { aspect-ratio: 16 / 10; max-height: 220px; }
+  .dialog-actions { flex-wrap: wrap; }
+  .dialog-actions .btn { flex: 1 1 auto; justify-content: center; }
 }
 /* ---------- scroll reveal ----------
    No will-change: once a block settles, the wrapper must not create a

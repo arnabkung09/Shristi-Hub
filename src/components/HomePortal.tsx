@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useHub } from "../store/hub";
 import { ratingStats } from "../lib/admin";
 import { Reveal } from "./Effects";
+import { Crest } from "./ui";
 
 function SiteRatingCard() {
   const { state, user, dispatch, announce } = useHub();
@@ -107,7 +108,22 @@ export default function HomePortal() {
   const current = images[index % Math.max(images.length, 1)];
   return <div className="space-y-7">
     <Reveal>
-      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--border)] pb-7"><div><p className="eyebrow mb-2">{state.branding.schoolName} / {state.branding.session}</p><h1 className="font-display text-4xl font-bold tracking-tight">{state.branding.boardName}</h1><p className="mt-3 max-w-lg text-xs leading-relaxed text-[var(--muted)]">{state.branding.tagline}</p></div><button className="btn btn-primary" onClick={() => setActiveTab("dashboard")}>Your dashboard<ArrowRight /></button></div>
+      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--border)] pb-7">
+        <div className="flex items-start gap-4">
+          {state.branding.logoUrl && (
+            <Crest
+              src={state.branding.logoUrl}
+              className="h-14 w-14 sm:h-16 sm:w-16 shrink-0 rounded-2xl border border-[var(--border)] bg-white p-1.5 shadow-sm dark:bg-ink-800"
+            />
+          )}
+          <div>
+            <p className="eyebrow mb-2">{state.branding.schoolName} / {state.branding.session}</p>
+            <h1 className="font-display text-2xl sm:text-4xl font-bold tracking-tight">{state.branding.boardName}</h1>
+            <p className="mt-3 max-w-lg text-xs leading-relaxed text-[var(--muted)]">{state.branding.tagline}</p>
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={() => setActiveTab("dashboard")}>Your dashboard<ArrowRight /></button>
+      </div>
     </Reveal>
     <Reveal delay={80}>
       {current ? <figure><div className="relative aspect-[2.65/1] overflow-hidden bg-[var(--surface)] max-sm:aspect-[4/3]"><AnimatePresence mode="wait"><motion.img key={current.id} initial={{ opacity: .4, scale: 1.025 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: .3 }} transition={{ duration: .5 }} src={current.image} alt={current.caption} className="h-full w-full object-cover" /></AnimatePresence></div><figcaption className="flex items-center justify-between gap-3 border-b border-[var(--border)] py-4"><div><p className="font-display text-base font-semibold">{current.title}</p><p className="mt-1 text-[10px] text-[var(--muted)]">{current.caption}</p></div><div className="pagination-buttons"><span className="mr-2 text-[10px] text-[var(--muted)]">{index % images.length + 1} / {images.length}</span><button aria-label="Previous school photo" onClick={() => setIndex((index - 1 + images.length) % images.length)}><ChevronLeft className="h-4 w-4" /></button><button aria-label="Next school photo" onClick={() => setIndex((index + 1) % images.length)}><ChevronRight className="h-4 w-4" /></button></div></figcaption></figure> : <div className="empty-content"><Images /><strong>No active portal images</strong><p>An administrator can select images in Admin Panel / Active Images.</p></div>}

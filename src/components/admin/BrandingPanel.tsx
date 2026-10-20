@@ -93,17 +93,82 @@ export default function BrandingPanel() {
     <div className="space-y-5">
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_1fr]">
       <section className="panel panel-pad">
-        <div className="panel-heading"><div><h2><Type />Council Identity & Logo</h2><p>The emblem appears in the header, login screen, and branding preview across the site.</p></div></div>
-        <div className="form-stack">
-          <div className="flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
-            <Crest className="h-12 w-12 rounded-lg bg-white p-1" src={branding.logoUrl} />
-            <div className="min-w-0"><p className="font-display text-sm font-bold">{branding.schoolName || "Council name"}</p><p className="text-[9px] text-[var(--muted)]">{branding.boardName} / {branding.session}</p></div>
+        <div className="panel-heading">
+          <div>
+            <h2><Type />Council Identity & Logo</h2>
+            <p>Only the logo you add here will appear in the Top Logo, the Home Screen, and Notifications.</p>
           </div>
-          <label className="file-drop"><Image /><strong>Upload a logo</strong><span>PNG, JPG, WebP, or SVG up to 300 KB.</span>
+        </div>
+        <div className="form-stack">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                {branding.logoUrl ? (
+                  <Crest className="h-12 w-12 shrink-0 rounded-lg border border-[var(--border)] bg-white p-1" src={branding.logoUrl} />
+                ) : (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-[var(--border)] text-[10px] font-bold text-[var(--faint)]">
+                    No Logo
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="font-display text-sm font-bold truncate">{branding.schoolName || "Council name"}</p>
+                  <p className="text-[10px] text-[var(--muted)] truncate">{branding.boardName} / {branding.session}</p>
+                </div>
+              </div>
+              {branding.logoUrl && (
+                <button
+                  type="button"
+                  className="text-action !text-[10px] text-rose-500 shrink-0"
+                  onClick={() => setBranding({ ...branding, logoUrl: "" })}
+                >
+                  Remove logo
+                </button>
+              )}
+            </div>
+
+            {/* Live Placement Verification: Top Logo, Home Screen, Notifications */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[var(--border)]">
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
+                {branding.logoUrl ? (
+                  <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain" />
+                ) : (
+                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Top Logo</span>
+                  <span className="block text-[10px] font-semibold truncate">{branding.schoolName}</span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
+                {branding.logoUrl ? (
+                  <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain" />
+                ) : (
+                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Home Screen</span>
+                  <span className="block text-[10px] font-semibold truncate">{branding.boardName}</span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
+                {branding.logoUrl ? (
+                  <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain" />
+                ) : (
+                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                )}
+                <div className="min-w-0">
+                  <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Notifications</span>
+                  <span className="block text-[10px] font-semibold truncate">Push & In-App Alerts</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <label className="file-drop"><Image /><strong>Upload your custom logo</strong><span>PNG, JPG, WebP, or SVG up to 500 KB — shown in Top Logo, Home Screen, and Notifications.</span>
             <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" aria-label="Upload council logo" onChange={(e) => {
               const file = e.target.files?.[0];
               if (!file) return;
-              if (file.size > 300 * 1024) { setError("Choose a logo smaller than 300 KB."); return; }
+              if (file.size > 500 * 1024) { setError("Choose a logo smaller than 500 KB."); return; }
               const reader = new FileReader();
               reader.onload = () => { setBranding({ ...branding, logoUrl: String(reader.result) }); setError(""); };
               reader.onerror = () => setError("Unable to read this file.");

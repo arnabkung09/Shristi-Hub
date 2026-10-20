@@ -183,6 +183,9 @@ export function buildStudentRecord(input: {
   password?: string;
 }): Student {
   const role = input.role ?? "student";
+  const isClassAccount = role === "grade";
+  const isTeacher = role === "teacher";
+  const resolvedHouse = isClassAccount ? null : input.house;
   const defaultPw = input.password ?? generateAccountPassword();
   return {
     id: input.id,
@@ -192,10 +195,11 @@ export function buildStudentRecord(input: {
     passwordHash: "seeded-password-hash",
     grade: input.grade,
     gradeLabel: input.grade ? canonicalGradeFromNumber(input.grade) : null,
-    house: input.house,
-    houseLabel: input.house ? `${input.house} House` : null,
+    house: resolvedHouse,
+    houseLabel: resolvedHouse ? `${resolvedHouse} House` : null,
     status: "pending",
     role,
+    isStaff: isTeacher,
     aliases: input.aliases ?? [],
     verifiedAliases: input.verifiedAliases ?? [],
     createdAt: new Date().toISOString(),

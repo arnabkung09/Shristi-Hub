@@ -10,26 +10,11 @@ import type { House, Role } from "../lib/types";
 /* ---------------- crest ---------------- */
 
 export function Crest({ className, src }: { className?: string; src?: string }) {
-  if (src) {
-    return <img src={src} alt="" className={cn("object-contain", className)} />;
+  const cleanSrc = typeof src === "string" ? src.trim() : "";
+  if (!cleanSrc) {
+    return null;
   }
-  return (
-    <svg viewBox="0 0 56 58" className={className} aria-hidden="true">
-      <rect x="1" y="1" width="54" height="56" rx="13" fill="#fafbfd" stroke="#d5dde5" />
-      <circle cx="28" cy="27" r="20" fill="#f6f8fc" stroke="#748fa2" strokeWidth=".6" />
-      <circle cx="28" cy="27" r="16.8" fill="none" stroke="#8a9eae" strokeWidth=".5" strokeDasharray="1 1.5" />
-      <path d="M28 12 39 17v13c0 6-6 11-11 13-5-2-11-7-11-13V17z" fill="#d5bd6c" stroke="#314d63" strokeWidth="1.2" />
-      <path d="M28 15 36 19v11c0 4-4 8-8 10-4-2-8-6-8-10V19z" fill="#36566c" stroke="#f0df9c" />
-      <path d="M28 15v25" stroke="#ebd68a" strokeWidth=".8" />
-      <path d="M22 24c2-1 4-1 6 0 2-1 4-1 6 0v9c-2-1-4-1-6 0-2-1-4-1-6 0z" fill="#f4e7b4" stroke="#d1b766" strokeWidth=".5" />
-      <path d="M28 24v9M23 27h3m-3 2h3m4-2h3m-3 2h3" stroke="#446173" strokeWidth=".6" />
-      <path d="M13 21c-5 9-1 18 10 22m20-22c5 9 1 18-10 22" fill="none" stroke="#648096" strokeWidth="1" />
-      <path d="m13 24-3-2m3 6-4-2m5 6-4-1m6 4h-4m7 3h-4m28-14 3-2m-3 6 4-2m-5 6 4-1m-6 4h4m-7 3h4" fill="none" stroke="#648096" strokeWidth="1.2" />
-      <text x="28" y="10.5" textAnchor="middle" fontFamily="Georgia, serif" fontSize="4.3" fontWeight="bold" fill="#304a62">SHRISTI ACADEMY</text>
-      <path d="M17 44q11 5 22 0l-2 5q-9 3-18 0z" fill="#e3eaf0" stroke="#587187" strokeWidth=".5" />
-      <text x="28" y="48" textAnchor="middle" fontFamily="Georgia, serif" fontSize="3.3" fill="#3c556a">LEARN · LEAD · SERVE</text>
-    </svg>
-  );
+  return <img src={cleanSrc} alt="School Logo" className={cn("object-contain", className)} />;
 }
 
 /* ---------------- layout primitives ---------------- */
@@ -170,8 +155,8 @@ export function HouseMark({ house, className }: { house: House | null; className
 
 export function RoleBadge({ role }: { role: Role }) {
   if (role === "admin") return <Badge tone="violet">Admin</Badge>;
-  if (role === "council") return <Badge tone="indigo">Council</Badge>;
-  if (role === "teacher") return <Badge tone="amber">Teacher</Badge>;
+  if (role === "council") return <Badge tone="indigo">Council Officer</Badge>;
+  if (role === "teacher") return <Badge tone="amber">Teacher / Staff</Badge>;
   if (role === "grade") return <Badge tone="sky">Class Account</Badge>;
   return <Badge tone="slate">Student</Badge>;
 }

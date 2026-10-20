@@ -538,7 +538,27 @@ export async function triggerOSNotification(input: {
 
   const title = input.title || "Shristi Student Council";
   const body = input.body || "New council notification";
-  const icon = input.icon || `${window.location.origin}/pwa-192x192.png`;
+
+  let customBrandingLogo: string | undefined = input.icon;
+  if (!customBrandingLogo && typeof window !== "undefined") {
+    try {
+      const savedLogo = window.localStorage.getItem("shristi_branding_logo_v1");
+      if (savedLogo && savedLogo.trim()) {
+        customBrandingLogo = savedLogo.trim();
+      } else {
+        const rawHub = window.localStorage.getItem("shristi_hub_v4");
+        if (rawHub) {
+          const parsed = JSON.parse(rawHub);
+          const hubLogo = parsed?.branding?.logoUrl;
+          if (typeof hubLogo === "string" && hubLogo.trim()) {
+            customBrandingLogo = hubLogo.trim();
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const icon = customBrandingLogo || undefined;
   const actionTab = input.actionTab || "dashboard";
   const urgent = Boolean(input.urgent);
 
@@ -581,8 +601,7 @@ export async function triggerOSNotification(input: {
   // Notification Options - tailored for mobile phone brand reliability
   const options: NotificationOptions & { renotify?: boolean; requireInteraction?: boolean; vibrate?: number[] } = {
     body,
-    icon,
-    badge: `${window.location.origin}/pwa-192x192.png`,
+    ...(icon ? { icon, badge: icon } : {}),
     tag, // Always non-empty for renotify
     renotify: true,
     // Mobile browsers (Xiaomi, Samsung, Oppo, etc.) ignore or reject requireInteraction
@@ -613,7 +632,7 @@ export async function triggerOSNotification(input: {
           try {
             await reg.showNotification(title, {
               body,
-              icon: `${window.location.origin}/pwa-192x192.png`,
+              ...(icon ? { icon } : {}),
               tag,
               data: options.data,
             });
@@ -649,7 +668,7 @@ export async function triggerOSNotification(input: {
     try {
       const desktopNotification = new Notification(title, {
         body,
-        icon,
+        ...(icon ? { icon } : {}),
         tag,
         data: options.data,
       });

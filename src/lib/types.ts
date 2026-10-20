@@ -240,6 +240,9 @@ export interface ResourceDoc {
   tag: string;
   updated: string;
   size: string;
+  content?: string;
+  fileUrl?: string;
+  fileName?: string;
 }
 
 export interface BroadcastRecord {
@@ -339,6 +342,7 @@ export interface HubState {
   suggestions: Suggestion[];
   polls: Poll[];
   meetings: Meeting[];
+  resources?: ResourceDoc[];
   finances: FinanceEntry[];
   gallery: GalleryItem[];
   broadcastHistory: BroadcastRecord[];

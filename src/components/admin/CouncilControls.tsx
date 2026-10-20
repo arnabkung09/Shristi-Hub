@@ -337,27 +337,37 @@ export default function CouncilControls({ action, onClose }: { action: CouncilAc
   }
 
   if (action.kind === "appoint") {
-    const candidates = state.users.filter((u) => u.id !== PRIMARY_ADMIN_ID && u.role !== "grade" && `${u.name} ${u.email} ${u.gradeLabel} ${u.houseLabel} ${u.councilTitle ?? ""}`.toLowerCase().includes(rosterFilter.toLowerCase()));
+    const candidates = state.users.filter(
+      (u) =>
+        u.id !== PRIMARY_ADMIN_ID &&
+        u.role !== "grade" &&
+        u.role !== "teacher" &&
+        !u.isStaff &&
+        !u.id.startsWith("tch-") &&
+        `${u.name} ${u.email} ${u.gradeLabel ?? ""} ${u.houseLabel ?? ""} ${u.councilTitle ?? ""}`
+          .toLowerCase()
+          .includes(rosterFilter.toLowerCase())
+    );
     return (
-      <Modal open onClose={onClose} title={action.source === "directory" ? "Add Member to Council Directory" : "Appoint Council Officer"} icon={<Award />} subtitle="Promote an existing roster account or add a new student directly to the council.">
+      <Modal open onClose={onClose} title={action.source === "directory" ? "Add Member to Council Directory" : "Appoint Council Officer"} icon={<Award />} subtitle="Promote an existing student roster account or add a new student directly to the council.">
         <div className="form-stack">
           {!target && (
             <div className="pill-tabs">
-              <button type="button" className={appointMode === "roster" ? "active" : ""} onClick={() => setAppointMode("roster")}>From School Roster ({state.users.length})</button>
+              <button type="button" className={appointMode === "roster" ? "active" : ""} onClick={() => setAppointMode("roster")}>From Student Roster ({candidates.length})</button>
               <button type="button" className={appointMode === "new" ? "active" : ""} onClick={() => setAppointMode("new")}>New Student Account</button>
             </div>
           )}
           {!target && appointMode === "roster" && (
             <>
               <label className="form-field"><span>Filter Roster</span><input className="control" placeholder="Type a name, class, house, or email..." value={rosterFilter} onChange={(e) => setRosterFilter(e.target.value)} /></label>
-              <label className="form-field"><span>Student or Teacher ({candidates.length} matches)</span>
+              <label className="form-field"><span>Student Account ({candidates.length} matches)</span>
                 <select className="control" value={selectedUserId} onChange={(e) => {
                   const chosen = state.users.find((u) => u.id === e.target.value);
                   setSelectedUserId(e.target.value);
                   if (chosen?.councilTitle) setTitle(chosen.councilTitle);
                   if (chosen?.department && state.departments.includes(chosen.department)) setDepartment(chosen.department);
                 }}>
-                  {candidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.gradeLabel ?? "Staff"} · {u.houseLabel ?? "No house"} ({u.role})</option>)}
+                  {candidates.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.gradeLabel ?? "Student"} · {u.houseLabel ?? "No house"} ({u.role === "council" ? "Council Officer" : "Student"})</option>)}
                 </select>
               </label>
             </>

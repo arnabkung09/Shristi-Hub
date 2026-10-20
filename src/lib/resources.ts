@@ -1,4 +1,4 @@
-import type { ResourceDoc } from "./types";
+import type { Meeting, ResourceDoc } from "./types";
 
 const CONTENT: Record<string, string> = {
   "res-1": "1. Representation\nThe council represents student voices from Grades 1 through 10.\n\n2. Responsibilities\nOfficers maintain accurate records, communicate respectfully, and report decisions to the student body.\n\n3. Governance\nRecord meeting agendas, attendance, decisions, and action owners. Financial and house-point decisions need a documented reason.\n\n4. Review\nSchool administration must approve the final constitution before adoption.",
@@ -12,15 +12,40 @@ const CONTENT: Record<string, string> = {
 };
 
 export function resourceText(resource: ResourceDoc) {
+  if (resource.content && resource.content.trim()) {
+    return resource.content;
+  }
   return `${resource.title}\nShristi Academy Student Council\n\nDEMONSTRATION TEMPLATE\nThis is not an official school-issued document. School administration must review and approve it before use.\n\n${CONTENT[resource.id] ?? "Contact the school office for the approved document."}`;
 }
 
 export function downloadResource(resource: ResourceDoc) {
+  if (resource.fileUrl) {
+    const link = document.createElement("a");
+    link.href = resource.fileUrl;
+    link.download = resource.fileName || `${resource.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.click();
+    return;
+  }
   const blob = new Blob([resourceText(resource)], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `${resource.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-template.txt`;
+  link.download = resource.fileName || `${resource.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-template.txt`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export function downloadMinutes(meeting: Meeting) {
+  const timeRange = meeting.endTime ? `${meeting.startTime}–${meeting.endTime}` : meeting.startTime;
+  const agendaText = Array.isArray(meeting.agenda) ? meeting.agenda.map((item, i) => `${i + 1}. ${item}`).join("\n") : String(meeting.agenda || "");
+  const text = `${meeting.title}\nDate: ${meeting.date} (${timeRange})\nLocation: ${meeting.venue}\n\nAgenda:\n${agendaText}\n\nMinutes:\n${meeting.minutes || "No minutes recorded."}\n`;
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${meeting.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-minutes.txt`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

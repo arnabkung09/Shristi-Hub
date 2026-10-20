@@ -366,7 +366,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     }
   };
 
-  // Save edits to a completed task
+  // Save edits to a task (either from the Done by Department log or from the Task Board)
   const handleSaveEdit = () => {
     if (!editingTask) return;
     if (!editForm.title.trim()) return setEditError("Task title is required.");
@@ -382,10 +382,14 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
           priority: editForm.priority,
           assigneeId: editForm.assigneeId,
           department: editForm.department,
-          status: "done",
+          status: editingTask.status,
         },
       });
-      announce(`"${editForm.title.trim()}" updated in department log.`);
+      announce(
+        editingTask.status === "done"
+          ? `"${editForm.title.trim()}" updated in department log.`
+          : `Task "${editForm.title.trim()}" updated on the board.`
+      );
       setEditingTask(null);
       setEditError(null);
     } catch (err) {
@@ -393,16 +397,21 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
     }
   };
 
-  // Remove task from log
+  // Remove task from board or log
   const handleConfirmDelete = () => {
     if (!deletingTask) return;
     const dept = taskDepartment(deletingTask, state.users, state.departments);
+    const wasDone = deletingTask.status === "done";
     try {
       dispatch({ type: "DELETE_TASK", taskId: deletingTask.id });
-      announce(`"${deletingTask.title}" removed from ${dept} Department log.`);
+      announce(
+        wasDone
+          ? `"${deletingTask.title}" removed from ${dept} Department log.`
+          : `Task "${deletingTask.title}" deleted from the task board.`
+      );
       setDeletingTask(null);
     } catch (err) {
-      announce(err instanceof Error ? err.message : "Unable to remove task.", "error");
+      announce(err instanceof Error ? err.message : "Unable to delete task.", "error");
     }
   };
 
@@ -679,6 +688,7 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
                       key={t.id}
                       task={t}
                       canMove={canMove}
+                      canManage={canManage}
                       isDragging={draggedTaskId === t.id}
                       onDragStart={(e) => {
                         e.dataTransfer.setData("text/plain", t.id);
@@ -690,6 +700,8 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
                         setDragOverCol(null);
                       }}
                       onMove={(status) => handleDropTask(t.id, status)}
+                      onEdit={() => handleOpenEdit(t)}
+                      onDelete={() => setDeletingTask(t)}
                     />
                   );
                 })}
@@ -1326,25 +1338,24 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
       <Modal
         open={!!deletingTask}
         onClose={() => setDeletingTask(null)}
-        title="Remove from Department Log"
+        title={deletingTask?.status === "done" ? "Remove from Department Log" : "Delete Task from Board"}
         icon={<Trash2 className="text-red-500" />}
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Are you sure you want to remove{" "}
-            <strong className="text-slate-900 dark:text-white">"{deletingTask?.title}"</strong> from the{" "}
-            <strong>{deletingTask ? taskDepartment(deletingTask, state.users, state.departments) : ""} Department</strong>{" "}
-            log?
+            Are you sure you want to delete{" "}
+            <strong className="text-slate-900 dark:text-white">"{deletingTask?.title}"</strong>{" "}
+            ({deletingTask ? taskDepartment(deletingTask, state.users, state.departments) : ""} Department)?
           </p>
           <p className="rounded-xl bg-red-500/10 p-3 text-xs text-red-600 dark:text-red-300">
-            This task entry will be permanently deleted from completed milestones and reports.
+            This task will be permanently removed from the task board and department logs.
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Btn variant="secondary" onClick={() => setDeletingTask(null)}>
               Cancel
             </Btn>
             <Btn variant="danger" onClick={handleConfirmDelete}>
-              <Trash2 className="h-4 w-4" /> Remove Entry
+              <Trash2 className="h-4 w-4" /> Delete Task
             </Btn>
           </div>
         </div>
@@ -1357,17 +1368,23 @@ export default function TaskManagement({ openNewOnMount = false }: { openNewOnMo
 function TaskCard({
   task,
   canMove,
+  canManage,
   isDragging,
   onDragStart,
   onDragEnd,
   onMove,
+  onEdit,
+  onDelete,
 }: {
   task: CouncilTask;
   canMove: boolean;
+  canManage: boolean;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onMove: (status: TaskStatus) => void;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const { state } = useHub();
   const assignee = state.users.find((u) => u.id === task.assigneeId);
@@ -1399,9 +1416,37 @@ function TaskCard({
             {task.title}
           </p>
         </div>
-        <span className="shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <Badge tone={PRIORITY_TONE[task.priority]}>{task.priority}</Badge>
-        </span>
+          {canManage && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-white"
+                title="Edit task"
+                aria-label="Edit task"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-red-500/80 transition-colors hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                title="Delete task from board"
+                aria-label="Delete task"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-1.5 flex items-center gap-1.5">
@@ -1434,20 +1479,22 @@ function TaskCard({
           <span className="text-[11px] font-semibold text-slate-400">Team</span>
         )}
 
-        {canMove && (
-          <select
-            value={task.status}
-            onChange={(e) => onMove(e.target.value as TaskStatus)}
-            className="rounded-lg border border-black/10 bg-transparent px-1.5 py-0.5 text-[10px] font-bold text-slate-500 focus:outline-none dark:border-white/10 dark:text-slate-300 dark:[&>option]:bg-ink-800"
-            aria-label="Move task status"
-          >
-            {COLUMNS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-        )}
+        <div className="flex items-center gap-1.5">
+          {canMove && (
+            <select
+              value={task.status}
+              onChange={(e) => onMove(e.target.value as TaskStatus)}
+              className="rounded-lg border border-black/10 bg-transparent px-1.5 py-0.5 text-[10px] font-bold text-slate-500 focus:outline-none dark:border-white/10 dark:text-slate-300 dark:[&>option]:bg-ink-800"
+              aria-label="Move task status"
+            >
+              {COLUMNS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
     </Card>
   );

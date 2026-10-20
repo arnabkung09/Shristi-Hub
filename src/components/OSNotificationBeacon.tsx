@@ -7,13 +7,14 @@ interface OSAlertDetail {
   id: string;
   title: string;
   body: string;
+  icon?: string;
   actionTab?: string;
   urgent?: boolean;
   timestamp: number;
 }
 
 export default function OSNotificationBeacon() {
-  const { setActiveTab } = useHub();
+  const { state, setActiveTab } = useHub();
   const [activeAlert, setActiveAlert] = useState<OSAlertDetail | null>(null);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function OSNotificationBeacon() {
           id: `os-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           title: custom.detail.title,
           body: custom.detail.body,
+          icon: (custom.detail as { icon?: string }).icon,
           actionTab: custom.detail.actionTab,
           urgent: custom.detail.urgent,
           timestamp: custom.detail.timestamp || Date.now(),
@@ -98,13 +100,21 @@ export default function OSNotificationBeacon() {
 
             {/* Notification Summary */}
             <div className="flex items-start gap-3 p-3.5">
-              <span
-                className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
-                  activeAlert.urgent ? "bg-red-500/20 text-red-300" : "bg-indigo-500/20 text-indigo-300"
-                }`}
-              >
-                {activeAlert.urgent ? <ShieldAlert className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
-              </span>
+              {(activeAlert.icon || state.branding?.logoUrl) ? (
+                <img
+                  src={activeAlert.icon || state.branding.logoUrl}
+                  alt=""
+                  className="mt-0.5 h-8 w-8 shrink-0 rounded-xl bg-white p-1 object-contain"
+                />
+              ) : (
+                <span
+                  className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl ${
+                    activeAlert.urgent ? "bg-red-500/20 text-red-300" : "bg-indigo-500/20 text-indigo-300"
+                  }`}
+                >
+                  {activeAlert.urgent ? <ShieldAlert className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+                </span>
+              )}
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-bold text-white">{activeAlert.title}</p>

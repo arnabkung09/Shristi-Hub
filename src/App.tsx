@@ -22,7 +22,7 @@ import AdminNotificationsHub from "./components/AdminNotificationsHub";
 import AdminPanel, { TermsContent } from "./components/AdminPanel";
 import HomePortal from "./components/HomePortal";
 import { MouseGlow } from "./components/Effects";
-import { Modal } from "./components/ui";
+import { Crest, Modal } from "./components/ui";
 import OSNotificationBeacon from "./components/OSNotificationBeacon";
 import { getNotificationPreferences, triggerOSNotification, getNotifiedIds, markAsNotified, hasBeenNotified } from "./lib/firebase-client";
 import PushAlertsPrompt from "./components/PushAlertsPrompt";
@@ -70,6 +70,7 @@ function Toasts() {
         void triggerOSNotification({
           title: newest.title,
           body: newest.body,
+          icon: state.branding?.logoUrl || undefined,
           tag: newest.id,
           actionTab: newest.actionTab,
           urgent: newest.urgent,
@@ -111,9 +112,16 @@ function Toasts() {
               </div>
             )}
             <div className="flex items-start gap-3 p-4">
-              <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${t.urgent ? "bg-red-500/20 text-red-300" : "bg-accent/10 text-accent"}`}>
-                <AlarmClock className="h-4 w-4" />
-              </span>
+              {state.branding?.logoUrl ? (
+                <Crest
+                  src={state.branding.logoUrl}
+                  className="mt-0.5 h-9 w-9 shrink-0 rounded-xl border border-black/10 bg-white p-1 object-contain dark:border-white/10"
+                />
+              ) : (
+                <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl ${t.urgent ? "bg-red-500/20 text-red-300" : "bg-accent/10 text-accent"}`}>
+                  <AlarmClock className="h-4 w-4" />
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">{t.title}</p>
                 <p className={`mt-0.5 line-clamp-2 text-xs ${t.urgent ? "text-red-200/90" : "text-slate-500 dark:text-slate-400"}`}>{t.body}</p>

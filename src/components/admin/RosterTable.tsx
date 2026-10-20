@@ -13,7 +13,7 @@ import {
 } from "../../lib/admin";
 import { assertInstitutionalEmail } from "../../lib/ssot-auth";
 import { ROSTER_SOURCE_ISSUES } from "../../lib/whitelist-seed";
-import { Modal } from "../ui";
+import { Modal, RoleBadge } from "../ui";
 
 type DatabaseTab = "students" | "teachers" | "classes";
 type RowAction = { kind: "edit" | "activation" | "remove" | "emails"; student: Student };
@@ -259,10 +259,11 @@ export default function RosterTable() {
           <table className="data-table">
             <thead>
               <tr>
-                <th className="w-[23%]">
+                <th className="w-[22%]">
                   {dbTab === "classes" ? "Class Name" : "Full Name"}
                 </th>
-                <th className="w-[26%]">Official School Email</th>
+                <th>Role</th>
+                <th className="w-[24%]">Official School Email</th>
                 <th>{dbTab === "teachers" ? "Class" : "Grade"}</th>
                 <th>House</th>
                 <th>Status</th>
@@ -279,11 +280,19 @@ export default function RosterTable() {
                         <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
                       </span>
                     )}
-                    {state.councilHubMembers.includes(s.id) && s.id !== PRIMARY_ADMIN_ID && (
-                      <span className="ml-1.5 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-indigo-400" title="Council Hub Member">
-                        Council
+                    {s.role === "council" && s.councilTitle && (
+                      <span className="ml-1.5 rounded bg-indigo-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-indigo-400" title={`Student Council Office: ${s.councilTitle}`}>
+                        {s.councilTitle}
                       </span>
                     )}
+                    {state.councilHubMembers.includes(s.id) && s.role !== "council" && s.role !== "admin" && (
+                      <span className="ml-1.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[8px] font-bold uppercase text-emerald-500" title="Council Hub Chat Guest">
+                        Hub Access
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    <RoleBadge role={s.role} />
                   </td>
                   <td className="student-email">
                     <span className="font-mono text-xs">{s.email}</span>

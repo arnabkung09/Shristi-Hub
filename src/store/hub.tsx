@@ -5,9 +5,9 @@ import {
 import type {
   Audience, FinanceEntry, GalleryItem, HubState, Meeting, CouncilTask,
   AppNotification, PointEntry, Poll, PollBallot, SchoolEvent, Student, Suggestion,
-  Announcement, Role, House, BroadcastRecord, HouseMessage, CouncilChatMessage,
+  Announcement, Role, House, BroadcastRecord, HouseMessage, CouncilChatMessage, ResourceDoc,
 } from "../lib/types";
-import { buildSeedState, HOUSES, HOUSE_LABELS } from "../lib/seed";
+import { buildSeedState, HOUSES, HOUSE_LABELS, RESOURCES } from "../lib/seed";
 import { connectBus, postBus, chime } from "../lib/realtime";
 import {
   adminResetStudentCredentials,
@@ -333,6 +333,9 @@ type Action =
   | { type: "ADD_POLL"; poll: Poll; notification?: AppNotification }
   | { type: "ADD_MEETING"; meeting: Meeting }
   | { type: "SAVE_MINUTES"; meetingId: string; minutes: string }
+  | { type: "DELETE_MEETING"; meetingId: string }
+  | { type: "ADD_RESOURCE"; resource: ResourceDoc }
+  | { type: "DELETE_RESOURCE"; resourceId: string }
   | { type: "ADD_TRANSACTION"; entry: FinanceEntry }
   | { type: "ADD_PHOTO"; item: GalleryItem }
   | { type: "APPOINT_COUNCIL"; userId: string; post: string; department: string }
@@ -388,7 +391,9 @@ const ACTION_FEATURES: Record<string, string> = {
   UPDATE_EVENT: "events", DELETE_EVENT: "events",
   ADD_TASK: "tasks", MOVE_TASK: "tasks", EDIT_TASK: "tasks", DELETE_TASK: "tasks", DELEGATE_TASK: "tasks",
   REVIEW_SUGGESTION: "voice", ADD_POLL: "voice",
-  ADD_MEETING: "meetings", SAVE_MINUTES: "meetings", ADD_TRANSACTION: "finances",
+  ADD_MEETING: "meetings", SAVE_MINUTES: "meetings", DELETE_MEETING: "meetings",
+  ADD_RESOURCE: "meetings", DELETE_RESOURCE: "meetings",
+  ADD_TRANSACTION: "finances",
   ADD_PHOTO: "gallery", SET_ACTIVE_IMAGE: "gallery", BROADCAST: "broadcast",
 };
 
@@ -687,12 +692,22 @@ function applyAction(state: HubState, action: Action): HubState {
       return { ...state, meetings: [action.meeting, ...state.meetings] };
     case "SAVE_MINUTES":
       return { ...state, meetings: state.meetings.map((m) => (m.id === action.meetingId ? { ...m, minutes: action.minutes } : m)) };
+    case "DELETE_MEETING":
+      return { ...state, meetings: state.meetings.filter((m) => m.id !== action.meetingId) };
+    case "ADD_RESOURCE":
+      return { ...state, resources: [action.resource, ...(state.resources ?? RESOURCES)] };
+    case "DELETE_RESOURCE":
+      return { ...state, resources: (state.resources ?? RESOURCES).filter((r) => r.id !== action.resourceId) };
     case "ADD_TRANSACTION":
       return { ...state, finances: [action.entry, ...state.finances] };
     case "ADD_PHOTO":
       return { ...state, gallery: [action.item, ...state.gallery] };
-    case "APPOINT_COUNCIL":
+    case "APPOINT_COUNCIL": {
       if (action.userId === PRIMARY_ADMIN_ID) throw new Error("The primary administrator's appointment is protected.");
+      const targetUser = state.users.find((u) => u.id === action.userId);
+      if (targetUser && (targetUser.role === "teacher" || targetUser.role === "grade" || targetUser.isStaff)) {
+        throw new Error("Only student accounts can be appointed as Student Council Officers. Add teachers to the Council Hub chat instead.");
+      }
       if (!state.departments.includes(action.department)) throw new Error("Select a current council department.");
       return {
         ...state,
@@ -701,12 +716,21 @@ function applyAction(state: HubState, action: Action): HubState {
           u.id === action.userId ? { ...u, role: "council" as Role, status: "active", councilPost: action.post, councilTitle: action.post, department: action.department } : u
         ),
       };
+    }
     case "REMOVE_COUNCIL":
       if (action.userId === PRIMARY_ADMIN_ID) throw new Error("The primary administrator cannot be removed.");
       return {
         ...state,
         users: state.users.map((u) =>
-          u.id === action.userId ? { ...u, role: "student" as Role, councilPost: undefined, councilTitle: undefined, department: undefined } : u
+          u.id === action.userId
+            ? {
+                ...u,
+                role: (u.isStaff || u.id.startsWith("tch-") ? "teacher" : "student") as Role,
+                councilPost: undefined,
+                councilTitle: undefined,
+                department: undefined,
+              }
+            : u
         ),
       };
     case "EDIT_STUDENT": {
@@ -1155,15 +1179,33 @@ function normalizeDepartmentsList(candidates: string[] | undefined | null, seedD
 }
 
 function normalizeUserRecord(u: Student, seedUser: Student | undefined, departments: string[]): Student {
-  const isOfficer = u.role === "council" || u.role === "admin";
-  const resolvedTitle = u.councilTitle || u.councilPost || (isOfficer ? seedUser?.councilTitle : undefined);
+  const isPrimary = u.id === PRIMARY_ADMIN_ID || u.email?.toLowerCase() === "72019arnab@shristiacademy.edu.np";
+  const resolvedRole: Role = isPrimary
+    ? "admin"
+    : u.id?.startsWith("cls-") || u.role === "grade"
+    ? "grade"
+    : u.id?.startsWith("tch-") || u.role === "teacher" || u.isStaff
+    ? "teacher"
+    : u.role === "admin" || u.role === "council" || u.role === "student"
+    ? u.role
+    : (seedUser?.role ?? "student");
+  const isOfficer = resolvedRole === "council" || resolvedRole === "admin";
+  const isTeacherRole = resolvedRole === "teacher";
+  const isClassRole = resolvedRole === "grade";
+  const resolvedTitle = isOfficer
+    ? (u.councilTitle || u.councilPost || seedUser?.councilTitle || "Council Representative")
+    : undefined;
   const resolvedDept = isOfficer
-    ? (u.department || departmentFor({ ...seedUser, ...u, councilTitle: resolvedTitle, councilPost: resolvedTitle }, departments))
-    : (u.department || undefined);
+    ? (u.department || departmentFor({ ...seedUser, ...u, role: resolvedRole, councilTitle: resolvedTitle, councilPost: resolvedTitle }, departments))
+    : undefined;
   return {
     ...(seedUser || {}),
     ...u,
-    status: isOfficer ? "active" : (u.status || seedUser?.status || "pending"),
+    role: resolvedRole,
+    isStaff: isTeacherRole,
+    house: isClassRole ? null : (u.house !== undefined ? u.house : (seedUser?.house ?? null)),
+    houseLabel: isClassRole ? null : (u.houseLabel !== undefined ? u.houseLabel : (seedUser?.houseLabel ?? null)),
+    status: isOfficer || isTeacherRole || isClassRole ? "active" : (u.status || seedUser?.status || "pending"),
     councilTitle: resolvedTitle,
     councilPost: resolvedTitle,
     department: resolvedDept,
@@ -1239,6 +1281,8 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
     ...parsed,
     users: mergedUsers,
     tasks,
+    meetings: Array.isArray(parsed.meetings) && parsed.meetings.length > 0 ? parsed.meetings : seed.meetings,
+    resources: Array.isArray(parsed.resources) && parsed.resources.length > 0 ? parsed.resources : (seed.resources ?? RESOURCES),
     pointsLedger: Array.isArray(parsed.pointsLedger) ? parsed.pointsLedger : seed.pointsLedger,
     councilHubMembers,
     councilMessages: parsed.councilMessages ?? seed.councilMessages,
@@ -1498,6 +1542,25 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     return { ...localItem, ...cloudItem, image: cloudItem.image || localItem?.image } as GalleryItem;
   });
 
+  // Meetings & Resources:
+  const localMeetings = Array.isArray(local.meetings) ? local.meetings : [];
+  const remoteMeetings = Array.isArray(remote.meetings) ? remote.meetings : [];
+  const meetingMap = new Map<string, Meeting>();
+  const meetingOrder = isLocalNewer ? [...remoteMeetings, ...localMeetings] : [...localMeetings, ...remoteMeetings];
+  for (const m of meetingOrder) {
+    if (m && m.id) meetingMap.set(m.id, m);
+  }
+  const meetings = meetingMap.size ? Array.from(meetingMap.values()) : seed.meetings;
+
+  const localResources = Array.isArray(local.resources) ? local.resources : [];
+  const remoteResources = Array.isArray(remote.resources) ? remote.resources : [];
+  const resourceMap = new Map<string, ResourceDoc>();
+  const resourceOrder = isLocalNewer ? [...remoteResources, ...localResources] : [...localResources, ...remoteResources];
+  for (const r of resourceOrder) {
+    if (r && r.id) resourceMap.set(r.id, r);
+  }
+  const resources = resourceMap.size ? Array.from(resourceMap.values()) : (seed.resources ?? RESOURCES);
+
   const lastModified = Math.max(localTime, remoteTime);
 
   return withFallbackSlices({
@@ -1509,6 +1572,8 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     legal,
     users,
     tasks,
+    meetings,
+    resources,
     polls,
     suggestions,
     events,
@@ -1609,7 +1674,31 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     if (state.branding?.schoolName) {
       document.title = `${state.branding.schoolName} | ${state.branding.boardName || "Student Council"}`;
     }
-  }, [state.branding?.schoolName, state.branding?.boardName]);
+    if (typeof document !== "undefined") {
+      const logoUrl = (state.branding?.logoUrl || "").trim();
+      try {
+        if (logoUrl) {
+          window.localStorage.setItem("shristi_branding_logo_v1", logoUrl);
+        } else {
+          window.localStorage.removeItem("shristi_branding_logo_v1");
+        }
+      } catch {}
+      const rels = ["icon", "shortcut icon", "apple-touch-icon"];
+      rels.forEach((rel) => {
+        let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+        if (logoUrl) {
+          if (!link) {
+            link = document.createElement("link");
+            link.rel = rel;
+            document.head.appendChild(link);
+          }
+          link.href = logoUrl;
+        } else if (link) {
+          link.removeAttribute("href");
+        }
+      });
+    }
+  }, [state.branding?.schoolName, state.branding?.boardName, state.branding?.logoUrl]);
 
   useEffect(() => {
     const disconnect = connectBus((msg) => {

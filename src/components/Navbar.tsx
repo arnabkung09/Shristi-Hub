@@ -88,11 +88,23 @@ function NotificationBell() {
       </button>
       <AnimatePresence>
         {open && <motion.div className="nav-popover" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}>
-          <div className="popover-heading"><strong>Notifications <span className="text-[var(--purple)]">({unreadCount})</span></strong><button onClick={() => dispatch({ type: "MARK_ALL_READ", userId: user.id })}><CheckCheck className="mr-1 inline h-3 w-3" />Mark all read</button></div>
+          <div className="popover-heading">
+            <strong className="flex items-center gap-2">
+              {state.branding.logoUrl && (
+                <Crest src={state.branding.logoUrl} className="h-4 w-4 rounded object-contain" />
+              )}
+              <span>Notifications <span className="text-[var(--purple)]">({unreadCount})</span></span>
+            </strong>
+            <button onClick={() => dispatch({ type: "MARK_ALL_READ", userId: user.id })}><CheckCheck className="mr-1 inline h-3 w-3" />Mark all read</button>
+          </div>
           <div className="max-h-[365px] overflow-y-auto">
             {!notifications.length && <p className="p-8 text-center text-xs text-[var(--muted)]">You are all caught up.</p>}
             {notifications.slice(0, 15).map((n) => <button key={n.id} className={`notice-item ${!n.readBy.includes(user.id) ? "unread" : ""}`} onClick={() => { dispatch({ type: "MARK_READ", notifId: n.id, userId: user.id }); if (n.actionTab) setActiveTab(n.actionTab); setOpen(false); }}>
-              <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${n.urgent ? "bg-rose-500" : "bg-indigo-400"}`} />
+              {state.branding.logoUrl ? (
+                <Crest src={state.branding.logoUrl} className="mt-0.5 h-6 w-6 shrink-0 rounded-md object-contain" />
+              ) : (
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${n.urgent ? "bg-rose-500" : "bg-indigo-400"}`} />
+              )}
               <span><strong>{n.title}</strong><p>{n.body}</p><small>{n.senderName} / {relativeTime(n.timestamp)}</small></span>
             </button>)}
           </div>
@@ -139,11 +151,11 @@ function UserMenu() {
   return (
     <div className="relative" ref={ref}>
       <button className="profile-trigger" aria-label="Open profile menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span><span className="profile-name">{user.name}</span><span className="profile-meta"><CircleCheck />Roster verified <span className="role-tag">{user.role}</span></span></span>
+        <span><span className="profile-name">{user.name}</span><span className="profile-meta"><CircleCheck />Roster verified <span className="role-tag">{user.role === "admin" ? "Admin" : user.role === "council" ? "Council" : user.role === "teacher" ? "Teacher" : user.role === "grade" ? "Class" : "Student"}</span></span></span>
         <span className="profile-initial">{user.name[0]}</span>
       </button>
       {open && <div className="nav-popover !w-[280px] page-motion">
-        <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
+        <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.role === "teacher" ? "Teacher / Staff" : user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Mobile & OS notifications</button>
         {!pwaInstalled && (isInstallable || pwaIOS) && (
@@ -169,9 +181,9 @@ function UserMenu() {
       <Modal
         open={profile}
         onClose={() => setProfile(false)}
-        title={profileTab === "profile" ? "My student profile" : "Notification Settings"}
+        title={profileTab === "profile" ? "My Account Profile" : "Notification Settings"}
         icon={profileTab === "profile" ? <UserRound /> : <Bell />}
-        subtitle={profileTab === "profile" ? "Your identity in the Shristi Academy council workspace." : "Configure Mobile (Android/iOS) and OS desktop push notifications, haptic vibration, and alert preferences."}
+        subtitle={profileTab === "profile" ? "Your verified role and identity in the Shristi Academy workspace." : "Configure Mobile (Android/iOS) and OS desktop push notifications, haptic vibration, and alert preferences."}
         wide
       >
         <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-black/5 p-1 dark:bg-white/5">
@@ -203,7 +215,16 @@ function UserMenu() {
 
         {profileTab === "profile" ? (
           <div className="form-stack">
-            {[["Full name", user.name], ["Institutional email", user.email], ["Account ID", user.id.toUpperCase()], ["Class", user.gradeLabel ?? "Staff"], ["House", user.house ? houseFullName(state.houses, user.house) : "No House"], ["Council office", user.councilTitle ?? "—"], ["Account status", user.status]].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
+            {[
+              ["Full name", user.name],
+              ["Verified Role", user.role === "admin" ? "Administrator" : user.role === "council" ? "Council Officer" : user.role === "teacher" ? "Teacher / Staff" : user.role === "grade" ? "Class Account" : "Student"],
+              ["Institutional email", user.email],
+              ["Account ID", user.id.toUpperCase()],
+              ["Class / Group", user.role === "teacher" ? "Staff" : (user.gradeLabel ?? "Staff")],
+              ["House", user.house ? houseFullName(state.houses, user.house) : "No House"],
+              ["Council office", user.councilTitle ?? "—"],
+              ["Account status", user.status],
+            ].map(([label, value]) => <div key={label} className="integration-row"><span>{label}</span><strong className="break-all text-right text-[11px]">{value}</strong></div>)}
           </div>
         ) : (
           <NotificationSettings onClose={() => setProfile(false)} />
@@ -276,7 +297,7 @@ export default function Navbar() {
           <button className="nav-icon mobile-menu-trigger" aria-label="Open navigation menu" aria-expanded={drawer} onClick={() => setDrawer(true)}><Menu /></button>
         </div>
       </div>
-      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={<Shield />}>
+      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={state.branding.logoUrl ? <Crest className="h-5 w-5" src={state.branding.logoUrl} /> : undefined}>
         <nav className="grid grid-cols-2 gap-2" aria-label="Mobile navigation">{links.map((link) => <button key={link.id} className={`btn min-h-11 justify-start ${active === link.id ? "btn-primary" : "btn-secondary"}`} onClick={() => go(link.id)}>{link.label}</button>)}</nav>
         <div className="dialog-actions"><button className="btn btn-danger" onClick={() => void signOutSession()}><LogOut />Sign out</button></div>
       </Modal>

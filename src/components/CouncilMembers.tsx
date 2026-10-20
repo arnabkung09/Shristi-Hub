@@ -80,6 +80,9 @@ export default function CouncilMembers() {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editDetails, setEditDetails] = useState("");
+  const [editDepartment, setEditDepartment] = useState("");
+  const [editAssignee, setEditAssignee] = useState("");
+  const [editDue, setEditDue] = useState("");
 
   const admin = user?.role === "admin";
   const canManage = admin || hasPermission("tasks");
@@ -213,6 +216,19 @@ export default function CouncilMembers() {
     }
   };
 
+  const startEditingMilestoneTask = (task: (typeof state.tasks)[0], deptFallback?: string) => {
+    const resolvedDept = task.department || deptFallback || milestone || state.departments[0] || "General";
+    if (!milestone) {
+      setMilestone(resolvedDept);
+    }
+    setEditingTaskId(task.id);
+    setEditTitle(task.title);
+    setEditDetails(task.details || "");
+    setEditDepartment(resolvedDept);
+    setEditAssignee(task.assigneeId || "");
+    setEditDue(task.due || new Date().toISOString().slice(0, 10));
+  };
+
   const handleSaveEdit = (taskId: string) => {
     if (!editTitle.trim()) return;
     try {
@@ -222,9 +238,12 @@ export default function CouncilMembers() {
           id: taskId,
           title: editTitle.trim(),
           details: editDetails.trim(),
+          department: editDepartment || milestone || undefined,
+          assigneeId: editAssignee,
+          due: editDue || undefined,
         },
       });
-      announce("Milestone updated.");
+      announce("Department log task updated.", "success");
       setEditingTaskId(null);
     } catch (err) {
       announce(err instanceof Error ? err.message : "Unable to update milestone.", "error");
@@ -713,25 +732,47 @@ export default function CouncilMembers() {
 
                     {deptDone.length > 0 ? (
                       <ul className="mt-3 space-y-2 border-t border-[var(--border)] pt-2.5">
-                        {deptDone.slice(0, 3).map((t) => {
+                        {deptDone.slice(0, 4).map((t) => {
                           const assignee = state.users.find((u) => u.id === t.assigneeId);
                           return (
-                            <li key={t.id} className="flex items-start gap-2 text-xs leading-snug">
-                              <CircleCheck className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
-                              <div className="min-w-0 flex-1">
-                                <span className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-1">
-                                  {t.title}
-                                </span>
-                                <span className="block text-[10px] text-[var(--faint)]">
-                                  {assignee ? assignee.name : "Department Team"} · {fmtDate(t.due)}
-                                </span>
+                            <li key={t.id} className="flex items-start justify-between gap-2 text-xs leading-snug group">
+                              <div className="flex items-start gap-2 min-w-0 flex-1">
+                                <CircleCheck className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                                <div className="min-w-0 flex-1">
+                                  <span className="font-semibold text-slate-800 dark:text-slate-100 line-clamp-1">
+                                    {t.title}
+                                  </span>
+                                  <span className="block text-[10px] text-[var(--faint)]">
+                                    {assignee ? assignee.name : "Department Team"} · {fmtDate(t.due)}
+                                  </span>
+                                </div>
                               </div>
+                              {canManage && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingMilestoneTask(t, department)}
+                                    className="rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted)] hover:border-[var(--purple)] hover:text-[var(--purple)] flex items-center gap-1 transition-colors"
+                                    title="Edit this logged task"
+                                  >
+                                    <Pencil className="h-2.5 w-2.5" /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteTask(t)}
+                                    className="rounded-md border border-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 hover:bg-red-500/10 flex items-center transition-colors"
+                                    title="Delete this logged task"
+                                  >
+                                    <Trash2 className="h-2.5 w-2.5" />
+                                  </button>
+                                </div>
+                              )}
                             </li>
                           );
                         })}
-                        {deptDone.length > 3 && (
+                        {deptDone.length > 4 && (
                           <li className="text-[11px] font-semibold text-[var(--purple)]">
-                            +{deptDone.length - 3} more completed {deptDone.length - 3 === 1 ? "task" : "tasks"}
+                            +{deptDone.length - 4} more completed {deptDone.length - 4 === 1 ? "task" : "tasks"}
                           </li>
                         )}
                       </ul>
@@ -865,18 +906,76 @@ export default function CouncilMembers() {
               return (
                 <div key={task.id} className="rounded-xl border border-[var(--border)] p-4 space-y-2">
                   {isEditing ? (
-                    <div className="space-y-2">
-                      <input
-                        className="control !text-xs !py-1.5"
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                      />
-                      <textarea
-                        className="control !text-xs !py-1.5"
-                        rows={2}
-                        value={editDetails}
-                        onChange={(e) => setEditDetails(e.target.value)}
-                      />
+                    <div className="space-y-2.5">
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1">
+                          Task / Milestone Title
+                        </label>
+                        <input
+                          className="control !text-xs !py-1.5"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          placeholder="Milestone title"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1">
+                            Department
+                          </label>
+                          <select
+                            className="control !text-xs !py-1.5"
+                            value={editDepartment || milestone || ""}
+                            onChange={(e) => setEditDepartment(e.target.value)}
+                          >
+                            {state.departments.map((d) => (
+                              <option key={d} value={d}>
+                                {d} Department
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1">
+                            Completed By
+                          </label>
+                          <select
+                            className="control !text-xs !py-1.5"
+                            value={editAssignee}
+                            onChange={(e) => setEditAssignee(e.target.value)}
+                          >
+                            <option value="">Department Team</option>
+                            {officers.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1">
+                            Date
+                          </label>
+                          <input
+                            type="date"
+                            className="control !text-xs !py-1.5"
+                            value={editDue}
+                            onChange={(e) => setEditDue(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1">
+                          Details / Outcome Notes
+                        </label>
+                        <textarea
+                          className="control !text-xs !py-1.5"
+                          rows={2}
+                          value={editDetails}
+                          onChange={(e) => setEditDetails(e.target.value)}
+                          placeholder="Summary of deliverables or impact..."
+                        />
+                      </div>
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
@@ -890,7 +989,7 @@ export default function CouncilMembers() {
                           className="btn btn-primary !min-h-7 !px-2.5 !text-[10px]"
                           onClick={() => handleSaveEdit(task.id)}
                         >
-                          Save
+                          Save Changes
                         </button>
                       </div>
                     </div>
@@ -913,11 +1012,7 @@ export default function CouncilMembers() {
                             type="button"
                             className="icon-action text-slate-500 hover:text-slate-800"
                             title="Edit task"
-                            onClick={() => {
-                              setEditingTaskId(task.id);
-                              setEditTitle(task.title);
-                              setEditDetails(task.details || "");
-                            }}
+                            onClick={() => startEditingMilestoneTask(task)}
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
