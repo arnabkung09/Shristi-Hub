@@ -72,13 +72,13 @@ export default function Dashboard() {
       <RevealBlocks>
       {/* Welcome banner */}
       <Card className="relative overflow-hidden p-6 sm:p-7">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.14),transparent_55%)]" />
-        <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-4">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,90,77,0.16),transparent_55%),radial-gradient(ellipse_at_bottom_left,rgba(34,197,94,0.12),transparent_55%)]" />
+        <div className="relative flex flex-wrap items-center justify-between gap-5">
+          <div className="flex items-center gap-5">
             {state.branding.logoUrl && (
               <Crest
                 src={state.branding.logoUrl}
-                className="h-14 w-14 shrink-0 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-sm dark:border-white/10 dark:bg-ink-800"
+                className="h-20 w-20 sm:h-24 sm:w-24 shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-2 shadow-md"
               />
             )}
             <div>
@@ -99,7 +99,7 @@ export default function Dashboard() {
           </div>
           <div className="hidden text-right sm:block">
             <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">House Cup frontrunner</p>
-            <p className={cn("mt-1 flex items-center justify-end gap-2 font-display text-4xl font-extrabold", HOUSE_TEXT[leader[0]])}>{houseLogo(state.houses, leader[0]) && <img src={houseLogo(state.houses, leader[0])} alt="" className="h-9 w-9 rounded-full object-cover" />}{houseShortName(state.houses, leader[0])}</p>
+            <p className={cn("mt-1.5 flex items-center justify-end gap-2.5 font-display text-4xl font-extrabold", HOUSE_TEXT[leader[0]])}>{houseLogo(state.houses, leader[0]) && <img src={houseLogo(state.houses, leader[0])} alt="" className="h-12 w-12 rounded-full object-cover shadow-md" />}{houseShortName(state.houses, leader[0])}</p>
             <p className="text-xs text-slate-400">{leader[1].toLocaleString()} pts</p>
           </div>
         </div>
@@ -175,10 +175,10 @@ export default function Dashboard() {
               <div key={house}>
                 <div className="mb-1.5 flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <span className={cn("grid h-7 w-7 place-items-center rounded-full ring-2", MEDAL_STYLE[i].ring, "bg-white dark:bg-ink-800")}>
+                    <span className={cn("grid h-7 w-7 place-items-center rounded-full ring-2", MEDAL_STYLE[i].ring, "bg-[var(--surface-inset)]")}>
                       {MEDAL_STYLE[i].icon}
                     </span>
-                    {houseLogo(state.houses, house) ? <img src={houseLogo(state.houses, house)} alt="" className="h-6 w-6 rounded-full object-cover" /> : null}
+                    {houseLogo(state.houses, house) ? <img src={houseLogo(state.houses, house)} alt="" className="h-9 w-9 rounded-full object-cover shadow-sm" /> : null}
                     <span className="text-sm font-bold text-slate-800 dark:text-slate-100">{houseFullName(state.houses, house)}</span>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{MEDAL_STYLE[i].label}</span>
                   </div>

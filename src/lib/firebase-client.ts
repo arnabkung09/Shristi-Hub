@@ -92,6 +92,8 @@ function cloudStudent(student: Student) {
     role: student.role, status: student.status, councilTitle: student.councilTitle ?? null,
     councilPost: student.councilPost ?? student.councilTitle ?? null,
     department: student.department ?? null, avatarUrl: safeAvatar,
+    directoryOrder: student.directoryOrder ?? null,
+    directoryPinned: Boolean(student.directoryPinned),
     createdAt: student.createdAt,
   };
 }
@@ -179,6 +181,7 @@ function cloudSafeState(state: HubState) {
     ...state,
     session: null,
     departments: Array.isArray(state.departments) ? [...state.departments] : [],
+    directoryOrder: Array.isArray(state.directoryOrder) ? [...state.directoryOrder] : [],
     users: state.users.map(cloudStudent),
     gallery: state.gallery.map((item) => ({ ...item, image: item.image ?? null })),
     branding: {

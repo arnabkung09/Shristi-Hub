@@ -234,185 +234,260 @@ export default function MeetingsAndFiles() {
 
   return (
     <RevealBlocks>
-      <div className="split-grid">
-      {/* LEFT COLUMN: MEETING MINUTES */}
-      <div>
-        <div className="section-head flex-wrap gap-2">
-          <h2>Meeting Minutes</h2>
+      <div className="space-y-10">
+        {/* Page Heading */}
+        <div className="directory-heading flex flex-col sm:flex-row sm:items-start justify-between gap-5 pb-4 border-b border-[var(--border)]">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold font-display">
+              Meetings, Minutes &amp; Files Folder{" "}
+              <span className="outline-count">
+                {state.meetings.length} {state.meetings.length === 1 ? "Meeting" : "Meetings"} · {resourcesList.length} {resourcesList.length === 1 ? "File" : "Files"}
+              </span>
+            </h1>
+            <p className="text-xs sm:text-sm text-[var(--muted)] mt-2 leading-relaxed max-w-2xl">
+              Review official student council meeting schedules, published minutes, and downloadable governance documents and templates.
+            </p>
+          </div>
           {canManage && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-3 shrink-0">
               <button
                 type="button"
-                className="btn btn-outline !min-h-8 !px-3 !text-xs"
+                className="btn btn-outline !min-h-10 !px-4 !text-xs"
                 onClick={() => openMinutesForMeeting()}
               >
-                <FileText className="h-3.5 w-3.5" /> Add Minutes
+                <FileText className="h-4 w-4" /> Add / Edit Minutes
               </button>
               <button
                 type="button"
-                className="btn btn-primary !min-h-8 !px-3.5 !text-xs"
+                className="btn btn-primary !min-h-10 !px-4 !text-xs"
                 onClick={() => setOpen(true)}
               >
-                <Plus className="h-3.5 w-3.5" /> Schedule Meeting
+                <Plus className="h-4 w-4" /> Schedule Meeting
+              </button>
+              <button
+                type="button"
+                className="btn btn-green !min-h-10 !px-4 !text-xs"
+                onClick={() => {
+                  setResError(null);
+                  setResourceModalOpen(true);
+                }}
+              >
+                <Upload className="h-4 w-4" /> Upload File Resource
               </button>
             </div>
           )}
         </div>
-        <div className="stack">
-          {state.meetings.map((meeting) => (
-            <article key={meeting.id} className="panel card-pad">
-              <div className="row-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-sm font-bold">{meeting.title}</h3>
-                    <span className={`pill ${meeting.minutes ? "pill-green" : "pill-amber"}`}>
-                      {meeting.minutes ? "Minutes Recorded" : "Upcoming"}
-                    </span>
+
+        {/* SECTION 1: MEETING MINUTES FOLDER (SPACIOUS CARDS) */}
+        <section className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2.5">
+                <Calendar className="h-5 w-5 text-[var(--purple)]" />
+                <span>Official Meeting Minutes Folder</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">
+                Agendas, attendance records, and official decisions from every council session.
+              </p>
+            </div>
+            {canManage && (
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  className="btn btn-outline !min-h-9 !px-3.5 !text-xs"
+                  onClick={() => openMinutesForMeeting()}
+                >
+                  <FileText className="h-3.5 w-3.5" /> Record Minutes
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary !min-h-9 !px-4 !text-xs"
+                  onClick={() => setOpen(true)}
+                >
+                  <Plus className="h-3.5 w-3.5" /> New Meeting
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            {state.meetings.map((meeting) => (
+              <article
+                key={meeting.id}
+                className="panel p-6 sm:p-8 flex flex-col justify-between gap-5 shadow-md"
+              >
+                <div className="space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <h3 className="font-display text-base sm:text-lg font-bold leading-snug">
+                          {meeting.title}
+                        </h3>
+                        <span className={`pill ${meeting.minutes ? "pill-green" : "pill-amber"}`}>
+                          {meeting.minutes ? "Minutes Recorded" : "Upcoming Session"}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-xs text-[var(--muted)] pt-0.5">
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-inset)] px-2.5 py-1 border border-[var(--border)]">
+                          <Calendar className="h-3.5 w-3.5 text-[var(--purple)]" /> {fmtDate(meeting.date)}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-inset)] px-2.5 py-1 border border-[var(--border)]">
+                          <Clock className="h-3.5 w-3.5 text-[var(--green)]" /> {meeting.startTime}{meeting.endTime ? `–${meeting.endTime}` : ""}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-inset)] px-2.5 py-1 border border-[var(--border)]">
+                          <MapPin className="h-3.5 w-3.5 text-[var(--purple)]" /> {meeting.venue}
+                        </span>
+                      </div>
+                    </div>
+                    {canManage && (
+                      <button
+                        type="button"
+                        className="icon-action red shrink-0 !h-9 !w-9"
+                        title="Delete meeting"
+                        onClick={() => handleDeleteMeeting(meeting.id, meeting.title)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
-                  <p className="mt-1 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
-                    <span className="inline-flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5" /> {fmtDate(meeting.date)}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" /> {meeting.startTime}{meeting.endTime ? `–${meeting.endTime}` : ""}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <MapPin className="h-3.5 w-3.5" /> {meeting.venue}
-                    </span>
-                  </p>
+
+                  <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-4 sm:p-5 text-xs sm:text-sm leading-relaxed">
+                    <strong className="block text-[10px] font-bold uppercase tracking-wider text-[var(--faint)] mb-1.5">
+                      Session Agenda
+                    </strong>
+                    <p className="text-[var(--text)] leading-relaxed">
+                      {Array.isArray(meeting.agenda) ? meeting.agenda.join(" · ") : meeting.agenda}
+                    </p>
+                  </div>
+
+                  {meeting.minutes ? (
+                    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)] p-4 sm:p-5 text-xs sm:text-sm leading-relaxed">
+                      <strong className="text-[var(--green)] block text-[11px] font-bold uppercase tracking-wider mb-2">
+                        Official Meeting Minutes
+                      </strong>
+                      <p className="text-[var(--text)] whitespace-pre-wrap leading-relaxed">
+                        {meeting.minutes}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-[var(--border)] bg-[var(--surface-inset)] p-4 sm:p-5 text-xs italic text-[var(--faint)]">
+                      No official minutes have been published for this session yet.
+                    </div>
+                  )}
                 </div>
-                {canManage && (
-                  <button
-                    type="button"
-                    className="icon-action red shrink-0"
-                    title="Delete meeting"
-                    onClick={() => handleDeleteMeeting(meeting.id, meeting.title)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
 
-              <div className="mt-3 rounded-xl bg-[var(--surface-inset)] p-3 text-xs">
-                <strong className="text-[var(--faint)]">Agenda: </strong>
-                <span className="text-[var(--muted)]">
-                  {Array.isArray(meeting.agenda) ? meeting.agenda.join(" · ") : meeting.agenda}
-                </span>
-              </div>
-
-              {meeting.minutes ? (
-                <div className="mt-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 text-xs">
-                  <strong className="text-emerald-700 dark:text-emerald-300 block mb-1">
-                    Official Meeting Minutes:
-                  </strong>
-                  <p className="text-[var(--muted)] whitespace-pre-wrap leading-relaxed">
-                    {meeting.minutes}
-                  </p>
+                <div className="pt-4 border-t border-[var(--border)] flex flex-wrap items-center gap-3">
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="btn btn-outline !min-h-9 !px-4 !text-xs"
+                      onClick={() => openMinutesForMeeting(meeting.id)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> {meeting.minutes ? "Edit Minutes" : "Add Minutes"}
+                    </button>
+                  )}
+                  {meeting.minutes && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary !min-h-9 !px-4 !text-xs"
+                      onClick={() => {
+                        downloadMinutes(meeting);
+                        announce(`Downloaded minutes for ${meeting.title}.`);
+                      }}
+                    >
+                      <Download className="h-3.5 w-3.5" /> Download Minutes (.txt)
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <p className="mt-2.5 text-xs italic text-[var(--faint)]">
-                  No minutes published yet.
-                </p>
-              )}
+              </article>
+            ))}
+          </div>
+        </section>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                {canManage && (
+        {/* SECTION 2: FILE RESOURCES FOLDER (SPACIOUS GRID) */}
+        <section className="space-y-5 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2.5">
+                <FileText className="h-5 w-5 text-[var(--green)]" />
+                <span>Council File Resources &amp; Templates</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-[var(--muted)] mt-1">
+                Official constitution, budget templates, club handbooks, and downloadable council files.
+              </p>
+            </div>
+            {canManage && (
+              <button
+                type="button"
+                className="btn btn-primary !min-h-9 !px-4 !text-xs"
+                onClick={() => {
+                  setResError(null);
+                  setResourceModalOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add File Resource
+              </button>
+            )}
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            {resourcesList.map((res) => (
+              <div
+                key={res.id}
+                className="panel p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm"
+              >
+                <div className="flex items-start gap-4 min-w-0 flex-1">
+                  <div className="resource-icon shrink-0">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-bold leading-snug">{res.title}</h3>
+                      <span className="pill">{res.tag}</span>
+                    </div>
+                    <p className="text-xs text-[var(--muted)] leading-relaxed">
+                      {res.category} · {res.size} · Updated {res.updated}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                   <button
                     type="button"
-                    className="btn btn-outline !min-h-7 !px-3 !text-[10px]"
-                    onClick={() => openMinutesForMeeting(meeting.id)}
+                    className="btn btn-secondary !min-h-9 !px-3 !text-xs"
+                    aria-label={`View ${res.title}`}
+                    title="Preview resource"
+                    onClick={() => setPreviewResource(res)}
                   >
-                    <Pencil className="h-3 w-3" /> {meeting.minutes ? "Edit Minutes" : "Add Minutes"}
+                    <Eye className="h-3.5 w-3.5" /> Preview
                   </button>
-                )}
-                {meeting.minutes && (
                   <button
                     type="button"
-                    className="btn btn-secondary !min-h-7 !px-3 !text-[10px]"
+                    className="btn btn-outline !min-h-9 !px-3 !text-xs"
+                    aria-label={`Download ${res.title}`}
+                    title="Download file"
                     onClick={() => {
-                      downloadMinutes(meeting);
-                      announce(`Downloaded minutes for ${meeting.title}.`);
+                      downloadResource(res);
+                      announce(`Downloaded ${res.title}.`);
                     }}
                   >
-                    <Download className="h-3 w-3" /> Download Minutes
+                    <Download className="h-3.5 w-3.5" /> Download
                   </button>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      </div>
-
-      {/* RIGHT COLUMN: FILE RESOURCES */}
-      <div>
-        <div className="section-head flex-wrap gap-2">
-          <h2>File Resources</h2>
-          {canManage && (
-            <button
-              type="button"
-              className="btn btn-primary !min-h-8 !px-3.5 !text-xs"
-              onClick={() => {
-                setResError(null);
-                setResourceModalOpen(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" /> Add File Resource
-            </button>
-          )}
-        </div>
-        <div className="stack">
-          {resourcesList.map((res) => (
-            <div key={res.id} className="panel resource-row">
-              <div className="resource-meta min-w-0 flex-1">
-                <div className="resource-icon shrink-0">
-                  <FileText />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-xs font-bold truncate">{res.title}</h3>
-                  <p className="text-[11px] text-[var(--faint)]">
-                    {res.category} · {res.size} · Updated {res.updated}
-                  </p>
+                  {canManage && (
+                    <button
+                      type="button"
+                      className="icon-action red !h-9 !w-9"
+                      aria-label={`Delete ${res.title}`}
+                      title="Delete file resource"
+                      onClick={() => handleDeleteResource(res)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <span className="pill">{res.tag}</span>
-                <button
-                  type="button"
-                  className="icon-action"
-                  aria-label={`View ${res.title}`}
-                  title="Preview resource"
-                  onClick={() => setPreviewResource(res)}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  className="icon-action"
-                  aria-label={`Download ${res.title}`}
-                  title="Download file"
-                  onClick={() => {
-                    downloadResource(res);
-                    announce(`Downloaded ${res.title}.`);
-                  }}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </button>
-                {canManage && (
-                  <button
-                    type="button"
-                    className="icon-action red"
-                    aria-label={`Delete ${res.title}`}
-                    title="Delete file resource"
-                    onClick={() => handleDeleteResource(res)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+            ))}
+          </div>
+        </section>
 
       {/* SCHEDULE MEETING MODAL */}
       <Modal

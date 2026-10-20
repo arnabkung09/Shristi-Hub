@@ -1032,12 +1032,20 @@ function applyAction(state: HubState, action: Action): HubState {
     }
     case "SET_DIRECTORY_ORDER": {
       const order = Array.isArray(action.order) ? action.order : [];
+      const isReset = order.length === 0;
       const users = state.users.map((u) => {
+        if (isReset) {
+          return { ...u, directoryOrder: undefined, directoryPinned: false };
+        }
         const idx = order.indexOf(u.id);
-        return idx >= 0 ? { ...u, directoryOrder: idx } : u;
+        return idx >= 0 ? { ...u, directoryOrder: idx, directoryPinned: idx === 0 ? u.directoryPinned : false } : u;
       });
       try {
-        localStorage.setItem("shristi_council_directory_order", JSON.stringify(order));
+        if (isReset) {
+          localStorage.removeItem("shristi_council_directory_order");
+        } else {
+          localStorage.setItem("shristi_council_directory_order", JSON.stringify(order));
+        }
       } catch {}
       return {
         ...state,
@@ -1048,9 +1056,7 @@ function applyAction(state: HubState, action: Action): HubState {
     case "PIN_DIRECTORY_OFFICER": {
       const { userId, pinned } = action;
       const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
-      const currentOrder = state.directoryOrder && state.directoryOrder.length > 0
-        ? [...state.directoryOrder]
-        : officers.map((u) => u.id);
+      const currentOrder = sortDirectoryOfficers(officers, state.directoryOrder).map((u) => u.id);
       let nextOrder = currentOrder.filter((id) => id !== userId);
       if (pinned) {
         nextOrder = [userId, ...nextOrder];
@@ -1058,10 +1064,11 @@ function applyAction(state: HubState, action: Action): HubState {
         nextOrder = [...nextOrder, userId];
       }
       const users = state.users.map((u) => {
+        const orderIdx = nextOrder.indexOf(u.id);
         if (u.id === userId) {
-          return { ...u, directoryPinned: pinned, directoryOrder: pinned ? 0 : 999 };
+          return { ...u, directoryPinned: pinned, directoryOrder: orderIdx >= 0 ? orderIdx : 999 };
         }
-        return u;
+        return orderIdx >= 0 ? { ...u, directoryOrder: orderIdx } : u;
       });
       try {
         localStorage.setItem("shristi_council_directory_order", JSON.stringify(nextOrder));
@@ -1075,13 +1082,7 @@ function applyAction(state: HubState, action: Action): HubState {
     case "MOVE_DIRECTORY_OFFICER": {
       const { userId, direction } = action;
       const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
-      const currentOrder = state.directoryOrder && state.directoryOrder.length > 0
-        ? [...state.directoryOrder]
-        : officers.map((u) => u.id);
-
-      for (const o of officers) {
-        if (!currentOrder.includes(o.id)) currentOrder.push(o.id);
-      }
+      const currentOrder = sortDirectoryOfficers(officers, state.directoryOrder).map((u) => u.id);
 
       const idx = currentOrder.indexOf(userId);
       if (idx === -1) return state;
@@ -1106,7 +1107,12 @@ function applyAction(state: HubState, action: Action): HubState {
           ? {
               ...u,
               directoryOrder: orderIdx,
-              directoryPinned: direction === "top" && isTarget ? true : u.directoryPinned,
+              directoryPinned:
+                direction === "top" && isTarget
+                  ? true
+                  : orderIdx === 0 && u.directoryPinned
+                  ? true
+                  : false,
             }
           : u;
       });
@@ -1188,6 +1194,40 @@ const HubContext = createContext<HubContextValue | null>(null);
 let tabSetter: ((t: string) => void) | null = null;
 export function navigateTab(tab: string) {
   tabSetter?.(tab);
+}
+
+export function sortDirectoryOfficers(officers: Student[], directoryOrder?: string[]): Student[] {
+  return [...officers].sort((a, b) => {
+    if (directoryOrder && directoryOrder.length > 0) {
+      const idxA = directoryOrder.indexOf(a.id);
+      const idxB = directoryOrder.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+    }
+
+    if (a.directoryPinned && !b.directoryPinned) return -1;
+    if (!a.directoryPinned && b.directoryPinned) return 1;
+
+    if (a.directoryOrder !== undefined && a.directoryOrder !== null && b.directoryOrder !== undefined && b.directoryOrder !== null) {
+      return a.directoryOrder - b.directoryOrder;
+    }
+    if (a.directoryOrder !== undefined && a.directoryOrder !== null) return -1;
+    if (b.directoryOrder !== undefined && b.directoryOrder !== null) return 1;
+
+    const priority = (u: Student) => {
+      if (u.role === "admin") return 0;
+      const title = (u.councilTitle ?? "").toLowerCase();
+      if (title.includes("president") && !title.includes("vice")) return 1;
+      if (title.includes("vice")) return 2;
+      if (title.includes("secretary")) return 3;
+      return 10;
+    };
+    const pA = priority(a);
+    const pB = priority(b);
+    if (pA !== pB) return pA - pB;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function validRoster(users: Student[]): boolean {
@@ -1606,12 +1646,25 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   }
   const resources = resourceMap.size ? Array.from(resourceMap.values()) : (seed.resources ?? RESOURCES);
 
+  const localDirOrder = Array.isArray(local.directoryOrder) && local.directoryOrder.length > 0 ? local.directoryOrder : null;
+  const remoteDirOrder = Array.isArray(remote.directoryOrder) && remote.directoryOrder.length > 0 ? remote.directoryOrder : null;
+  const directoryOrder = isLocalNewer
+    ? (localDirOrder || remoteDirOrder || [])
+    : (remoteDirOrder || localDirOrder || []);
+
+  if (directoryOrder.length > 0) {
+    try {
+      localStorage.setItem("shristi_council_directory_order", JSON.stringify(directoryOrder));
+    } catch {}
+  }
+
   const lastModified = Math.max(localTime, remoteTime);
 
   return withFallbackSlices({
     ...local,
     ...remote,
     departments,
+    directoryOrder,
     branding,
     houses,
     legal,
@@ -1628,7 +1681,7 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     gallery,
     lastModified,
     session: local.session,
-    theme: local.theme,
+    theme: "dark",
   } as HubState, seed);
 }
 
@@ -1718,8 +1771,8 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   }, [state]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", state.theme === "dark");
-  }, [state.theme]);
+    document.documentElement.classList.add("dark");
+  }, []);
 
   useEffect(() => {
     if (state.branding?.schoolName) {

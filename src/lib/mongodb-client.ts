@@ -35,6 +35,8 @@ export function mongoStateFingerprint(state: Partial<HubState>): string {
         councilPost: u.councilPost ?? u.councilTitle ?? null,
         department: u.department ?? null,
         avatarUrl: u.avatarUrl ?? null,
+        directoryOrder: u.directoryOrder ?? null,
+        directoryPinned: Boolean(u.directoryPinned),
       }))
     : [];
 
@@ -43,6 +45,7 @@ export function mongoStateFingerprint(state: Partial<HubState>): string {
     houses: state.houses ?? null,
     legal: state.legal ?? null,
     departments: state.departments ?? [],
+    directoryOrder: state.directoryOrder ?? [],
     eventTypes: state.eventTypes ?? [],
     councilHubMembers: state.councilHubMembers ?? [],
     houseCaptains: state.houseCaptains ?? {},
@@ -59,6 +62,7 @@ export function mongoStateFingerprint(state: Partial<HubState>): string {
     siteRatings: state.siteRatings ?? [],
     pointsLedger: state.pointsLedger ?? [],
     meetings: state.meetings ?? [],
+    resources: state.resources ?? [],
     finances: state.finances ?? [],
     gallery: state.gallery ?? [],
     houseMessages: state.houseMessages ?? [],
@@ -159,7 +163,7 @@ if (typeof window !== "undefined") {
   void preloadRemoteState(false);
 }
 
-export async function fetchRemoteBranding(options?: { fresh?: boolean }): Promise<RemoteBrandingResult> {
+export async function fetchRemoteBranding(_options?: { fresh?: boolean }): Promise<RemoteBrandingResult> {
   try {
     const url = `/api/state?section=branding&fresh=1&t=${Date.now()}`;
     const res = await fetch(url, {

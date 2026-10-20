@@ -109,11 +109,11 @@ export default function HomePortal() {
   return <div className="space-y-7">
     <Reveal>
       <div className="flex flex-wrap items-end justify-between gap-5 border-b border-[var(--border)] pb-7">
-        <div className="flex items-start gap-4">
+        <div className="flex items-center gap-5">
           {state.branding.logoUrl && (
             <Crest
               src={state.branding.logoUrl}
-              className="h-14 w-14 sm:h-16 sm:w-16 shrink-0 rounded-2xl border border-[var(--border)] bg-white p-1.5 shadow-sm dark:bg-ink-800"
+              className="h-24 w-24 sm:h-28 sm:w-28 shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-2.5 shadow-md"
             />
           )}
           <div>

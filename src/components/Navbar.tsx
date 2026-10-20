@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, Moon, Shield, Smartphone, Sun, UserRound } from "lucide-react";
+import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, Shield, Smartphone, UserRound } from "lucide-react";
 import { relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
@@ -89,9 +89,9 @@ function NotificationBell() {
       <AnimatePresence>
         {open && <motion.div className="nav-popover" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}>
           <div className="popover-heading">
-            <strong className="flex items-center gap-2">
+            <strong className="flex items-center gap-2.5">
               {state.branding.logoUrl && (
-                <Crest src={state.branding.logoUrl} className="h-4 w-4 rounded object-contain" />
+                <Crest src={state.branding.logoUrl} className="h-7 w-7 rounded-md object-contain" />
               )}
               <span>Notifications <span className="text-[var(--purple)]">({unreadCount})</span></span>
             </strong>
@@ -101,7 +101,7 @@ function NotificationBell() {
             {!notifications.length && <p className="p-8 text-center text-xs text-[var(--muted)]">You are all caught up.</p>}
             {notifications.slice(0, 15).map((n) => <button key={n.id} className={`notice-item ${!n.readBy.includes(user.id) ? "unread" : ""}`} onClick={() => { dispatch({ type: "MARK_READ", notifId: n.id, userId: user.id }); if (n.actionTab) setActiveTab(n.actionTab); setOpen(false); }}>
               {state.branding.logoUrl ? (
-                <Crest src={state.branding.logoUrl} className="mt-0.5 h-6 w-6 shrink-0 rounded-md object-contain" />
+                <Crest src={state.branding.logoUrl} className="mt-0.5 h-9 w-9 shrink-0 rounded-lg object-contain" />
               ) : (
                 <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${n.urgent ? "bg-rose-500" : "bg-indigo-400"}`} />
               )}
@@ -155,7 +155,7 @@ function UserMenu() {
         <span className="profile-initial">{user.name[0]}</span>
       </button>
       {open && <div className="nav-popover !w-[280px] page-motion">
-        <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.role === "teacher" ? "Teacher / Staff" : user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
+        <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-2 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-6 w-6 text-[9px]" />{user.role === "teacher" ? "Teacher / Staff" : user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Mobile & OS notifications</button>
         {!pwaInstalled && (isInstallable || pwaIOS) && (
@@ -239,7 +239,7 @@ function UserMenu() {
 }
 
 export default function Navbar() {
-  const { user, state, dispatch, activeTab, setActiveTab, signOutSession } = useHub();
+  const { user, state, activeTab, setActiveTab, signOutSession } = useHub();
   const [drawer, setDrawer] = useState(false);
   const navigationRef = useRef<HTMLElement>(null);
   const current = activeTab.split("?")[0];
@@ -272,7 +272,7 @@ export default function Navbar() {
     <header className="site-header">
       <div className="site-container nav-inner">
         <button className="brand" onClick={() => go("home")} aria-label={`${state.branding.schoolName} home`}>
-          <Crest className="brand-crest rounded-lg" src={state.branding.logoUrl} />
+          <Crest className="brand-crest rounded-xl" src={state.branding.logoUrl} />
           <span><span className="brand-title">{state.branding.schoolName}</span><span className="brand-subtitle">{state.branding.boardName}</span></span>
         </button>
         <nav ref={navigationRef} className="primary-nav" aria-label="Main navigation">
@@ -290,14 +290,13 @@ export default function Navbar() {
           ))}
         </nav>
         <div className="nav-controls">
-          <button className="nav-icon !text-amber-500" aria-label={`Switch to ${state.theme === "dark" ? "light" : "dark"} mode`} onClick={() => dispatch({ type: "SET_THEME", theme: state.theme === "dark" ? "light" : "dark" })}>{state.theme === "dark" ? <Sun /> : <Moon />}</button>
           <NotificationBell />
           <UserMenu />
           <button className="signout" onClick={() => void signOutSession()}>Sign<br />Out</button>
           <button className="nav-icon mobile-menu-trigger" aria-label="Open navigation menu" aria-expanded={drawer} onClick={() => setDrawer(true)}><Menu /></button>
         </div>
       </div>
-      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={state.branding.logoUrl ? <Crest className="h-5 w-5" src={state.branding.logoUrl} /> : undefined}>
+      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={state.branding.logoUrl ? <Crest className="h-8 w-8" src={state.branding.logoUrl} /> : undefined}>
         <nav className="grid grid-cols-2 gap-2" aria-label="Mobile navigation">{links.map((link) => <button key={link.id} className={`btn min-h-11 justify-start ${active === link.id ? "btn-primary" : "btn-secondary"}`} onClick={() => go(link.id)}>{link.label}</button>)}</nav>
         <div className="dialog-actions"><button className="btn btn-danger" onClick={() => void signOutSession()}><LogOut />Sign out</button></div>
       </Modal>

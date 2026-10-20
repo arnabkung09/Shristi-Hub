@@ -20,10 +20,9 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { fmtDate, initials, uid, useHub } from "../store/hub";
+import { fmtDate, initials, sortDirectoryOfficers, uid, useHub } from "../store/hub";
 import { departmentFor, FEATURE_PERMISSIONS, tasksForDepartment } from "../lib/admin";
 import { GRADES } from "../lib/seed";
-import type { Student } from "../lib/types";
 import { RevealBlocks } from "./Effects";
 import { HouseMark, Modal } from "./ui";
 import CouncilControls, { type CouncilAction } from "./admin/CouncilControls";
@@ -88,43 +87,7 @@ export default function CouncilMembers() {
   const canManage = admin || hasPermission("tasks");
   const officers = state.users.filter((u) => u.role === "council" || u.role === "admin");
 
-  // Sort officers based on admin-defined directory order:
-  // 1. Pinned officers first
-  // 2. Order in state.directoryOrder array
-  // 3. User's explicit directoryOrder property
-  // 4. Default hierarchy (Admins & President first, etc.)
-  const sortedOfficers = [...officers].sort((a, b) => {
-    if (a.directoryPinned && !b.directoryPinned) return -1;
-    if (!a.directoryPinned && b.directoryPinned) return 1;
-
-    if (state.directoryOrder && state.directoryOrder.length > 0) {
-      const idxA = state.directoryOrder.indexOf(a.id);
-      const idxB = state.directoryOrder.indexOf(b.id);
-      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-      if (idxA !== -1) return -1;
-      if (idxB !== -1) return 1;
-    }
-
-    if (a.directoryOrder !== undefined && b.directoryOrder !== undefined) {
-      return a.directoryOrder - b.directoryOrder;
-    }
-    if (a.directoryOrder !== undefined) return -1;
-    if (b.directoryOrder !== undefined) return 1;
-
-    // Default hierarchy
-    const priority = (u: Student) => {
-      if (u.role === "admin") return 0;
-      const title = (u.councilTitle ?? "").toLowerCase();
-      if (title.includes("president") && !title.includes("vice")) return 1;
-      if (title.includes("vice")) return 2;
-      if (title.includes("secretary")) return 3;
-      return 10;
-    };
-    const pA = priority(a);
-    const pB = priority(b);
-    if (pA !== pB) return pA - pB;
-    return a.name.localeCompare(b.name);
-  });
+  const sortedOfficers = sortDirectoryOfficers(officers, state.directoryOrder);
 
   const filtered = sortedOfficers.filter(
     (u) =>
@@ -178,8 +141,7 @@ export default function CouncilMembers() {
   // Admin control: reset directory ordering to default hierarchy
   const handleResetOrder = () => {
     try {
-      const defaultOrder = officers.map((o) => o.id);
-      dispatch({ type: "SET_DIRECTORY_ORDER", order: defaultOrder });
+      dispatch({ type: "SET_DIRECTORY_ORDER", order: [] });
       announce("Directory order reset to default officer hierarchy.", "success");
     } catch (err) {
       announce(err instanceof Error ? err.message : "Unable to reset order.", "error");
@@ -473,7 +435,7 @@ export default function CouncilMembers() {
                               <Star className="h-2.5 w-2.5 fill-current" /> Pinned
                             </span>
                           )}
-                          {officer.house && <HouseMark house={officer.house} className="h-5 w-5 text-[8px] shrink-0" />}
+                          {officer.house && <HouseMark house={officer.house} className="h-7 w-7 text-[10px] shrink-0" />}
                         </div>
                       </div>
 

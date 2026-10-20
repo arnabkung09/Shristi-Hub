@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Award, Bell, Building2, Camera, CheckSquare, CirclePlus, Database, DatabaseZap, FileText, ImagePlus, Layers3, LockKeyhole, MessagesSquare, Palette, Search, Shield, ShieldCheck, SlidersHorizontal, Star, Trash2, UserPlus, Users, Vote } from "lucide-react";
 import { initials, relativeTime, useHub } from "../store/hub";
-import { departmentFor, FEATURE_PERMISSIONS, PRIMARY_ADMIN_ID, ratingStats, taskDepartment, tasksForDepartment } from "../lib/admin";
+import { departmentFor, FEATURE_PERMISSIONS, houseFullName, PRIMARY_ADMIN_ID, ratingStats, taskDepartment, tasksForDepartment } from "../lib/admin";
 import { renderRichText } from "../lib/content";
 
 import { Modal } from "./ui";
@@ -287,7 +287,7 @@ function FeedbackPanel() {
               <tbody>
                 {recent.map((r) => (
                   <tr key={r.userId}>
-                    <td><strong className="block text-[11px]">{r.userName}</strong><span className="text-[9px] text-[var(--faint)]">{houseFullName(state, r.house)}</span></td>
+                    <td><strong className="block text-[11px]">{r.userName}</strong><span className="text-[9px] text-[var(--faint)]">{houseFullName(state.houses, r.house)}</span></td>
                     <td><span className="flex items-center gap-0.5">{[1, 2, 3, 4, 5].map((s) => <Star key={s} className={`h-3 w-3 ${s <= r.value ? "fill-amber-400 text-amber-400" : "text-[var(--faint)]"}`} />)}</span></td>
                     <td className="!whitespace-normal"><span className="block max-w-[220px] text-[10px] leading-relaxed text-[var(--muted)]">{r.comment || "—"}</span></td>
                     <td className="text-[9px] text-[var(--faint)]">{relativeTime(r.timestamp)}</td>
