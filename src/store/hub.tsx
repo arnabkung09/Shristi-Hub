@@ -32,6 +32,7 @@ import {
   cloudStateFingerprint,
   createFirebasePassword,
   observeFirebaseAuth,
+  getFirebaseGooglePhotoUrl,
   provisionFirebaseProfile,
   signInFirebasePassword,
   signInWithGoogle,
@@ -1174,6 +1175,7 @@ interface HubContextValue {
   devices: ConnectedDevice[];
   firebaseStatus: "signed-out" | "connecting" | "connected" | "error";
   firebaseEmail: string | null;
+  firebasePhotoUrl: string | null;
   /** True when the signed-in Google account still needs a hub password set. */
   needsPasswordSetup: boolean;
   createAccountPassword: (password: string) => Promise<void>;
@@ -1733,6 +1735,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const [feedback, setFeedback] = useState<HubContextValue["feedback"]>(null);
   const [firebaseStatus, setFirebaseStatus] = useState<HubContextValue["firebaseStatus"]>(firebaseAuth.currentUser ? "connecting" : "signed-out");
   const [firebaseEmail, setFirebaseEmail] = useState<string | null>(firebaseAuth.currentUser?.email ?? null);
+  const [firebasePhotoUrl, setFirebasePhotoUrl] = useState<string | null>(() => getFirebaseGooglePhotoUrl());
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const stateRef = useRef(state);
   const seenBroadcastsRef = useRef(getNotifiedIds());
@@ -1991,12 +1994,26 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     // Instant UI dispatch: Log user in with zero delay
     dispatch({ type: "LOGIN", userId: student.id });
+    const googlePhoto = getFirebaseGooglePhotoUrl();
     setFirebaseEmail(normalized);
+    setFirebasePhotoUrl(googlePhoto);
     setNeedsPasswordSetup(false);
     setFirebaseStatus("connected");
 
+    // Automatically pull and apply the Google account's profile picture if the user hasn't uploaded a custom data-URL avatar
+    if (googlePhoto && (!student.avatarUrl || !student.avatarUrl.startsWith("data:"))) {
+      if (student.avatarUrl !== googlePhoto) {
+        try {
+          dispatch({ type: "SET_AVATAR", userId: student.id, url: googlePhoto });
+        } catch {}
+      }
+    }
+
     // Profile provisioning is non-blocking and executes in the background
-    void provisionFirebaseProfile(student, stateRef.current.users).catch((error) => {
+    void provisionFirebaseProfile(
+      googlePhoto && !student.avatarUrl ? { ...student, avatarUrl: googlePhoto } : student,
+      stateRef.current.users
+    ).catch((error) => {
       console.warn("Firestore profile provision notice:", error);
     });
 
@@ -2209,11 +2226,14 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     dispatch({ type: "LOGOUT" });
     setFirebaseStatus("signed-out");
     setFirebaseEmail(null);
+    setFirebasePhotoUrl(null);
     setNeedsPasswordSetup(false);
   };
 
   useEffect(() => observeFirebaseAuth((googleUser) => {
+    const googlePhoto = getFirebaseGooglePhotoUrl(googleUser);
     setFirebaseEmail(googleUser?.email ?? null);
+    setFirebasePhotoUrl(googlePhoto);
     if (!googleUser?.email) {
       setFirebaseStatus("signed-out");
       cloudUnsubscribeRef.current?.();
@@ -2225,6 +2245,15 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     // Only connect if user is already in an active session, NEVER automatically
     // log the user in on opening the webapp without clicking a button.
     if (stateRef.current.session) {
+      const activeUserId = stateRef.current.session.userId;
+      const activeStudent = stateRef.current.users.find((u) => u.id === activeUserId);
+      if (googlePhoto && activeStudent && (!activeStudent.avatarUrl || !activeStudent.avatarUrl.startsWith("data:"))) {
+        if (activeStudent.avatarUrl !== googlePhoto) {
+          try {
+            dispatch({ type: "SET_AVATAR", userId: activeStudent.id, url: googlePhoto });
+          } catch {}
+        }
+      }
       void ensureGoogleConnection(googleUser.email).catch((error) => {
         setFirebaseStatus("error");
         announce(error instanceof Error ? error.message : "Google authentication sync notice.", "error");
@@ -2451,7 +2480,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   };
 
   return (
-    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, hasPermission, devices, firebaseStatus, firebaseEmail, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, saveStateToDatabase, loadStateFromDatabase, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
+    <HubContext.Provider value={{ state, dispatch, user, canManage, activeTab, setActiveTab, houseTotals, pointsLedger, calendarEvents, financeEntries, sheets, unreadCount, notify, feedback, announce, hasPermission, devices, firebaseStatus, firebaseEmail, firebasePhotoUrl, needsPasswordSetup, createAccountPassword, setHouseMembership, signInGoogle, signInPassword, signInDirect, saveStateToDatabase, loadStateFromDatabase, uploadAllToFirestore, loadAllFromFirestore, signOutSession }}>
       {children}
     </HubContext.Provider>
   );

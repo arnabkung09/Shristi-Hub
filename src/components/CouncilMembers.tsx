@@ -435,7 +435,7 @@ export default function CouncilMembers() {
                               <Star className="h-2.5 w-2.5 fill-current" /> Pinned
                             </span>
                           )}
-                          {officer.house && <HouseMark house={officer.house} className="h-7 w-7 text-[10px] shrink-0" />}
+                          {officer.house && <HouseMark house={officer.house} className="h-5 w-5 text-[8px] shrink-0" />}
                         </div>
                       </div>
 

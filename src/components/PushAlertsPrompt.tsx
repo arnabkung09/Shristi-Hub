@@ -52,12 +52,12 @@ export default function PushAlertsPrompt() {
           <X className="h-4 w-4" />
         </button>
         
-        <div className="flex gap-3.5 items-center">
+        <div className="flex gap-3">
           {state.branding.logoUrl ? (
-            <img src={state.branding.logoUrl} alt="" className="h-14 w-14 shrink-0 rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-1.5 object-contain shadow-sm" />
+            <img src={state.branding.logoUrl} alt="" className="mt-0.5 h-9 w-9 shrink-0 rounded-lg bg-white p-1 object-contain" />
           ) : (
-            <div className="text-emerald-400 bg-emerald-500/10 p-2.5 rounded-xl shrink-0">
-              <BellRing className="h-6 w-6" />
+            <div className="mt-0.5 text-blue-400 bg-blue-500/10 p-2 rounded-lg shrink-0">
+              <BellRing className="h-5 w-5" />
             </div>
           )}
           <div className="flex-1 pr-4">

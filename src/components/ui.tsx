@@ -14,7 +14,7 @@ export function Crest({ className, src }: { className?: string; src?: string }) 
   if (!cleanSrc) {
     return null;
   }
-  return <img src={cleanSrc} alt="School Logo" className={cn("h-14 w-14 object-contain", className)} />;
+  return <img src={cleanSrc} alt="School Logo" className={cn("object-contain", className)} />;
 }
 
 /* ---------------- layout primitives ---------------- */
@@ -23,7 +23,7 @@ export function Card({ children, className, ...rest }: { children: ReactNode; cl
   return (
     <div
       className={cn(
-        "rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_4px_20px_rgba(2,12,6,0.35)]",
+        "rounded-2xl border border-white/[0.07] bg-ink-900",
         className
       )}
       {...rest}
@@ -123,9 +123,9 @@ export function HouseBadge({ house }: { house: House | null }) {
   return (
     <Badge tone={tone}>
       {logo ? (
-        <img src={logo} alt="" className="h-5 w-5 rounded-full object-cover" />
+        <img src={logo} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
       ) : (
-        <span className={cn("h-2 w-2 rounded-full", house === "Blue" ? "bg-blue-500" : house === "Red" ? "bg-red-500" : "bg-green-500")} />
+        <span className={cn("h-1.5 w-1.5 rounded-full", house === "Blue" ? "bg-blue-500" : house === "Red" ? "bg-red-500" : "bg-green-500")} />
       )}
       {houseFullName(state.houses, house)}
     </Badge>
@@ -136,17 +136,17 @@ export function HouseMark({ house, className }: { house: House | null; className
   const { state } = useHub();
   if (!house) {
     return (
-      <span className={cn("grid shrink-0 place-items-center rounded-full bg-slate-400 font-display font-bold text-white", className ?? "h-11 w-11 text-sm")}>
+      <span className={cn("grid shrink-0 place-items-center rounded-full bg-slate-400 font-display font-bold text-white", className ?? "h-8 w-8 text-xs")}>
         T
       </span>
     );
   }
   const logo = houseLogo(state.houses, house);
   if (logo) {
-    return <img src={logo} alt={`${houseFullName(state.houses, house)} logo`} className={cn("rounded-full object-cover", className ?? "h-11 w-11")} />;
+    return <img src={logo} alt={`${houseFullName(state.houses, house)} logo`} className={cn("rounded-full object-cover", className ?? "h-8 w-8")} />;
   }
   return (
-    <span className={cn("grid shrink-0 place-items-center rounded-full font-display font-bold text-white", house === "Blue" ? "bg-blue-500" : house === "Red" ? "bg-red-500" : "bg-green-500", className ?? "h-11 w-11 text-sm")}>
+    <span className={cn("grid shrink-0 place-items-center rounded-full font-display font-bold text-white", house === "Blue" ? "bg-blue-500" : house === "Red" ? "bg-red-500" : "bg-green-500", className ?? "h-8 w-8 text-xs")}>
       {houseFullName(state.houses, house).slice(0, 1)}
     </span>
   );
@@ -200,7 +200,7 @@ export async function compressAvatarImage(file: File, maxDim = 240, quality = 0.
   });
 }
 
-export async function compressLogoImage(file: File, maxDim = 512): Promise<string> {
+export async function compressLogoImage(file: File, maxDim = 360): Promise<string> {
   return new Promise((resolve, reject) => {
     if (file.size > 12 * 1024 * 1024) {
       reject(new Error("Please choose an image file smaller than 12 MB."));
@@ -306,6 +306,7 @@ export function Avatar({
         <img
           src={resolvedUrl}
           alt={name}
+          referrerPolicy="no-referrer"
           className="h-full w-full object-cover"
           onError={() => setImgError(true)}
         />
@@ -384,7 +385,7 @@ export function Modal({ open, onClose, title, children, wide, subtitle, icon }: 
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-[#020c06]/80 p-4 backdrop-blur-[5px] sm:p-6"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-[#05080e]/75 p-4 backdrop-blur-[5px] sm:p-6"
           onClick={onClose}
         >
           <motion.div

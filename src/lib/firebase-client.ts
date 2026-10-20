@@ -45,6 +45,16 @@ export async function signInWithGoogle() {
 export const observeFirebaseAuth = (callback: (user: FirebaseUser | null) => void) => onAuthStateChanged(firebaseAuth, callback);
 export const signOutFirebase = () => signOut(firebaseAuth);
 
+export function getFirebaseGooglePhotoUrl(user: FirebaseUser | null = firebaseAuth.currentUser): string | null {
+  if (!user) return null;
+  const raw =
+    user.photoURL ||
+    user.providerData?.find((p) => p?.photoURL)?.photoURL ||
+    null;
+  if (!raw || typeof raw !== "string") return null;
+  return raw.replace(/=s\d+-c$/, "=s256-c");
+}
+
 export function firebaseUserHasPassword(user: FirebaseUser | null = firebaseAuth.currentUser) {
   return Boolean(user?.providerData.some((provider) => provider.providerId === "password"));
 }
@@ -141,7 +151,11 @@ export async function syncCloudRoster(students: Student[]) {
 export async function provisionFirebaseProfile(student: Student, roster: Student[]) {
   const current = firebaseAuth.currentUser;
   if (!current?.email) throw new Error("Sign in with Google before provisioning a Firebase profile.");
-  const studentData = cloudStudent(student);
+  const googlePhotoUrl = getFirebaseGooglePhotoUrl(current);
+  const studentData = cloudStudent({
+    ...student,
+    avatarUrl: student.avatarUrl || googlePhotoUrl || undefined,
+  });
 
   if (isPrimaryAdmin(current.email)) {
     // Non-blocking background sync so login is never delayed by batch uploads
@@ -164,6 +178,8 @@ export async function provisionFirebaseProfile(student: Student, roster: Student
       setDoc(rosterRef, studentData, { merge: true }),
       setDoc(profileRef, {
         ...studentData,
+        photoURL: googlePhotoUrl,
+        avatarUrl: studentData.avatarUrl ?? googlePhotoUrl ?? null,
         status: "active",
         firebaseUid: current.uid,
         googleEmail: current.email.toLowerCase(),

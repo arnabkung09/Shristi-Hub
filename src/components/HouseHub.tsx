@@ -227,7 +227,7 @@ export default function HouseHub() {
                 className={house === h ? "active" : ""}
                 onClick={() => setSelectedHouse(h)}
               >
-                <HouseMark house={h} className="h-6 w-6 text-[10px]" />
+                <HouseMark house={h} className="h-4 w-4 text-[8px]" />
                 {houseFullName(state.houses, h)}
               </button>
             ))}
@@ -242,8 +242,8 @@ export default function HouseHub() {
 
       <Reveal>
         <section className={`house-banner ${house.toLowerCase()}`}>
-          <div className="flex items-center gap-5">
-            <HouseMark house={house} className="h-24 w-24 text-2xl shadow-lg" />
+          <div className="flex items-center gap-4">
+            <HouseMark house={house} className="h-16 w-16 text-xl shadow-lg" />
             <div>
               <span className="eyebrow">
                 {rankLabel(rank)} · {members.length} {members.length === 1 ? "Member" : "Members"}

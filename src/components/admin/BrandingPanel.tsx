@@ -407,10 +407,10 @@ export default function BrandingPanel() {
           {branding.logoUrl ? (
             <Crest
               src={branding.logoUrl}
-              className="h-14 w-14 shrink-0 rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-1.5 shadow-sm"
+              className="h-10 w-10 shrink-0 rounded-xl border border-[var(--border)] bg-white p-1"
             />
           ) : (
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-dashed border-[var(--border)] text-[9px] font-bold text-[var(--faint)]">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-[var(--border)] text-[9px] font-bold text-[var(--faint)]">
               No Logo
             </div>
           )}
@@ -512,14 +512,14 @@ export default function BrandingPanel() {
           <div className="form-stack">
             <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-4 min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
                   {branding.logoUrl ? (
                     <Crest
-                      className="h-20 w-20 shrink-0 rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-2 shadow-sm"
+                      className="h-14 w-14 shrink-0 rounded-xl border border-[var(--border)] bg-white p-1.5 shadow-sm"
                       src={branding.logoUrl}
                     />
                   ) : (
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-dashed border-[var(--border)] text-[10px] font-bold text-[var(--faint)]">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-dashed border-[var(--border)] text-[10px] font-bold text-[var(--faint)]">
                       No Logo
                     </div>
                   )}
@@ -550,27 +550,27 @@ export default function BrandingPanel() {
 
               {/* Live Placement Verification: Top Logo, Home Screen, Notifications */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[var(--border)]">
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2.5">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
                   {branding.logoUrl ? (
-                    <Crest src={branding.logoUrl} className="h-10 w-10 shrink-0 rounded-lg object-contain bg-[var(--surface-inset)] p-1" />
+                    <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain bg-white p-0.5" />
                   ) : null}
                   <div className="min-w-0">
                     <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Top Logo</span>
                     <span className="block text-[10px] font-semibold truncate">{branding.schoolName || "Student Council"}</span>
                   </div>
                 </div>
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2.5">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
                   {branding.logoUrl ? (
-                    <Crest src={branding.logoUrl} className="h-10 w-10 shrink-0 rounded-lg object-contain bg-[var(--surface-inset)] p-1" />
+                    <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain bg-white p-0.5" />
                   ) : null}
                   <div className="min-w-0">
                     <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Home Screen</span>
                     <span className="block text-[10px] font-semibold truncate">{branding.boardName || "Shristi Academy Board"}</span>
                   </div>
                 </div>
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2.5">
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 flex items-center gap-2">
                   {branding.logoUrl ? (
-                    <Crest src={branding.logoUrl} className="h-10 w-10 shrink-0 rounded-lg object-contain bg-[var(--surface-inset)] p-1" />
+                    <Crest src={branding.logoUrl} className="h-6 w-6 shrink-0 rounded object-contain bg-white p-0.5" />
                   ) : null}
                   <div className="min-w-0">
                     <span className="block text-[9px] font-bold uppercase tracking-wider text-[var(--purple)]">Notifications</span>
@@ -766,15 +766,15 @@ export default function BrandingPanel() {
           {(HOUSES as readonly House[]).map((h) => (
             <div key={h} className="rounded-xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex items-center gap-3 min-w-0">
                   {houses[h]?.logoUrl ? (
                     <img
                       src={houses[h].logoUrl}
                       alt={`${houses[h].name} logo preview`}
-                      className="house-logo h-16 w-16 rounded-2xl object-contain bg-[var(--surface)] p-1.5 border border-[var(--border)] shadow-sm"
+                      className="house-logo h-12 w-12 rounded-xl object-contain bg-white p-1 border border-[var(--border)]"
                     />
                   ) : (
-                    <HouseMark house={h} className="h-16 w-16 !rounded-2xl text-lg" />
+                    <HouseMark house={h} className="h-12 w-12 !rounded-xl text-base" />
                   )}
                   <div className="min-w-0">
                     <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--faint)]">{h} House</p>

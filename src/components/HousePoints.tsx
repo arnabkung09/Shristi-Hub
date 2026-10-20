@@ -129,7 +129,7 @@ export default function HousePoints({ openAwardOnMount = false }: { openAwardOnM
                 <div className={cn("absolute inset-0 bg-gradient-to-br", HOUSE_GRADIENT[h])} />
                 <div className="relative">
                   <div className="flex items-center justify-between">
-                    <HouseMark house={h} className="h-16 w-16 text-lg shadow-md" />
+                    <HouseMark house={h} className="h-11 w-11 text-sm" />
                     {i === 0 ? (
                       <span className="flex items-center gap-1 rounded-full bg-amber-400/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-500">
                         <Crown className="h-3 w-3" /> Frontrunner

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, Shield, Smartphone, UserRound } from "lucide-react";
-import { relativeTime, targetsUser, useHub } from "../store/hub";
+import { Bell, CheckCheck, CircleCheck, Download, LogOut, Menu, RefreshCw, Shield, Smartphone, UserRound } from "lucide-react";
+import { initials, relativeTime, targetsUser, useHub } from "../store/hub";
 import { houseFullName } from "../lib/admin";
 import { Crest, HouseMark, Modal } from "./ui";
 import { enableFirebasePush } from "../lib/firebase-client";
@@ -89,9 +89,9 @@ function NotificationBell() {
       <AnimatePresence>
         {open && <motion.div className="nav-popover" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }}>
           <div className="popover-heading">
-            <strong className="flex items-center gap-2.5">
+            <strong className="flex items-center gap-2">
               {state.branding.logoUrl && (
-                <Crest src={state.branding.logoUrl} className="h-7 w-7 rounded-md object-contain" />
+                <Crest src={state.branding.logoUrl} className="h-4 w-4 rounded object-contain" />
               )}
               <span>Notifications <span className="text-[var(--purple)]">({unreadCount})</span></span>
             </strong>
@@ -101,7 +101,7 @@ function NotificationBell() {
             {!notifications.length && <p className="p-8 text-center text-xs text-[var(--muted)]">You are all caught up.</p>}
             {notifications.slice(0, 15).map((n) => <button key={n.id} className={`notice-item ${!n.readBy.includes(user.id) ? "unread" : ""}`} onClick={() => { dispatch({ type: "MARK_READ", notifId: n.id, userId: user.id }); if (n.actionTab) setActiveTab(n.actionTab); setOpen(false); }}>
               {state.branding.logoUrl ? (
-                <Crest src={state.branding.logoUrl} className="mt-0.5 h-9 w-9 shrink-0 rounded-lg object-contain" />
+                <Crest src={state.branding.logoUrl} className="mt-0.5 h-6 w-6 shrink-0 rounded-md object-contain" />
               ) : (
                 <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${n.urgent ? "bg-rose-500" : "bg-indigo-400"}`} />
               )}
@@ -131,12 +131,19 @@ function NotificationBell() {
 }
 
 function UserMenu() {
-  const { state, user, setActiveTab, signOutSession, firebaseEmail } = useHub();
+  const { state, user, dispatch, announce, setActiveTab, signOutSession, firebaseEmail, firebasePhotoUrl } = useHub();
   const { isInstallable, isInstalled: pwaInstalled, isIOS: pwaIOS, install: triggerPWAInstall } = usePWAInstall();
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState(false);
   const [profileTab, setProfileTab] = useState<"profile" | "notifications">("profile");
+  const [imgError, setImgError] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
+
+  const profilePhotoUrl = firebasePhotoUrl || user?.avatarUrl || null;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [profilePhotoUrl]);
 
   useEffect(() => {
     const handleOpenNotifSettings = () => {
@@ -148,14 +155,60 @@ function UserMenu() {
   }, []);
 
   if (!user) return null;
+
+  const syncGooglePhoto = () => {
+    if (!firebasePhotoUrl) {
+      announce("Sign in with Google to pull your Google account profile picture.", "error");
+      return;
+    }
+    try {
+      dispatch({ type: "SET_AVATAR", userId: user.id, url: firebasePhotoUrl });
+      setImgError(false);
+      announce("Profile picture synced from your Google account.");
+    } catch (e) {
+      announce(e instanceof Error ? e.message : "Unable to sync Google profile photo.", "error");
+    }
+  };
+
   return (
     <div className="relative" ref={ref}>
       <button className="profile-trigger" aria-label="Open profile menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span><span className="profile-name">{user.name}</span><span className="profile-meta"><CircleCheck />Roster verified <span className="role-tag">{user.role === "admin" ? "Admin" : user.role === "council" ? "Council" : user.role === "teacher" ? "Teacher" : user.role === "grade" ? "Class" : "Student"}</span></span></span>
-        <span className="profile-initial">{user.name[0]}</span>
+        <span className="profile-initial">
+          {profilePhotoUrl && !imgError ? (
+            <img
+              src={profilePhotoUrl}
+              alt={user.name}
+              referrerPolicy="no-referrer"
+              className="h-full w-full rounded-full object-cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            user.name[0]
+          )}
+        </span>
       </button>
       {open && <div className="nav-popover !w-[280px] page-motion">
-        <div className="p-4"><strong className="text-xs">{user.name}</strong><p className="mt-1 break-all text-[10px] text-[var(--muted)]">{user.email}</p><p className="mt-2 flex items-center gap-2 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-6 w-6 text-[9px]" />{user.role === "teacher" ? "Teacher / Staff" : user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p></div>
+        <div className="flex items-center gap-3 p-4 border-b border-[var(--border)]">
+          <span className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-rose-500 font-display text-sm font-bold text-white ring-2 ring-indigo-500/30">
+            {profilePhotoUrl && !imgError ? (
+              <img
+                src={profilePhotoUrl}
+                alt={user.name}
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              initials(user.name)
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <strong className="block truncate text-xs">{user.name}</strong>
+            <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{firebaseEmail ?? user.email}</p>
+            <p className="mt-1.5 flex items-center gap-1.5 text-[10px] text-[var(--purple)]"><HouseMark house={user.house} className="h-4 w-4 text-[7px]" />{user.role === "teacher" ? "Teacher / Staff" : user.gradeLabel ?? "Staff"} / {user.house ? houseFullName(state.houses, user.house) : "No House"}</p>
+          </div>
+        </div>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("profile"); setProfile(true); }}><UserRound className="h-3.5 w-3.5 text-[var(--purple)]" />My profile</button>
         <button className="notice-item !items-center !text-[11px]" onClick={() => { setOpen(false); setProfileTab("notifications"); setProfile(true); }}><Bell className="h-3.5 w-3.5 text-[var(--purple)]" />Mobile & OS notifications</button>
         {!pwaInstalled && (isInstallable || pwaIOS) && (
@@ -186,14 +239,14 @@ function UserMenu() {
         subtitle={profileTab === "profile" ? "Your verified role and identity in the Shristi Academy workspace." : "Configure Mobile (Android/iOS) and OS desktop push notifications, haptic vibration, and alert preferences."}
         wide
       >
-        <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-black/5 p-1 dark:bg-white/5">
+        <div className="mb-4 flex items-center gap-1.5 rounded-xl border border-[var(--border)] bg-white/5 p-1">
           <button
             type="button"
             onClick={() => setProfileTab("profile")}
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
               profileTab === "profile"
-                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
-                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                ? "bg-ink-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-white"
             }`}
           >
             <UserRound className="h-3.5 w-3.5" />
@@ -204,8 +257,8 @@ function UserMenu() {
             onClick={() => setProfileTab("notifications")}
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-1.5 text-xs font-semibold transition-all ${
               profileTab === "notifications"
-                ? "bg-white text-slate-900 shadow-sm dark:bg-ink-800 dark:text-white"
-                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                ? "bg-ink-800 text-white shadow-sm"
+                : "text-slate-400 hover:text-white"
             }`}
           >
             <Bell className="h-3.5 w-3.5" />
@@ -215,10 +268,55 @@ function UserMenu() {
 
         {profileTab === "profile" ? (
           <div className="form-stack">
+            {/* Google Account Profile Picture Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl border border-[var(--border)] bg-[var(--surface-inset)] p-4">
+              <div className="flex items-center gap-4 min-w-0">
+                <span className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-rose-500 font-display text-xl font-bold text-white ring-2 ring-indigo-500/40 shadow-md">
+                  {profilePhotoUrl && !imgError ? (
+                    <img
+                      src={profilePhotoUrl}
+                      alt={`${user.name} profile picture`}
+                      referrerPolicy="no-referrer"
+                      className="h-full w-full object-cover"
+                      onError={() => setImgError(true)}
+                    />
+                  ) : (
+                    initials(user.name)
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="font-display text-base font-bold text-white truncate">{user.name}</h4>
+                    {firebasePhotoUrl && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                        <CircleCheck className="h-3 w-3" /> Google Photo Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{firebaseEmail ?? user.email}</p>
+                  <p className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--purple)]">
+                    <HouseMark house={user.house} className="h-4 w-4 text-[8px]" />
+                    {user.role === "admin" ? "Administrator" : user.role === "council" ? (user.councilTitle ?? "Council Officer") : user.role === "teacher" ? "Teacher / Staff" : (user.gradeLabel ?? "Student")}
+                    {user.house ? ` · ${houseFullName(state.houses, user.house)}` : ""}
+                  </p>
+                </div>
+              </div>
+              {firebasePhotoUrl && (
+                <button
+                  type="button"
+                  className="btn btn-secondary !text-[10px] shrink-0"
+                  onClick={syncGooglePhoto}
+                >
+                  <RefreshCw className="h-3 w-3" /> Sync Google Photo
+                </button>
+              )}
+            </div>
+
             {[
               ["Full name", user.name],
               ["Verified Role", user.role === "admin" ? "Administrator" : user.role === "council" ? "Council Officer" : user.role === "teacher" ? "Teacher / Staff" : user.role === "grade" ? "Class Account" : "Student"],
               ["Institutional email", user.email],
+              ...(firebaseEmail && firebaseEmail.toLowerCase() !== user.email.toLowerCase() ? [["Signed-in Google email", firebaseEmail]] : []),
               ["Account ID", user.id.toUpperCase()],
               ["Class / Group", user.role === "teacher" ? "Staff" : (user.gradeLabel ?? "Staff")],
               ["House", user.house ? houseFullName(state.houses, user.house) : "No House"],
@@ -272,7 +370,7 @@ export default function Navbar() {
     <header className="site-header">
       <div className="site-container nav-inner">
         <button className="brand" onClick={() => go("home")} aria-label={`${state.branding.schoolName} home`}>
-          <Crest className="brand-crest rounded-xl" src={state.branding.logoUrl} />
+          <Crest className="brand-crest rounded-lg" src={state.branding.logoUrl} />
           <span><span className="brand-title">{state.branding.schoolName}</span><span className="brand-subtitle">{state.branding.boardName}</span></span>
         </button>
         <nav ref={navigationRef} className="primary-nav" aria-label="Main navigation">
@@ -296,7 +394,7 @@ export default function Navbar() {
           <button className="nav-icon mobile-menu-trigger" aria-label="Open navigation menu" aria-expanded={drawer} onClick={() => setDrawer(true)}><Menu /></button>
         </div>
       </div>
-      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={state.branding.logoUrl ? <Crest className="h-8 w-8" src={state.branding.logoUrl} /> : undefined}>
+      <Modal open={drawer} onClose={() => setDrawer(false)} title={state.branding.schoolName} subtitle={`${state.branding.boardName} / ${state.branding.session}`} icon={state.branding.logoUrl ? <Crest className="h-5 w-5" src={state.branding.logoUrl} /> : undefined}>
         <nav className="grid grid-cols-2 gap-2" aria-label="Mobile navigation">{links.map((link) => <button key={link.id} className={`btn min-h-11 justify-start ${active === link.id ? "btn-primary" : "btn-secondary"}`} onClick={() => go(link.id)}>{link.label}</button>)}</nav>
         <div className="dialog-actions"><button className="btn btn-danger" onClick={() => void signOutSession()}><LogOut />Sign out</button></div>
       </Modal>
