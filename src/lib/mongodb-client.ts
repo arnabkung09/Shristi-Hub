@@ -149,21 +149,21 @@ let preloadedStatePromise: Promise<RemoteStateResult> | null = null;
 
 export function preloadRemoteState(fresh = false): Promise<RemoteStateResult> {
   if (fresh || !preloadedStatePromise) {
-    preloadedStatePromise = fetchRemoteState({ fresh });
+    preloadedStatePromise = fetchRemoteState({ fresh: true });
   }
   return preloadedStatePromise;
 }
 
 // Eagerly initiate network fetch immediately upon script evaluation
 if (typeof window !== "undefined") {
-  void preloadRemoteState();
+  void preloadRemoteState(false);
 }
 
 export async function fetchRemoteBranding(options?: { fresh?: boolean }): Promise<RemoteBrandingResult> {
   try {
-    const url = options?.fresh ? `/api/state?section=branding&fresh=1&t=${Date.now()}` : "/api/state?section=branding";
+    const url = `/api/state?section=branding&fresh=1&t=${Date.now()}`;
     const res = await fetch(url, {
-      cache: options?.fresh ? "no-store" : "default",
+      cache: "no-store",
     });
     if (!res.ok) {
       const text = await res.text();
@@ -186,11 +186,11 @@ export async function fetchRemoteBranding(options?: { fresh?: boolean }): Promis
   }
 }
 
-export async function fetchRemoteState(options?: { fresh?: boolean }): Promise<RemoteStateResult> {
+export async function fetchRemoteState(_options?: { fresh?: boolean }): Promise<RemoteStateResult> {
   try {
-    const url = options?.fresh ? `/api/state?fresh=1&t=${Date.now()}` : "/api/state";
+    const url = `/api/state?fresh=1&t=${Date.now()}`;
     const res = await fetch(url, {
-      cache: options?.fresh ? "no-store" : "default",
+      cache: "no-store",
     });
     if (!res.ok) {
       const text = await res.text();
@@ -215,6 +215,15 @@ export async function saveRemoteState(
   state: HubState,
   user?: Student | null
 ): Promise<{ success: boolean; message: string; updatedAt?: string; version?: number }> {
+  const optimisticNow = Date.now();
+  // Immediately update the in-memory preloaded promise so any concurrent poll reads the latest local state
+  preloadedStatePromise = Promise.resolve({
+    exists: true,
+    state,
+    version: optimisticNow,
+    lastModified: optimisticNow,
+  });
+
   const headers = await getAuthHeader(user);
 
   const res = await fetch("/api/state", {
@@ -231,11 +240,20 @@ export async function saveRemoteState(
   }
 
   const data = await res.json();
+  const finalVersion = Number(data.version || optimisticNow);
+  preloadedStatePromise = Promise.resolve({
+    exists: true,
+    state: { ...state, lastModified: finalVersion },
+    updatedAt: data.updatedAt,
+    version: finalVersion,
+    lastModified: finalVersion,
+  });
+
   return {
     success: true,
     message: data.message || "Site state successfully saved to MongoDB database.",
     updatedAt: data.updatedAt,
-    version: data.version,
+    version: finalVersion,
   };
 }
 

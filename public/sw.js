@@ -18,10 +18,10 @@ self.addEventListener('push', function(event) {
       body = payload.body || body;
       url = payload.url || (payload.data && payload.data.url) || url;
 
+      const customIcon = (payload.icon || '').trim();
       const options = {
         body: body,
-        icon: payload.icon || '/pwa-192x192.png',
-        badge: payload.badge || '/pwa-192x192.png',
+        ...(customIcon ? { icon: customIcon, badge: payload.badge || customIcon } : {}),
         tag: payload.tag || payload.notificationId || 'default-tag',
         renotify: payload.renotify !== false,
         actions: payload.actions || [],
@@ -51,11 +51,11 @@ self.addEventListener('message', function(event) {
 
   if (data.type === 'SHOW_NOTIFICATION' && data.title) {
     const opts = data.options || {};
+    const customIcon = (opts.icon || '').trim();
     event.waitUntil(
       self.registration.showNotification(data.title, {
         body: opts.body || '',
-        icon: opts.icon || '/pwa-192x192.png',
-        badge: opts.badge || '/pwa-192x192.png',
+        ...(customIcon ? { icon: customIcon, badge: opts.badge || customIcon } : {}),
         tag: opts.tag || 'shristi-sw-tag',
         data: opts.data || { url: '/' },
       }).catch(function() {})

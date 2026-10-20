@@ -5,7 +5,7 @@ import {
 import { useHub, fmtDate, isoDay, targetsUser } from "../store/hub";
 import { houseFullName, houseLogo, houseShortName } from "../lib/admin";
 import { RevealBlocks } from "./Effects";
-import { Badge, Btn, Card, HouseBadge, SectionTitle, StatCard } from "./ui";
+import { Badge, Btn, Card, Crest, HouseBadge, RoleBadge, SectionTitle, StatCard } from "./ui";
 import { cn } from "../utils/cn";
 import type { House } from "../lib/types";
 
@@ -74,16 +74,27 @@ export default function Dashboard() {
       <Card className="relative overflow-hidden p-6 sm:p-7">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.14),transparent_55%)]" />
         <div className="relative flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{fmtDate(new Date().toISOString().slice(0, 10))}</p>
-            <h1 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
-              {greeting()}, {user.name.split(" ")[0]}
-            </h1>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <HouseBadge house={user.house} />
-              {!user.isStaff && <Badge tone="slate">Grade {user.grade}</Badge>}
-              {user.councilPost && <Badge tone="indigo">{user.councilPost}</Badge>}
-              <Badge tone="emerald"><span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-emerald-500" /> Live sync on</Badge>
+          <div className="flex items-start gap-4">
+            {state.branding.logoUrl && (
+              <Crest
+                src={state.branding.logoUrl}
+                className="h-14 w-14 shrink-0 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-sm dark:border-white/10 dark:bg-ink-800"
+              />
+            )}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                {state.branding.schoolName} · {fmtDate(new Date().toISOString().slice(0, 10))}
+              </p>
+              <h1 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-3xl">
+                {greeting()}, {user.name.split(" ")[0]}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <RoleBadge role={user.role} />
+                {user.house && <HouseBadge house={user.house} />}
+                {user.role !== "teacher" && !user.isStaff && user.grade && <Badge tone="slate">Grade {user.grade}</Badge>}
+                {(user.role === "council" || user.role === "admin") && user.councilPost && <Badge tone="indigo">{user.councilPost}</Badge>}
+                <Badge tone="emerald"><span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-emerald-500" /> Live sync on</Badge>
+              </div>
             </div>
           </div>
           <div className="hidden text-right sm:block">
@@ -123,7 +134,7 @@ export default function Dashboard() {
         <StatCard icon={<CalendarDays className="h-5 w-5" />} label="Upcoming Events" value={upcomingEvents.length} sub="RSVP open on all" tone="indigo" />
         <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Pending Tasks" value={openTasks.length} sub={canManage ? "council pipeline" : "council is on it"} tone="amber" />
         <StatCard icon={<Vote className="h-5 w-5" />} label="Active Polls" value={activePolls.length} sub="your vote counts" tone="emerald" />
-        <StatCard icon={<Crown className="h-5 w-5" />} label="Cup Frontrunner" value={leader[0]} sub={`${leader[1].toLocaleString()} points`} tone={leader[0] === "Blue" ? "blue" : leader[0] === "Red" ? "red" : "green"} />
+        <StatCard icon={<Crown className="h-5 w-5" />} label="Cup Frontrunner" value={houseShortName(state.houses, leader[0])} sub={`${leader[1].toLocaleString()} points`} tone={leader[0] === "Blue" ? "blue" : leader[0] === "Red" ? "red" : "green"} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">

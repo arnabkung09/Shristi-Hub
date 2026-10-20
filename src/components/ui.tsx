@@ -201,6 +201,66 @@ export async function compressAvatarImage(file: File, maxDim = 240, quality = 0.
   });
 }
 
+export async function compressLogoImage(file: File, maxDim = 360): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (file.size > 12 * 1024 * 1024) {
+      reject(new Error("Please choose an image file smaller than 12 MB."));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read logo file."));
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      // Keep SVG files directly if under 250 KB
+      if (file.type === "image/svg+xml" && dataUrl.length < 300 * 1024) {
+        resolve(dataUrl);
+        return;
+      }
+      if (typeof document === "undefined" || typeof Image === "undefined") {
+        resolve(dataUrl);
+        return;
+      }
+      const img = new Image();
+      img.onerror = () => {
+        if (dataUrl.startsWith("data:image/")) {
+          resolve(dataUrl);
+        } else {
+          reject(new Error("Unable to decode this image file."));
+        }
+      };
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+          const w = Math.max(1, Math.round((img.width || maxDim) * scale));
+          const h = Math.max(1, Math.round((img.height || maxDim) * scale));
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          // Try WebP first (supports alpha transparency and small size), fallback to PNG
+          const webp = canvas.toDataURL("image/webp", 0.88);
+          if (webp.startsWith("data:image/webp") && webp.length < dataUrl.length) {
+            resolve(webp);
+            return;
+          }
+          const png = canvas.toDataURL("image/png");
+          resolve(png.length < dataUrl.length || dataUrl.length > 350 * 1024 ? png : dataUrl);
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export function Avatar({
   name,
   house,

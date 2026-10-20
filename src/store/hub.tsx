@@ -155,17 +155,27 @@ export function loadCachedBranding(): CachedBrandingData | null {
 export function persistBrandingToCache(state: { branding?: HubState["branding"]; houses?: HubState["houses"]; legal?: HubState["legal"]; lastModified?: number }) {
   try {
     if (state.branding && typeof state.branding.schoolName === "string" && state.branding.schoolName.trim()) {
+      const existing = loadCachedBranding();
       const payload: CachedBrandingData = {
         branding: state.branding,
         houses: state.houses || buildSeedState().houses,
         legal: state.legal || buildSeedState().legal,
-        savedAt: state.lastModified || Date.now(),
+        savedAt: state.lastModified || existing?.savedAt || 0,
       };
       const json = JSON.stringify(payload);
-      localStorage.setItem(CANONICAL_BRANDING_KEY, json);
-      localStorage.setItem(BRANDING_STORAGE_KEY, json);
+      // Remove legacy duplicate keys so base64 logos never overflow localStorage 5MB quota
       for (const key of KNOWN_LEGACY_BRANDING_KEYS) {
-        try { localStorage.setItem(key, json); } catch {}
+        if (key !== CANONICAL_BRANDING_KEY && key !== BRANDING_STORAGE_KEY) {
+          try { localStorage.removeItem(key); } catch {}
+        }
+      }
+      localStorage.setItem(CANONICAL_BRANDING_KEY, json);
+      try { localStorage.setItem(BRANDING_STORAGE_KEY, json); } catch {}
+      const cleanLogo = (state.branding.logoUrl || "").trim();
+      if (cleanLogo) {
+        try { localStorage.setItem("shristi_branding_logo_v1", cleanLogo); } catch {}
+      } else {
+        try { localStorage.removeItem("shristi_branding_logo_v1"); } catch {}
       }
     }
   } catch {}
@@ -212,11 +222,21 @@ export function persistStateLocally(state: HubState) {
   try {
     const sanitized = withoutStoredCredentials(state);
     const json = JSON.stringify(sanitized);
-    localStorage.setItem(CANONICAL_STORAGE_KEY, json);
-    localStorage.setItem(STORAGE_KEY, json);
+    // Clean up legacy state keys so 11 duplicate copies don't exhaust the 5MB localStorage quota
     for (const key of KNOWN_LEGACY_STATE_KEYS) {
-      try { localStorage.setItem(key, json); } catch {}
+      if (key !== CANONICAL_STORAGE_KEY && key !== STORAGE_KEY) {
+        try { localStorage.removeItem(key); } catch {}
+      }
     }
+    try {
+      localStorage.setItem(CANONICAL_STORAGE_KEY, json);
+    } catch {
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      localStorage.setItem(CANONICAL_STORAGE_KEY, json);
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, json);
+    } catch {}
   } catch {}
 }
 
@@ -883,19 +903,35 @@ function applyAction(state: HubState, action: Action): HubState {
     }
     case "SET_BRANDING": {
       const branding = action.branding;
-      if (!branding.schoolName.trim() || !branding.boardName.trim()) throw new Error("A council name and board line are required.");
-      if (branding.logoUrl && !/^(https:\/\/|data:image\/(jpeg|png|webp|svg\+xml);)/.test(branding.logoUrl)) throw new Error("Use an HTTPS image link or an uploaded logo file.");
-      return { ...state, branding: { ...branding, schoolName: branding.schoolName.trim(), boardName: branding.boardName.trim() } };
+      const schoolName = branding.schoolName?.trim() || "Student Council";
+      const boardName = branding.boardName?.trim() || "Shristi Academy Board";
+      const logoUrl = (branding.logoUrl ?? "").trim();
+      if (logoUrl && !/^(https?:\/\/|\/|data:image\/)/i.test(logoUrl)) {
+        throw new Error("Use an image URL (https://...) or upload an image file.");
+      }
+      return {
+        ...state,
+        branding: {
+          ...branding,
+          schoolName,
+          boardName,
+          session: (branding.session ?? "").trim() || state.branding.session,
+          logoUrl,
+        },
+      };
     }
     case "SET_LEGAL":
       if (!action.legal.terms.trim() || !action.legal.credits.trim()) throw new Error("Both the terms and credits pages need content.");
       return { ...state, legal: { terms: action.legal.terms, credits: action.legal.credits } };
     case "SET_HOUSE_BRANDING": {
-      const name = action.name.trim();
-      if (name.length < 2 || name.length > 30) throw new Error("House names must be 2 to 30 characters.");
+      const name = action.name.trim() || action.house;
+      if (name.length > 30) throw new Error("House names must be 30 characters or fewer.");
       if (!HOUSES.includes(action.house)) throw new Error("Choose an official school house.");
-      if (action.logoUrl && !/^(https:\/\/|data:image\/(jpeg|png|webp|svg\+xml);)/.test(action.logoUrl)) throw new Error("Use an HTTPS image link or an uploaded logo file.");
-      return { ...state, houses: { ...state.houses, [action.house]: { name, logoUrl: action.logoUrl } } };
+      const logoUrl = (action.logoUrl ?? "").trim();
+      if (logoUrl && !/^(https?:\/\/|\/|data:image\/)/i.test(logoUrl)) {
+        throw new Error("Use an image URL (https://...) or upload an image file.");
+      }
+      return { ...state, houses: { ...state.houses, [action.house]: { name, logoUrl } } };
     }
     case "SUBMIT_RATING": {
       const value = Math.round(action.value);
@@ -1237,7 +1273,7 @@ function normalizeTasksList(
     return {
       ...t,
       department: dept,
-      completedAt: t.status === "done" ? (t.completedAt ?? Date.now()) : undefined,
+      completedAt: t.status === "done" ? (t.completedAt ?? 1735689600000) : undefined,
     };
   });
 }
@@ -1340,9 +1376,10 @@ function withFallbackSlices(parsed: HubState, seed: HubState): HubState {
 
 function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
   const seed = buildSeedState();
+  const cachedBranding = loadCachedBranding();
   const remoteTime = Number((remote as any).lastModified || (remote as any).version || 0);
-  const localTime = Number(local.lastModified || 0);
-  const isLocalNewer = localTime > remoteTime;
+  const localTime = Math.max(Number(local.lastModified || 0), Number(cachedBranding?.savedAt || 0));
+  const isLocalNewer = localTime >= remoteTime && localTime > 0;
 
   // Departments:
   const remoteDepts = Array.isArray(remote.departments) && remote.departments.length > 0 ? remote.departments : null;
@@ -1360,9 +1397,17 @@ function mergeCloudState(local: HubState, remote: Partial<HubState>): HubState {
     : { ...seed.branding, ...(localBranding || {}), ...(remoteBranding || {}) };
 
   // Houses & Legal:
-  const houses = isLocalNewer
-    ? { ...seed.houses, ...(remote.houses || {}), ...(local.houses || {}) }
-    : { ...seed.houses, ...(local.houses || {}), ...(remote.houses || {}) };
+  const houses: Record<House, HubState["houses"][House]> = isLocalNewer
+    ? {
+        Blue: { ...seed.houses.Blue, ...(remote.houses?.Blue || {}), ...(local.houses?.Blue || {}) },
+        Red: { ...seed.houses.Red, ...(remote.houses?.Red || {}), ...(local.houses?.Red || {}) },
+        Green: { ...seed.houses.Green, ...(remote.houses?.Green || {}), ...(local.houses?.Green || {}) },
+      }
+    : {
+        Blue: { ...seed.houses.Blue, ...(local.houses?.Blue || {}), ...(remote.houses?.Blue || {}) },
+        Red: { ...seed.houses.Red, ...(local.houses?.Red || {}), ...(remote.houses?.Red || {}) },
+        Green: { ...seed.houses.Green, ...(local.houses?.Green || {}), ...(remote.houses?.Green || {}) },
+      };
 
   const legal = isLocalNewer
     ? { ...seed.legal, ...(remote.legal || {}), ...(local.legal || {}) }
@@ -1599,6 +1644,7 @@ function loadState(): HubState {
         branding: cachedBranding.branding ? { ...seed.branding, ...cachedBranding.branding } : seed.branding,
         houses: cachedBranding.houses ? { ...seed.houses, ...cachedBranding.houses } : seed.houses,
         legal: cachedBranding.legal ? { ...seed.legal, ...cachedBranding.legal } : seed.legal,
+        lastModified: cachedBranding.savedAt || seed.lastModified,
       }
     : seed;
 
@@ -1606,13 +1652,17 @@ function loadState(): HubState {
     const parsed = findStoredStateInAnyVersion();
     if (parsed && typeof parsed === "object") {
       const session = sessionStorage.getItem(SESSION_KEY);
+      const parsedTime = Number(parsed.lastModified || 0);
+      const cachedTime = Number(cachedBranding?.savedAt || 0);
+      const preferCachedBranding = Boolean(cachedBranding && cachedTime >= parsedTime);
       const effectiveParsed = {
         ...parsed,
         users: validRoster(parsed.users) ? parsed.users : baseSeed.users,
-        branding: parsed.branding || baseSeed.branding,
-        houses: parsed.houses || baseSeed.houses,
-        legal: parsed.legal || baseSeed.legal,
+        branding: preferCachedBranding && cachedBranding?.branding ? cachedBranding.branding : (parsed.branding || baseSeed.branding),
+        houses: preferCachedBranding && cachedBranding?.houses ? cachedBranding.houses : (parsed.houses || baseSeed.houses),
+        legal: preferCachedBranding && cachedBranding?.legal ? cachedBranding.legal : (parsed.legal || baseSeed.legal),
         departments: Array.isArray(parsed.departments) && parsed.departments.length > 0 ? parsed.departments : baseSeed.departments,
+        lastModified: Math.max(parsedTime, cachedTime),
       };
       return { ...withFallbackSlices(effectiveParsed, baseSeed), session: session ? JSON.parse(session) : null };
     }
@@ -1639,6 +1689,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
   const applyingCloudRef = useRef(false);
   const cloudUnsubscribeRef = useRef<(() => void) | null>(null);
   const cloudBootstrappedRef = useRef(false);
+  const lastLocalMutationAtRef = useRef(0);
   const rosterHashRef = useRef("");
   const activityHashRef = useRef("");
   const googleConnectionRef = useRef<Promise<void> | null>(null);
@@ -1683,20 +1734,18 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
           window.localStorage.removeItem("shristi_branding_logo_v1");
         }
       } catch {}
-      const rels = ["icon", "shortcut icon", "apple-touch-icon"];
-      rels.forEach((rel) => {
-        let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
-        if (logoUrl) {
-          if (!link) {
-            link = document.createElement("link");
-            link.rel = rel;
-            document.head.appendChild(link);
-          }
+      // Remove any multiple icon tags and only set the custom branding logo if provided
+      const existingIcons = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+      existingIcons.forEach((el) => el.parentNode?.removeChild(el));
+      if (logoUrl) {
+        const rels = ["icon", "shortcut icon", "apple-touch-icon"];
+        rels.forEach((rel) => {
+          const link = document.createElement("link");
+          link.rel = rel;
           link.href = logoUrl;
-        } else if (link) {
-          link.removeAttribute("href");
-        }
-      });
+          document.head.appendChild(link);
+        });
+      }
     }
   }, [state.branding?.schoolName, state.branding?.boardName, state.branding?.logoUrl]);
 
@@ -1727,20 +1776,23 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     const pullRemoteState = async (fresh = false) => {
       if (!active || applyingCloudRef.current) return;
+      // Never let a background poll or file-picker focus event overwrite recent local edits/saves
+      if (Date.now() - lastLocalMutationAtRef.current < 20000) return;
       try {
         const remote = await preloadRemoteState(fresh);
-        if (active && remote.exists && remote.state) {
+        if (!active || applyingCloudRef.current || Date.now() - lastLocalMutationAtRef.current < 20000) return;
+        if (remote.exists && remote.state) {
+          const next = mergeCloudState(stateRef.current, remote.state);
           const currentHash = mongoStateFingerprint(stateRef.current);
-          const remoteHash = mongoStateFingerprint(remote.state as HubState);
-          if (currentHash !== remoteHash) {
+          const nextHash = mongoStateFingerprint(next);
+          if (currentHash !== nextHash) {
             applyingCloudRef.current = true;
-            const next = mergeCloudState(stateRef.current, remote.state);
             stateRef.current = next;
             persistBrandingToCache(next);
             try {
               persistStateLocally(next);
             } catch {}
-            cloudStateHashRef.current = mongoStateFingerprint(next);
+            cloudStateHashRef.current = nextHash;
             baseDispatch({ type: "REPLACE", state: next });
             queueMicrotask(() => { applyingCloudRef.current = false; });
             if (!cloudBootstrappedRef.current) {
@@ -1768,24 +1820,36 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
     void pullRemoteState(false);
 
-    // Background interval to pull changes across devices every 8 seconds
-    const pollInterval = setInterval(() => { void pullRemoteState(false); }, 8000);
+    // Background interval to pull changes across devices every 8 seconds (always fresh to avoid stale cache)
+    const pollInterval = setInterval(() => { void pullRemoteState(true); }, 8000);
 
-    // Immediate fresh sync when user focuses or switches back to tab
-    const handleFocus = () => { void pullRemoteState(true); };
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleFocus);
+    // Immediate fresh sync when user switches back to tab (guarded by 20s local mutation lock)
+    const handleVisibility = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        void pullRemoteState(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       active = false;
       clearInterval(pollInterval);
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 
   const dispatch = useMemo<React.Dispatch<Action>>(() => {
     const selfId = `device-${Math.random().toString(36).slice(2, 8)}`;
+    const NON_CONTENT_ACTIONS = new Set([
+      "REPLACE",
+      "LOGIN",
+      "LOGOUT",
+      "SET_THEME",
+      "RECORD_ACTIVITY",
+      "PUSH_NOTIFICATION",
+      "MARK_READ",
+      "MARK_ALL_READ",
+    ]);
     return (action: Action) => {
       const owned = SHEET_OWNED_ACTIONS[action.type];
       if (owned && sheetOwnerRef.current(owned.section)) {
@@ -1793,8 +1857,10 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
       }
       const previous = stateRef.current;
       let next = reducer(previous, action);
-      if (next !== previous) {
-        next = { ...next, lastModified: Date.now() };
+      if (next !== previous && !NON_CONTENT_ACTIONS.has(action.type)) {
+        const nowTs = Date.now();
+        next = { ...next, lastModified: nowTs };
+        lastLocalMutationAtRef.current = nowTs;
       }
       if (ADMIN_ACTIONS.has(action.type) && next !== previous) {
         const actor = previous.users.find((u) => u.id === previous.session?.userId);
@@ -1806,7 +1872,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
         persistBrandingToCache(next);
       } catch {}
       baseDispatch({ type: "REPLACE", state: next });
-      if (next !== previous && !["REPLACE", "LOGOUT", "SET_THEME"].includes(action.type)) {
+      if (next !== previous && !NON_CONTENT_ACTIONS.has(action.type)) {
         queueMicrotask(() => postBus({ type: "state", state: { ...next, session: null }, senderId: selfId }));
       }
     };
@@ -1886,6 +1952,7 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
     cloudUnsubscribeRef.current = subscribeCloudState(
       (remote) => {
         if (remote) {
+          if (Date.now() - lastLocalMutationAtRef.current < 20000) return;
           applyingCloudRef.current = true;
           const next = mergeCloudState(stateRef.current, remote);
           stateRef.current = next;
@@ -2024,15 +2091,29 @@ export function HubProvider({ children, activeTab, setActiveTab }: {
 
   const saveStateToDatabase = async () => {
     const current = stateRef.current.users.find((student) => student.id === stateRef.current.session?.userId);
-    const isAdmin = current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
-    if (!isAdmin) throw new Error("Administrator access is required to save site data.");
+    const isAdminOrCouncil =
+      current?.role === "admin" ||
+      current?.role === "council" ||
+      isPrimaryAdmin(firebaseAuth.currentUser?.email ?? "");
+    if (!isAdminOrCouncil) throw new Error("Administrator access is required to save site data.");
 
+    const nowTs = Date.now();
+    lastLocalMutationAtRef.current = nowTs;
+    const updatedState: HubState = { ...stateRef.current, lastModified: nowTs };
+    stateRef.current = updatedState;
+    persistBrandingToCache(updatedState);
+    persistStateLocally(updatedState);
+
+    const saved = await saveRemoteState(updatedState, current);
+    const finalTs = Number(saved.version || nowTs);
+    lastLocalMutationAtRef.current = Date.now();
+    stateRef.current = { ...stateRef.current, lastModified: finalTs };
     persistBrandingToCache(stateRef.current);
-    await saveRemoteState(stateRef.current, current);
+    persistStateLocally(stateRef.current);
     cloudStateHashRef.current = mongoStateFingerprint(stateRef.current);
 
     // Optional Firestore best-effort sync if signed in with Google
-    if (firebaseAuth.currentUser && isPrimaryAdmin(firebaseAuth.currentUser.email ?? "")) {
+    if (firebaseAuth.currentUser && (current?.role === "admin" || isPrimaryAdmin(firebaseAuth.currentUser.email ?? ""))) {
       void writeCloudState(stateRef.current).catch(() => {});
       void syncCloudRoster(stateRef.current.users).catch(() => {});
     }

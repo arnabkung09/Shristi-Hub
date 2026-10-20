@@ -1271,9 +1271,17 @@ export default function AdminNotificationsHub() {
                 </div>
 
                 <div className="mt-3 flex items-start gap-3 rounded-xl border border-white/10 bg-black/40 p-3.5 shadow-inner">
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-600/30 text-indigo-400 border border-indigo-500/40">
-                    <Bell className="h-5 w-5" />
-                  </span>
+                  {state.branding.logoUrl ? (
+                    <img
+                      src={state.branding.logoUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-xl border border-white/15 bg-white p-1 object-contain"
+                    />
+                  ) : (
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-600/30 text-indigo-400 border border-indigo-500/40">
+                      <Bell className="h-5 w-5" />
+                    </span>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <strong className="truncate text-xs font-bold text-white">
@@ -1294,7 +1302,7 @@ export default function AdminNotificationsHub() {
                         </span>
                       )}
                       <span className="text-[9px] text-slate-400">
-                        Shristi Student Council Hub
+                        {state.branding.schoolName}
                       </span>
                     </div>
                   </div>

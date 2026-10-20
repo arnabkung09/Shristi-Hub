@@ -287,7 +287,7 @@ function FeedbackPanel() {
               <tbody>
                 {recent.map((r) => (
                   <tr key={r.userId}>
-                    <td><strong className="block text-[11px]">{r.userName}</strong><span className="text-[9px] text-[var(--faint)]">{r.house} House</span></td>
+                    <td><strong className="block text-[11px]">{r.userName}</strong><span className="text-[9px] text-[var(--faint)]">{houseFullName(state, r.house)}</span></td>
                     <td><span className="flex items-center gap-0.5">{[1, 2, 3, 4, 5].map((s) => <Star key={s} className={`h-3 w-3 ${s <= r.value ? "fill-amber-400 text-amber-400" : "text-[var(--faint)]"}`} />)}</span></td>
                     <td className="!whitespace-normal"><span className="block max-w-[220px] text-[10px] leading-relaxed text-[var(--muted)]">{r.comment || "—"}</span></td>
                     <td className="text-[9px] text-[var(--faint)]">{relativeTime(r.timestamp)}</td>

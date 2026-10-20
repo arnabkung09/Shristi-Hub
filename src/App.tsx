@@ -149,38 +149,6 @@ function Toasts() {
   );
 }
 
-function Shell() {
-  const { user, activeTab, state } = useHub();
-  const [legal, setLegal] = useState<"terms" | "credits" | null>(null);
-  const [base, query] = activeTab.split("?");
-  const footerNote = state.branding.footerNote;
-
-  if (!user) return <Login />;
-
-  const canManage = user.role === "admin" || user.role === "council";
-  const q = query ?? "";
-
-  const section = (() => {
-    switch (base) {
-      case "home": return <HomePortal />;
-      case "admin": return <AdminPanel />;
-      case "houses": return <HousePoints openAwardOnMount={q.includes("award=1")} />;
-      case "house": return <HouseHub />;
-      case "council-hub": return <CouncilHub />;
-      case "directory": return <CouncilMembers />;
-      case "events":
-        return <EventsAndNews initialTab={q.includes("compose=notice") || q.includes("tab=notices") ? "news" : "calendar"} />;
-      case "notices": return <EventsAndNews initialTab="news" />;
-      case "tasks": return <TaskManagement openNewOnMount={canManage && q.includes("new=1")} />;
-      case "voice": return <FeedbackAndPolls initialTab={q.includes("polls=1") ? "polls" : "suggestions"} />;
-      case "meetings": return <MeetingsAndFiles />;
-      case "finances": return <Finances openNewOnMount={q.includes("new=1")} />;
-      case "gallery": return <Gallery />;
-      case "broadcast": return canManage ? <AdminNotificationsHub /> : <Restricted />;
-      default: return <Dashboard />;
-    }
-  })();
-
 function TopCouncilAlertsBanner() {
   const { user } = useHub();
   const [permission, setPermission] = useState(() =>
@@ -245,6 +213,38 @@ function TopCouncilAlertsBanner() {
   );
 }
 
+function Shell() {
+  const { user, activeTab, state } = useHub();
+  const [legal, setLegal] = useState<"terms" | "credits" | null>(null);
+  const [base, query] = activeTab.split("?");
+  const footerNote = state.branding.footerNote;
+
+  if (!user) return <Login />;
+
+  const canManage = user.role === "admin" || user.role === "council";
+  const q = query ?? "";
+
+  const section = (() => {
+    switch (base) {
+      case "home": return <HomePortal />;
+      case "admin": return <AdminPanel />;
+      case "houses": return <HousePoints openAwardOnMount={q.includes("award=1")} />;
+      case "house": return <HouseHub />;
+      case "council-hub": return <CouncilHub />;
+      case "directory": return <CouncilMembers />;
+      case "events":
+        return <EventsAndNews initialTab={q.includes("compose=notice") || q.includes("tab=notices") ? "news" : "calendar"} />;
+      case "notices": return <EventsAndNews initialTab="news" />;
+      case "tasks": return <TaskManagement openNewOnMount={canManage && q.includes("new=1")} />;
+      case "voice": return <FeedbackAndPolls initialTab={q.includes("polls=1") ? "polls" : "suggestions"} />;
+      case "meetings": return <MeetingsAndFiles />;
+      case "finances": return <Finances openNewOnMount={q.includes("new=1")} />;
+      case "gallery": return <Gallery />;
+      case "broadcast": return canManage ? <AdminNotificationsHub /> : <Restricted />;
+      default: return <Dashboard />;
+    }
+  })();
+
   return (
     <div className="app-shell">
       <MouseGlow />
@@ -253,7 +253,7 @@ function TopCouncilAlertsBanner() {
       <main className="site-container site-main" id="main-content" tabIndex={-1}>
         {/* Enable Council Alerts Banner: At the top of every page for maximum visibility */}
         <TopCouncilAlertsBanner />
-        <div key={activeTab} className="page-motion">
+        <div key={base} className="page-motion">
           {section}
         </div>
       </main>

@@ -61,7 +61,7 @@ export default async function handler(req, res) {
           throw new Error('Unauthorized: No valid session token or admin secret provided');
         }
 
-        const { id, title, body, data, urgent, actionTab, audience, targetDeviceId, senderName } = req.body || {};
+        const { id, title, body, data, urgent, actionTab, audience, targetDeviceId, senderName, icon } = req.body || {};
 
         const db = await getDb();
         const collection = db.collection('devices');
@@ -127,6 +127,11 @@ export default async function handler(req, res) {
           };
         }
 
+        const safePushIcon =
+          typeof icon === 'string' && icon.trim().length > 0 && icon.trim().length < 2048
+            ? icon.trim()
+            : undefined;
+
         const payload = JSON.stringify({
           notificationId,
           title: title || 'Shristi Alert',
@@ -134,6 +139,7 @@ export default async function handler(req, res) {
           url: data?.url || `/#${actionTab || 'dashboard'}`,
           urgent: Boolean(urgent),
           actionTab: actionTab || 'dashboard',
+          ...(safePushIcon ? { icon: safePushIcon, badge: safePushIcon } : {}),
           ...(data || {}),
         });
 

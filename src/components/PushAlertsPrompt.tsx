@@ -4,7 +4,7 @@ import PushAlertsButton from './PushAlertsButton';
 import { useHub } from '../store/hub';
 
 export default function PushAlertsPrompt() {
-  const { user } = useHub();
+  const { state, user } = useHub();
   const [show, setShow] = useState(false);
   const currentUser = user;
 
@@ -53,11 +53,15 @@ export default function PushAlertsPrompt() {
         </button>
         
         <div className="flex gap-3">
-          <div className="mt-0.5 text-blue-400 bg-blue-500/10 p-2 rounded-lg shrink-0">
-            <BellRing className="h-5 w-5" />
-          </div>
+          {state.branding.logoUrl ? (
+            <img src={state.branding.logoUrl} alt="" className="mt-0.5 h-9 w-9 shrink-0 rounded-lg bg-white p-1 object-contain" />
+          ) : (
+            <div className="mt-0.5 text-blue-400 bg-blue-500/10 p-2 rounded-lg shrink-0">
+              <BellRing className="h-5 w-5" />
+            </div>
+          )}
           <div className="flex-1 pr-4">
-            <h4 className="text-sm font-semibold text-slate-100">Enable Council Alerts</h4>
+            <h4 className="text-sm font-semibold text-slate-100">Enable {state.branding.schoolName} Alerts</h4>
             <p className="text-xs text-slate-400 mt-1">
               Get instantly notified on your lock screen when council tasks or announcements are broadcast.
             </p>

@@ -12,20 +12,15 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Shristi Student Council" />
     <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 28 7v9c0 7-5 12-12 14C9 28 4 23 4 16V7l12-5z' fill='%236366f1'/%3E%3Ctext x='16' y='21' font-size='13' font-family='serif' font-weight='bold' fill='white' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <title>Shristi Student Council | Shristi Academy</title>
+    <title>Student Council | Shristi Academy Board</title>
     <script>
       (function() {
         try {
-          var legacySchools = { "student council": 1, "shristi academy": 1, "shristi hub": 1, "default": 1 };
-          var legacyBoards = { "shristi academy board": 1, "student council": 1, "neb / cbse affiliated · est. 1998": 1 };
           var keys = [
-            "shristi_hub_canonical_branding_v2",
-            "shristi-council-branding-v7",
+            "shristi_hub_canonical_branding_v1",
+            "shristi-council-branding-v6",
             "shristi_hub_canonical_state_v1",
             "shristi-council-school-roster-v5"
           ];
@@ -38,9 +33,14 @@
             var d = JSON.parse(raw);
             var b = d.branding || (d.state && d.state.branding) || (d.schoolName ? d : null);
             if (b && b.schoolName) {
-              var sName = legacySchools[String(b.schoolName).trim().toLowerCase()] ? "Shristi Student Council" : b.schoolName;
-              var bName = legacyBoards[String(b.boardName || "").trim().toLowerCase()] ? "Shristi Academy" : (b.boardName || "Shristi Academy");
-              document.title = sName + " | " + bName;
+              document.title = b.schoolName + " | " + (b.boardName || "Student Council");
+            }
+            var logo = (b && b.logoUrl) || localStorage.getItem("shristi_branding_logo_v1");
+            if (logo && String(logo).trim()) {
+              var link = document.createElement("link");
+              link.rel = "icon";
+              link.href = String(logo).trim();
+              document.head.appendChild(link);
             }
           }
         } catch (e) {}

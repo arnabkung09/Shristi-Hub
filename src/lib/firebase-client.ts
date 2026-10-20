@@ -546,12 +546,20 @@ export async function triggerOSNotification(input: {
       if (savedLogo && savedLogo.trim()) {
         customBrandingLogo = savedLogo.trim();
       } else {
-        const rawHub = window.localStorage.getItem("shristi_hub_v4");
-        if (rawHub) {
-          const parsed = JSON.parse(rawHub);
-          const hubLogo = parsed?.branding?.logoUrl;
+        const keys = [
+          "shristi_hub_canonical_branding_v1",
+          "shristi-council-branding-v6",
+          "shristi_hub_canonical_state_v1",
+          "shristi-council-school-roster-v5",
+        ];
+        for (const k of keys) {
+          const raw = window.localStorage.getItem(k);
+          if (!raw) continue;
+          const parsed = JSON.parse(raw);
+          const hubLogo = parsed?.branding?.logoUrl || parsed?.state?.branding?.logoUrl || parsed?.logoUrl;
           if (typeof hubLogo === "string" && hubLogo.trim()) {
             customBrandingLogo = hubLogo.trim();
+            break;
           }
         }
       }
@@ -826,6 +834,8 @@ export async function sendFirebaseNotification(input: {
       }
     }
 
+    const customIcon = typeof window !== "undefined" ? (window.localStorage.getItem("shristi_branding_logo_v1") || "").trim() : "";
+
     const res = await fetch("/api/send", {
       method: "POST",
       headers: { 
@@ -840,7 +850,8 @@ export async function sendFirebaseNotification(input: {
         actionTab: input.actionTab,
         audience: input.audience,
         senderName: input.senderName,
-        targetDeviceId: input.targetDeviceId
+        targetDeviceId: input.targetDeviceId,
+        ...(customIcon && !customIcon.startsWith("data:") ? { icon: customIcon } : {}),
       }),
     });
     if (res.ok) {
